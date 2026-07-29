@@ -11,7 +11,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const decoded = verifyToken(refreshToken);
+    // Throws on an invalid/expired refresh token — caught below and mapped to 401.
+    verifyToken(refreshToken);
     const session = await prisma.session.findUnique({
       where: { refreshToken },
       include: {
