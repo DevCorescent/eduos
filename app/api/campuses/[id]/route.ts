@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { campusIdParamSchema, updateCampusSchema } from "@/lib/validations/campus";
 import { ok, fail } from "@/types";
 
@@ -21,35 +22,8 @@ const UNIQUE_VIOLATION = "P2002";
 /** Prisma's "record required but not found" code, raised by update/delete. */
 const RECORD_NOT_FOUND = "P2025";
 
-/** Prisma's classic foreign-key constraint failure code. */
-const FOREIGN_KEY_VIOLATION = "P2003";
-
-/**
- * Postgres SQLSTATEs meaning a dependent row prevents the operation:
- * 23001 restrict_violation, 23503 foreign_key_violation.
- */
-const FOREIGN_KEY_SQLSTATES = new Set(["23001", "23503"]);
-
-/**
- * Recognise a delete blocked by a dependent row.
- *
- * Prisma 7's driver adapters do not always raise the classic P2003 here. A
- * campus still referenced by a department surfaces as P2039 wrapping the
- * driver's own error, with the real cause carried at
- * meta.driverAdapterError.cause.code as SQLSTATE 23001. Unique violations are
- * unaffected and still arrive as P2002, so only this case needs the extra
- * unwrapping. Both shapes are accepted so the mapping does not depend on which
- * one the client produces.
- */
-function isForeignKeyViolation(err: Prisma.PrismaClientKnownRequestError): boolean {
-  if (err.code === FOREIGN_KEY_VIOLATION) return true;
-
-  const sqlState = (
-    err.meta as { driverAdapterError?: { cause?: { code?: unknown } } } | undefined
-  )?.driverAdapterError?.cause?.code;
-
-  return typeof sqlState === "string" && FOREIGN_KEY_SQLSTATES.has(sqlState);
-}
+// Foreign-key detection lives in lib/utils/prisma-errors, shared with the other
+// detail routes that map a blocked write onto the existing CONFLICT response.
 
 // Campus holds no BigInt or Decimal column, so the shared serialize() helper is
 // not applied here. The schema is immutable, so that cannot change.

@@ -46,3 +46,42 @@ export const createSchoolSchema = z.object({
 });
 
 export type CreateSchoolInput = z.infer<typeof createSchoolSchema>;
+
+/**
+ * Route param schema for /api/schools/[id].
+ *
+ * School.id is a cuid, but no format assertion is applied: the id is an opaque
+ * key, and asserting a shape would turn an unrecognised-but-well-formed id into
+ * a 400 when 404 is the accurate answer. Only an empty or whitespace-only
+ * segment is rejected outright.
+ */
+export const schoolIdParamSchema = z.object({
+  id: z.string().trim().min(1),
+});
+
+export type SchoolIdParam = z.infer<typeof schoolIdParamSchema>;
+
+/**
+ * Body schema for PATCH /api/schools/[id].
+ *
+ * Derived from createSchoolSchema rather than restated, so the trimming, email
+ * format and field rules stay defined in one place and cannot drift apart.
+ *
+ * tenantId is absent from the create schema, so .partial() cannot introduce it
+ * — a school can never be moved between tenants through this endpoint.
+ *
+ * campusId remains updatable but is only shape-checked here. That the target
+ * campus exists AND belongs to the authenticated tenant cannot be expressed in
+ * Zod and is enforced against the database in the route.
+ *
+ * Every key is optional, but at least one must be present: an empty body is a
+ * client error, not a silent no-op that would still advance updatedAt.
+ *
+ * As elsewhere, omitting a key leaves the column unchanged; there is no way to
+ * clear a nullable column back to null through this endpoint.
+ */
+export const updateSchoolSchema = createSchoolSchema
+  .partial()
+  .refine((data) => Object.keys(data).length > 0);
+
+export type UpdateSchoolInput = z.infer<typeof updateSchoolSchema>;
