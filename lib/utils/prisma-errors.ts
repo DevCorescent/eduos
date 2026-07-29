@@ -16,6 +16,9 @@ import { Prisma } from "@/app/generated/prisma/client";
 /** Prisma's classic foreign-key constraint failure code. */
 const FOREIGN_KEY_VIOLATION = "P2003";
 
+/** Prisma's "record required but not found" code, raised by update/delete. */
+const RECORD_NOT_FOUND = "P2025";
+
 /**
  * Postgres SQLSTATEs meaning a dependent row prevents the operation:
  * 23001 restrict_violation, 23503 foreign_key_violation.
@@ -46,4 +49,18 @@ export function isForeignKeyViolation(err: Prisma.PrismaClientKnownRequestError)
   )?.driverAdapterError?.cause?.code;
 
   return typeof sqlState === "string" && FOREIGN_KEY_SQLSTATES.has(sqlState);
+}
+
+/**
+ * Recognise an update or delete whose target row no longer exists.
+ *
+ * Unlike the foreign-key case, this arrives as the plain P2025 code and needs
+ * no unwrapping — but it is exposed here alongside it so routes classify Prisma
+ * failures through one module rather than each declaring its own code constant.
+ *
+ * INPUT   : an error already narrowed to PrismaClientKnownRequestError.
+ * RETURNS : true when the record required by the operation was not found.
+ */
+export function isRecordNotFound(err: Prisma.PrismaClientKnownRequestError): boolean {
+  return err.code === RECORD_NOT_FOUND;
 }
