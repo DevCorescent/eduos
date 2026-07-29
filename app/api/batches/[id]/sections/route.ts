@@ -215,10 +215,16 @@ export async function POST(
         },
       }),
 
-      prisma.section.findFirst({
+      // The constraint is @@unique([batchId, semesterId, name]), so semesterId
+      // is part of the key: the same section name is legitimate under the same
+      // batch in a different semester. Omitting it here would reject that.
+      prisma.section.findUnique({
         where: {
-          batchId,
-          name: input.name,
+          batchId_semesterId_name: {
+            batchId,
+            semesterId: input.semesterId,
+            name: input.name,
+          },
         },
         select: {
           id: true,
@@ -244,7 +250,7 @@ export async function POST(
 
     if (duplicate) {
       return NextResponse.json(
-        fail("Section name already exists in this batch", "CONFLICT"),
+        fail("Section name already exists for this batch and semester", "CONFLICT"),
         { status: 409 }
       );
     }
@@ -268,7 +274,7 @@ export async function POST(
       // Concurrent duplicate insert.
       if (err.code === UNIQUE_VIOLATION) {
         return NextResponse.json(
-          fail("Section name already exists in this batch", "CONFLICT"),
+          fail("Section name already exists for this batch and semester", "CONFLICT"),
           {
             status: 409,
           }

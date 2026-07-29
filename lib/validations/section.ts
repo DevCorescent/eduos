@@ -58,10 +58,21 @@ export type CreateSectionInput = z.infer<typeof createSectionSchema>;
  *
  * Derived from createSectionSchema so all field rules stay defined once.
  *
+ * batchId is absent from the create schema because creation addresses the batch
+ * through the route, but it is accepted here: the schema models Section.batchId
+ * as an ordinary mutable column, and the route already verifies that a changed
+ * batch belongs to the authenticated tenant before applying it. Adding it here
+ * rather than in createSectionSchema keeps POST unable to target a batch other
+ * than the one in its URL.
+ *
+ * tenantId remains absent throughout, so a section can never be moved between
+ * tenants.
+ *
  * Every field is optional but at least one must be supplied.
  */
 export const updateSectionSchema = createSectionSchema
   .partial()
+  .extend({ batchId: z.string().trim().min(1).optional() })
   .refine((data) => Object.keys(data).length > 0);
 
 export type UpdateSectionInput = z.infer<typeof updateSectionSchema>;
