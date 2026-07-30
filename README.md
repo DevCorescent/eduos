@@ -70,7 +70,7 @@ We build backend-first, module by module. Each phase ships working APIs before m
 
 ---
 
-### Phase 2 — Platform / Super Admin
+### Phase 2 — Platform / Super Admin ✅
 
 Manage tenants from the platform level. Only `SUPER_ADMIN` can access.
 
@@ -86,7 +86,7 @@ Manage tenants from the platform level. Only `SUPER_ADMIN` can access.
 
 ---
 
-### Phase 3 — Institutional Structure
+### Phase 3 — Institutional Structure ✅
 
 Hierarchy: Campus → School → Department → Programme → Specialisation
 
@@ -104,7 +104,7 @@ Hierarchy: Campus → School → Department → Programme → Specialisation
 
 ---
 
-### Phase 4 — Academic Calendar
+### Phase 4 — Academic Calendar ✅
 
 | Method | Route | Description |
 |---|---|---|
@@ -117,7 +117,7 @@ Hierarchy: Campus → School → Department → Programme → Specialisation
 
 ---
 
-### Phase 5 — Users & RBAC
+### Phase 5 — Users & RBAC ✅
 
 | Method | Route | Description |
 |---|---|---|
@@ -129,7 +129,7 @@ Hierarchy: Campus → School → Department → Programme → Specialisation
 
 ---
 
-### Phase 6 — Students
+### Phase 6 — Students ✅
 
 | Method | Route | Description |
 |---|---|---|
@@ -144,7 +144,7 @@ Hierarchy: Campus → School → Department → Programme → Specialisation
 
 ---
 
-### Phase 7 — Faculty & Staff
+### Phase 7 — Faculty & Staff ✅
 
 | Method | Route | Description |
 |---|---|---|
