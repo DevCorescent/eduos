@@ -21,6 +21,7 @@ import {
   studentIdParamSchema,
 } from "@/lib/validations/student";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for a document. Declared once so both handlers answer with
@@ -85,14 +86,30 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsedParams = studentIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     const parsedQuery = listStudentDocumentsQuerySchema.safeParse(
       Object.fromEntries(request.nextUrl.searchParams)
     );
     if (!parsedQuery.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedQuery.error),
+        },
+        { status: 400 }
+      );
     }
 
     const studentId = parsedParams.data.id;
@@ -184,7 +201,15 @@ export async function POST(
 
     const parsedParams = studentIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     // A malformed body is a client error, so it is caught here rather than
@@ -198,7 +223,15 @@ export async function POST(
 
     const parsedBody = createStudentDocumentSchema.safeParse(body);
     if (!parsedBody.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
+      );
     }
 
     const studentId = parsedParams.data.id;

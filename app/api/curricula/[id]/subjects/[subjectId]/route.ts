@@ -17,6 +17,7 @@ import {
   curriculumSubjectIdParamSchema,
 } from "@/lib/validations/curriculum";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 // DELETE
 // ACCESS     : UNIVERSITY_ADMIN
@@ -87,7 +88,18 @@ export async function DELETE(
     });
 
     if (!parsedCurriculumParam.success || !parsedSubjectParam.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: [
+            ...(parsedCurriculumParam.success ? [] : validationDetails(parsedCurriculumParam.error)),
+            ...(parsedSubjectParam.success ? [] : validationDetails(parsedSubjectParam.error)),
+          ],
+        },
+        { status: 400 }
+      );
     }
 
     const curriculumId = parsedCurriculumParam.data.id;

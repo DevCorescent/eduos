@@ -18,6 +18,7 @@ import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { certificateIdParamSchema } from "@/lib/validations/certificate";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 const CERTIFICATE_SELECT = {
   id: true,
@@ -114,7 +115,15 @@ export async function POST(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = certificateIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const certificateId = parsed.data.id;

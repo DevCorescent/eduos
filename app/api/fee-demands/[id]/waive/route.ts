@@ -20,6 +20,7 @@ import {
   waiveFeeDemandSchema,
 } from "@/lib/validations/fee-demand";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for a fee demand.
@@ -151,7 +152,15 @@ export async function PATCH(
     // Route params resolve asynchronously in this Next.js version.
     const parsedParams = feeDemandIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     // A malformed body is a client error, so it is caught here rather than
@@ -165,7 +174,15 @@ export async function PATCH(
 
     const parsedBody = waiveFeeDemandSchema.safeParse(body);
     if (!parsedBody.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
+      );
     }
 
     const feeDemandId = parsedParams.data.id;

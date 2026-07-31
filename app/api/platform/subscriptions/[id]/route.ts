@@ -14,6 +14,7 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { serialize } from "@/lib/utils/serialize";
 import { subscriptionIdParamSchema, updateSubscriptionSchema } from "@/lib/validations/platform";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Prisma's "record required but not found" code, raised by update/delete. */
 const RECORD_NOT_FOUND = "P2025";
@@ -49,7 +50,15 @@ export async function PATCH(
     // Route params resolve asynchronously in this Next.js version.
     const parsedParams = subscriptionIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     // A malformed body is a client error, so it is caught here rather than
@@ -63,7 +72,15 @@ export async function PATCH(
 
     const parsedBody = updateSubscriptionSchema.safeParse(body);
     if (!parsedBody.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
+      );
     }
 
     const subscriptionId = parsedParams.data.id;

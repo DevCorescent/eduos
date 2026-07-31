@@ -20,6 +20,7 @@ import {
   curriculumIdParamSchema,
 } from "@/lib/validations/curriculum";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -133,7 +134,15 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = curriculumIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const curriculumId = parsed.data.id;
@@ -232,7 +241,15 @@ export async function POST(
 
     const parsedParams = curriculumIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     const curriculumId = parsedParams.data.id;
@@ -260,7 +277,15 @@ export async function POST(
 
     const parsedBody = createCurriculumSubjectSchema.safeParse(body);
     if (!parsedBody.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
+      );
     }
 
     const input = parsedBody.data;

@@ -1,11 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { verifyToken, signAccessToken } from "@/lib/auth/jwt";
-import { ACCESS_COOKIE, REFRESH_COOKIE, cookieOptions } from "@/lib/auth/session";
+import { ACCESS_COOKIE, cookieOptions, getRefreshTokenFromRequest } from "@/lib/auth/session";
 import { ok, fail } from "@/types";
 
 export async function POST(request: NextRequest) {
-  const refreshToken = request.cookies.get(REFRESH_COOKIE)?.value;
+  // Three transports, in order of explicitness: request body, x-refresh-token
+  // header, then the edu_refresh cookie. Previously only the cookie was read, so
+  // an API client with no cookie jar could never refresh and every session died
+  // at the access token's expiry.
+  let bodyToken: string | undefined;
+  try {
+    const body = (await request.json()) as { refreshToken?: unknown };
+    if (typeof body?.refreshToken === "string" && body.refreshToken.trim().length > 0) {
+      bodyToken = body.refreshToken.trim();
+    }
+  } catch {
+    // No body, or an unparseable one. Both are fine — the token may arrive by
+    // header or cookie instead, so this is not an error on its own.
+  }
+
+  const refreshToken = bodyToken ?? (await getRefreshTokenFromRequest());
   if (!refreshToken) {
     return NextResponse.json(fail("No refresh token", "UNAUTHORIZED"), { status: 401 });
   }
@@ -43,7 +58,11 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    const response = NextResponse.json(ok({ accessToken: newAccessToken }));
+    // The refresh token is echoed back so a client that stores tokens in
+    // variables can keep both current in one step, matching the login response.
+    const response = NextResponse.json(
+      ok({ accessToken: newAccessToken, refreshToken, tokenType: "Bearer", expiresIn: 7 * 24 * 60 * 60 })
+    );
     response.cookies.set(ACCESS_COOKIE, newAccessToken, cookieOptions(7 * 24 * 60 * 60));
     return response;
   } catch {

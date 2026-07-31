@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { certificateNumberParamSchema } from "@/lib/validations/certificate";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for a certificate. Identical to CERTIFICATE_SELECT in
@@ -63,7 +64,15 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = certificateNumberParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     // findUnique rather than findFirst: certificateNo carries a @unique

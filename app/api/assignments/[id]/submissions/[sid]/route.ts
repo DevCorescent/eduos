@@ -23,6 +23,7 @@ import {
   submissionIdParamSchema,
 } from "@/lib/validations/submission";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for a submission.
@@ -331,7 +332,15 @@ export async function PATCH(
 
     const parsedBody = gradeSubmissionSchema.safeParse(body);
     if (!parsedBody.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
+      );
     }
 
     const { assignmentId, submissionId } = parsed;

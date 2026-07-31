@@ -19,6 +19,7 @@ import {
   listSemestersQuerySchema,
 } from "@/lib/validations/semester";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -55,14 +56,30 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsedParams = academicYearIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     const parsedQuery = listSemestersQuerySchema.safeParse(
       Object.fromEntries(request.nextUrl.searchParams)
     );
     if (!parsedQuery.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedQuery.error),
+        },
+        { status: 400 }
+      );
     }
 
     const academicYearId = parsedParams.data.id;
@@ -137,7 +154,15 @@ export async function POST(
 
     const parsedParams = academicYearIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     // A malformed body is a client error, so it is caught here rather than
@@ -151,7 +176,15 @@ export async function POST(
 
     const parsedBody = createSemesterSchema.safeParse(body);
     if (!parsedBody.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
+      );
     }
 
     const academicYearId = parsedParams.data.id;

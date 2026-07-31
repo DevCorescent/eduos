@@ -19,6 +19,7 @@ import { requireTenant } from "@/lib/middleware/requireTenant";
 import { paginationQuerySchema } from "@/lib/validations/pagination";
 import { createCertificateTemplateSchema } from "@/lib/validations/certificate-template";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -134,7 +135,15 @@ export async function GET(request: NextRequest) {
       Object.fromEntries(request.nextUrl.searchParams)
     );
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const { page, limit } = parsed.data;
@@ -267,7 +276,15 @@ export async function POST(request: NextRequest) {
 
     const parsed = createCertificateTemplateSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const { variables, ...scalars } = parsed.data;

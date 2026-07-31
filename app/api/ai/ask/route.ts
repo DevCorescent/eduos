@@ -19,6 +19,7 @@ import { requireTenant } from "@/lib/middleware/requireTenant";
 import { groqCompletion } from "@/lib/services/groq";
 import { askAiSchema } from "@/lib/validations/ai";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 // The provider endpoint, the model and the request deadline used to be declared
 // here. They now live in lib/services/groq.ts, which holds the identical values
@@ -115,7 +116,15 @@ export async function POST(request: NextRequest) {
 
     const parsed = askAiSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     // One call, through the shared service. Not retried, not queued. The prompt
