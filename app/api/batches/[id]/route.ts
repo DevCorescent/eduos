@@ -18,6 +18,7 @@ import {
   updateBatchSchema,
 } from "@/lib/validations/batch";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -50,7 +51,12 @@ export async function GET(
     const parsed = batchIdParamSchema.safeParse(await params);
     if (!parsed.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
         { status: 400 }
       );
     }
@@ -110,7 +116,12 @@ export async function PATCH(
 
     if (!parsedParams.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
         { status: 400 }
       );
     }
@@ -130,7 +141,12 @@ export async function PATCH(
 
     if (!parsedBody.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
         { status: 400 }
       );
     }
@@ -307,7 +323,12 @@ export async function DELETE(
 
     if (!parsed.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
         { status: 400 }
       );
     }

@@ -14,10 +14,9 @@
 //          cookie → JWT → live-session chain.
 // ============================================================================
 
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { getSession, ACCESS_COOKIE } from "@/lib/auth/session";
+import { getSession, getAccessToken } from "@/lib/auth/session";
 import type { JwtPayload } from "@/lib/auth/jwt";
 import { fail, type ApiResponse } from "@/types";
 
@@ -74,12 +73,14 @@ export async function requireAuth(): Promise<AuthGuardResult> {
     return { authenticated: false, response: unauthorized() };
   }
 
-  // getSession() has already read and verified this cookie, but it returns the
-  // decoded payload rather than the token itself. Re-reading the raw value is
-  // the only way to match the persisted Session row without altering
-  // lib/auth/session.ts.
-  const cookieStore = await cookies();
-  const token = cookieStore.get(ACCESS_COOKIE)?.value;
+  // getSession() has already read and verified this token, but it returns the
+  // decoded payload rather than the raw value. getAccessToken() re-reads that
+  // raw value through the SAME transport resolution — Authorization: Bearer
+  // first, then the edu_access cookie — so a Bearer-authenticated caller matches
+  // its persisted Session row. Reading the cookie directly here (as this did
+  // before) made every Bearer request fail the lookup and return 401 even with a
+  // perfectly valid token.
+  const token = await getAccessToken();
 
   if (!token) {
     return { authenticated: false, response: unauthorized() };

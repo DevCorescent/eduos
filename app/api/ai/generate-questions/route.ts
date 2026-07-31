@@ -19,6 +19,7 @@ import { requireTenant } from "@/lib/middleware/requireTenant";
 import { groqCompletion } from "@/lib/services/groq";
 import { generateQuestionsSchema } from "@/lib/validations/ai";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Built on provider failure — the provider's own response is never forwarded. */
 function providerError(): NextResponse {
@@ -196,7 +197,15 @@ export async function POST(request: NextRequest) {
 
     const parsed = generateQuestionsSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const { content, count } = parsed.data;

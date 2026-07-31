@@ -16,6 +16,7 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { curriculumIdParamSchema } from "@/lib/validations/curriculum";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Course columns exposed inside a curriculum subject.
@@ -165,7 +166,15 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = curriculumIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     // findFirst rather than findUnique: the tenant filter is part of the lookup,

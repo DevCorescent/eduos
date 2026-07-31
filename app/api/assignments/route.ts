@@ -19,6 +19,7 @@ import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { paginationQuerySchema } from "@/lib/validations/pagination";
 import { createAssignmentSchema } from "@/lib/validations/assignment";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for an assignment. Declared once so both handlers answer with
@@ -137,7 +138,15 @@ export async function GET(request: NextRequest) {
       Object.fromEntries(request.nextUrl.searchParams)
     );
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const { page, limit } = parsed.data;
@@ -244,7 +253,15 @@ export async function POST(request: NextRequest) {
 
     const parsed = createAssignmentSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const { attachments, ...scalars } = parsed.data;

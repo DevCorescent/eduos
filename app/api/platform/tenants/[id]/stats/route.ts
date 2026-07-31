@@ -13,6 +13,7 @@ import { EmployeeStatus, StudentStatus } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { tenantIdParamSchema } from "@/lib/validations/platform";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 // GET
 // ACCESS     : SUPER_ADMIN
@@ -39,7 +40,15 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = tenantIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const tenantId = parsed.data.id;

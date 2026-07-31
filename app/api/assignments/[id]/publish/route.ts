@@ -18,6 +18,7 @@ import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { assignmentIdParamSchema } from "@/lib/validations/assignment";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for an assignment.
@@ -160,7 +161,15 @@ export async function POST(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = assignmentIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const assignmentId = parsed.data.id;

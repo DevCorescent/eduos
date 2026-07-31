@@ -18,6 +18,7 @@ import { isForeignKeyViolation, isRecordNotFound } from "@/lib/utils/prisma-erro
 import { roleIdParamSchema } from "@/lib/validations/role";
 import { userIdParamSchema } from "@/lib/validations/user";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 // UserRole holds no BigInt, Decimal or Json column that is returned here — the
 // response carries no record at all — so the shared serialize() helper does not
@@ -72,7 +73,18 @@ export async function DELETE(
     const parsedRoleParam = roleIdParamSchema.safeParse({ id: rawParams.roleId });
 
     if (!parsedUserParam.success || !parsedRoleParam.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: [
+            ...(parsedUserParam.success ? [] : validationDetails(parsedUserParam.error)),
+            ...(parsedRoleParam.success ? [] : validationDetails(parsedRoleParam.error)),
+          ],
+        },
+        { status: 400 }
+      );
     }
 
     const userId = parsedUserParam.data.id;

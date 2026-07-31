@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { getSession } from "@/lib/auth/session";
+import { requireAuth } from "@/lib/middleware/requireAuth";
 import { ok, fail } from "@/types";
 
 export async function GET() {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json(fail("Unauthorized", "UNAUTHORIZED"), { status: 401 });
-  }
+  // requireAuth rather than a bare getSession(). getSession() only verifies the
+  // JWT signature and expiry, so this route kept answering 200 for a token that
+  // /api/auth/logout had already deleted — logout did not revoke, and a leaked
+  // token stayed usable here for its full 7-day lifetime. requireAuth also
+  // matches the live Session row and re-checks User.isActive, which is what
+  // every other protected route in the project already does via requireRole and
+  // requireTenant.
+  const auth = await requireAuth();
+  if (!auth.authenticated) return auth.response;
+
+  const { session } = auth;
 
   const user = await prisma.user.findUnique({
     where: { id: session.sub },

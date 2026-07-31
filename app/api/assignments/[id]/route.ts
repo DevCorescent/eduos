@@ -21,6 +21,7 @@ import {
   updateAssignmentSchema,
 } from "@/lib/validations/assignment";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for an assignment.
@@ -157,7 +158,15 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = assignmentIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     // findFirst rather than findUnique: the tenant filter — and, for a student,
@@ -255,7 +264,15 @@ export async function PATCH(
 
     const parsedParams = assignmentIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
     }
 
     // A malformed body is a client error, so it is caught here rather than
@@ -286,7 +303,15 @@ export async function PATCH(
 
     const parsedBody = updateAssignmentSchema.safeParse(body);
     if (!parsedBody.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
+      );
     }
 
     const assignmentId = parsedParams.data.id;

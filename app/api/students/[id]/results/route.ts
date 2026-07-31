@@ -17,6 +17,7 @@ import { requireTenant } from "@/lib/middleware/requireTenant";
 import { paginationQuerySchema } from "@/lib/validations/pagination";
 import { studentIdParamSchema } from "@/lib/validations/student";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for an examination result.
@@ -178,14 +179,30 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsedParam = studentIdParamSchema.safeParse(await params);
     if (!parsedParam.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParam.error),
+        },
+        { status: 400 }
+      );
     }
 
     const parsedQuery = paginationQuerySchema.safeParse(
       Object.fromEntries(request.nextUrl.searchParams)
     );
     if (!parsedQuery.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedQuery.error),
+        },
+        { status: 400 }
+      );
     }
 
     const studentId = parsedParam.data.id;

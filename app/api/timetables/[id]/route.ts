@@ -17,6 +17,7 @@ import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { timetableIdParamSchema } from "@/lib/validations/timetable";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /**
  * Columns returned for a timetable entry.
@@ -109,7 +110,15 @@ export async function GET(
     // Route params resolve asynchronously in this Next.js version.
     const parsed = timetableIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     // findFirst rather than findUnique: the tenant filter is part of the lookup,
@@ -183,7 +192,15 @@ export async function DELETE(
 
     const parsed = timetableIdParamSchema.safeParse(await params);
     if (!parsed.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
     }
 
     const timetableId = parsed.data.id;

@@ -15,6 +15,7 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { documentIdParamSchema, studentIdParamSchema } from "@/lib/validations/student";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 // StudentDocument is referenced by nothing in the schema, so no dependent row
 // can block this delete and no cascade follows it. It also carries no BigInt,
@@ -77,7 +78,18 @@ export async function DELETE(
     const parsedDocumentParam = documentIdParamSchema.safeParse({ docId: rawParams.docId });
 
     if (!parsedStudentParam.success || !parsedDocumentParam.success) {
-      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: [
+            ...(parsedStudentParam.success ? [] : validationDetails(parsedStudentParam.error)),
+            ...(parsedDocumentParam.success ? [] : validationDetails(parsedDocumentParam.error)),
+          ],
+        },
+        { status: 400 }
+      );
     }
 
     const studentId = parsedStudentParam.data.id;

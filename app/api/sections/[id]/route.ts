@@ -21,6 +21,7 @@ import {
   updateSectionSchema,
 } from "@/lib/validations/section";
 import { ok, fail } from "@/types";
+import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Prisma unique constraint violation. */
 const UNIQUE_VIOLATION = "P2002";
@@ -54,10 +55,13 @@ export async function GET(
 
     if (!parsedParams.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
         {
-          status: 400,
-        }
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
       );
     }
 
@@ -120,10 +124,13 @@ export async function PATCH(
 
     if (!parsedParams.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
         {
-          status: 400,
-        }
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
       );
     }
 
@@ -144,10 +151,13 @@ export async function PATCH(
 
     if (!parsedBody.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
         {
-          status: 400,
-        }
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedBody.error),
+        },
+        { status: 400 }
       );
     }
 
@@ -336,10 +346,13 @@ export async function DELETE(
 
     if (!parsedParams.success) {
       return NextResponse.json(
-        fail("Invalid input", "VALIDATION_ERROR"),
         {
-          status: 400,
-        }
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
       );
     }
 
