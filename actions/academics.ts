@@ -95,8 +95,11 @@ export async function addCurriculumSubjectAction(
   return withConflictField(await addCurriculumSubject(curriculumId, input), "courseId");
 }
 
-export async function removeCurriculumSubjectAction(id: string): Promise<ActionResult> {
-  return removeCurriculumSubject(id);
+export async function removeCurriculumSubjectAction(
+  curriculumId: string,
+  subjectId: string
+): Promise<ActionResult> {
+  return removeCurriculumSubject(curriculumId, subjectId);
 }
 
 // --- Attendance -------------------------------------------------------------

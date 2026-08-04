@@ -109,6 +109,7 @@ export default async function AssignmentGradingPage({ params }: { params: Params
           />
         ) : (
           <GradingList
+            assignmentId={id}
             submissions={submissions.map((submission) => ({
               id: submission.id,
               studentName: submission.studentName,

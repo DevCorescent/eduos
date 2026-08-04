@@ -11,6 +11,7 @@ import { gradeSubmission } from "@/services/assignments";
 import type { ActionResult } from "./setup";
 
 export async function gradeSubmissionAction(
+  assignmentId: string,
   submissionId: string,
   marks: number,
   feedback?: string
@@ -22,7 +23,7 @@ export async function gradeSubmissionAction(
     return { success: false, error: "Enter a number.", field: "marks" };
   }
 
-  const result = await gradeSubmission(submissionId, marks, feedback);
+  const result = await gradeSubmission(assignmentId, submissionId, marks, feedback);
 
   // The out-of-range message belongs on the marks field, not in a banner — it
   // names the exact bound the lecturer has to stay within.

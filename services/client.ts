@@ -56,6 +56,52 @@ function buildQuery(params?: ListParams): string {
   return query ? `?${query}` : "";
 }
 
+/** True when this module is executing on the server (RSC, Server Action, route). */
+const isServer = typeof window === "undefined";
+
+/**
+ * Per-request context for a server-side fetch.
+ *
+ * A Server Component fetch is a brand-new outbound request: it has no cookie
+ * jar and no notion of the page's own origin, so `credentials: "include"`
+ * (below) is a no-op there. Two things must therefore be carried across by hand:
+ *
+ *   cookie — the httpOnly `edu_access` session. Without it every server-rendered
+ *            page received 401 Unauthorized from the API.
+ *   host   — the tenant subdomain. The backend resolves the tenant from the Host
+ *            header, and NEXT_PUBLIC_APP_URL points at the ROOT domain
+ *            (localhost:3000), which resolves to no tenant at all — so even a
+ *            correctly authenticated call returned 404 Tenant not found.
+ *
+ * Returns nulls in the browser, where the platform supplies both automatically.
+ */
+async function serverRequestContext(): Promise<{ cookie: string | null; origin: string | null }> {
+  if (!isServer) return { cookie: null, origin: null };
+
+  try {
+    // Imported lazily and only on the server: `next/headers` is not available
+    // in a client bundle, and a static import would break client components
+    // that pull in a service module.
+    const { headers, cookies } = await import("next/headers");
+    const [headerList, cookieStore] = await Promise.all([headers(), cookies()]);
+
+    const host = headerList.get("host");
+    const proto = headerList.get("x-forwarded-proto") ?? "http";
+    const cookie = cookieStore.getAll().map((c) => `${c.name}=${c.value}`).join("; ");
+
+    return {
+      cookie: cookie.length > 0 ? cookie : null,
+      // Reuse the request's own host so the tenant subdomain is preserved.
+      origin: host ? `${proto}://${host}` : null,
+    };
+  } catch {
+    // Outside a request scope (build-time prerender, a unit test). Fall back to
+    // the configured base URL and an unauthenticated call; the route will answer
+    // 401/404 and the page renders its error state rather than crashing.
+    return { cookie: null, origin: null };
+  }
+}
+
 /** Map a transport/HTTP failure onto the same code vocabulary the routes use. */
 function codeForStatus(status: number): ApiErrorCode {
   switch (status) {
@@ -93,14 +139,23 @@ export async function apiRequest<T>(
   const { method = "GET", body, params, cache = "no-store", tags } = options;
 
   try {
-    const response = await fetch(`${API_BASE_URL}${path}${buildQuery(params)}`, {
+    // On the server, carry the caller's session and tenant host across manually.
+    // In the browser both are supplied by the platform and this resolves to nulls.
+    const { cookie, origin } = await serverRequestContext();
+    const base = origin ?? API_BASE_URL;
+
+    const headers: Record<string, string> = {};
+    if (body) headers["Content-Type"] = "application/json";
+    if (cookie) headers.cookie = cookie;
+
+    const response = await fetch(`${base}${path}${buildQuery(params)}`, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: Object.keys(headers).length > 0 ? headers : undefined,
       body: body === undefined ? undefined : JSON.stringify(body),
       cache,
       next: tags ? { tags } : undefined,
       // Sends the httpOnly session cookie on client-side calls. Server-side
-      // fetches are unaffected by this flag.
+      // fetches ignore this flag — serverRequestContext() covers that case.
       credentials: "include",
     });
 

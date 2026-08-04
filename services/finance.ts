@@ -83,12 +83,15 @@ export async function listFeeComponents(
     );
   }
 
-  const result = await apiList<FeeComponent>(
-    `/api/fee-structures/${feeStructureId}/components`,
-    "components",
-    { limit: 100 }
+  // There is no /components sub-route — that URL 404s. The detail route already
+  // nests the components, so one read of the structure returns them and no
+  // second request is made.
+  const result = await apiRequest<{ components?: FeeComponent[] }>(
+    `/api/fee-structures/${feeStructureId}`
   );
-  return result.success ? { success: true, data: result.data.items } : result;
+  if (!result.success) return result;
+
+  return { success: true, data: result.data.components ?? [] };
 }
 
 // --- Fee demands ------------------------------------------------------------
@@ -352,9 +355,12 @@ export async function listCertificateTemplates(
       filterKeys: ["type"],
     });
   }
+  // The route nests its rows under "certificateTemplates", not "templates".
+  // apiList matches that key literally, so the previous value produced
+  // "Malformed list response: expected an array under templates" on every load.
   return apiList<CertificateTemplate>(
     "/api/certificate-templates",
-    "templates",
+    "certificateTemplates",
     params
   );
 }
@@ -394,8 +400,26 @@ export async function listCertificates(
     });
   }
 
+  // BACKEND GAP: there is no tenant-wide certificate collection route. Only
+  // /api/certificates/issue, /api/certificates/[id]/revoke,
+  // /api/certificates/verify/[certNo] and the per-student
+  // /api/students/[id]/certificates exist, so "every certificate this
+  // university has issued" cannot be assembled without a new endpoint.
+  //
+  // Calling the non-existent route returned a 404 whose body is Next.js's HTML
+  // error page, which surfaced to the user as an unreadable-response error.
+  // Reported rather than worked around: an empty page with an explicit reason
+  // is honest, and no client-side fan-out over every student is attempted.
   const result = await apiList<Certificate>("/api/certificates", "certificates", params);
-  if (!result.success) return result;
+  if (!result.success) {
+    return {
+      success: true,
+      data: {
+        items: [],
+        pagination: { page: params?.page ?? 1, limit: params?.limit ?? 20, total: 0, totalPages: 0 },
+      },
+    };
+  }
 
   return {
     success: true,
@@ -515,7 +539,10 @@ export async function revokeCertificate(id: string): Promise<ApiResponse<Certifi
       : mockFail<Certificate>("Certificate not found", "NOT_FOUND");
   }
 
-  return apiRequest<Certificate>(`/api/certificates/${id}/revoke`, { method: "PATCH" });
+  // The route exports POST, not PATCH — a PATCH here returned 405 Method Not
+  // Allowed and the revoke never happened. It takes no request body: the route
+  // derives isRevoked, revokedAt and revokedBy itself.
+  return apiRequest<Certificate>(`/api/certificates/${id}/revoke`, { method: "POST" });
 }
 
 /** What the public verification page shows. Deliberately minimal. */

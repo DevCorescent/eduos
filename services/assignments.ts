@@ -211,6 +211,7 @@ export async function listSubmissions(
  * downstream average would be wrong with nothing to show why.
  */
 export async function gradeSubmission(
+  assignmentId: string,
   submissionId: string,
   marks: number,
   feedback?: string
@@ -247,10 +248,19 @@ export async function gradeSubmission(
       : mockFail<AssignmentSubmission>("Submission not found", "NOT_FOUND");
   }
 
-  return apiRequest<AssignmentSubmission>(`/api/submissions/${submissionId}`, {
-    method: "PATCH",
-    body: { marks, feedback },
-  });
+  // A submission is addressed under its parent assignment — there is no
+  // top-level /api/submissions route, so the previous URL 404'd and no mark was
+  // ever saved. The route validates marks against the assignment's own maxMarks,
+  // which is why the parent id is part of the path rather than a lookup.
+  return apiRequest<AssignmentSubmission>(
+    `/api/assignments/${assignmentId}/submissions/${submissionId}`,
+    {
+      method: "PATCH",
+      // feedback is optional in the schema and rejected when empty, so an
+      // untouched textarea must be omitted rather than sent as "".
+      body: feedback && feedback.trim().length > 0 ? { marks, feedback } : { marks },
+    }
+  );
 }
 
 export async function getAssignment(id: string): Promise<ApiResponse<AssignmentRow>> {

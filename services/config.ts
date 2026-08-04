@@ -21,7 +21,7 @@
  * rendering as well as on the server, and Next.js only inlines prefixed vars
  * into the client bundle.
  */
-export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS !== "false";
+export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS !== "true";
 
 /**
  * Absolute origin for server-side fetches.

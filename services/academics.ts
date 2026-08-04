@@ -180,13 +180,21 @@ export async function addCurriculumSubject(
   });
 }
 
-export async function removeCurriculumSubject(id: string): Promise<ApiResponse<null>> {
+export async function removeCurriculumSubject(
+  curriculumId: string,
+  subjectId: string
+): Promise<ApiResponse<null>> {
   if (USE_MOCKS) {
-    return curriculumSubjectStore.remove(id)
+    return curriculumSubjectStore.remove(subjectId)
       ? mockOk(null, "Subject removed")
       : mockFail<null>("Subject not found", "NOT_FOUND");
   }
-  return apiRequest<null>(`/api/curriculum-subjects/${id}`, { method: "DELETE" });
+  // A curriculum subject is addressed under its parent curriculum — there is no
+  // top-level /api/curriculum-subjects route, so the previous URL 404'd.
+  return apiRequest<null>(
+    `/api/curricula/${curriculumId}/subjects/${subjectId}`,
+    { method: "DELETE" }
+  );
 }
 
 // --- Timetable --------------------------------------------------------------

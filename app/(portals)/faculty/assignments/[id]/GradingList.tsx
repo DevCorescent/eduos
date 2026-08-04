@@ -26,6 +26,9 @@ interface SubmissionItem {
 }
 
 export interface GradingListProps {
+  /** Parent assignment. A submission is addressed under it, and the route
+   *  validates marks against that assignment's maxMarks. */
+  assignmentId: string;
   submissions: SubmissionItem[];
   maxMarks: number;
 }
@@ -42,7 +45,7 @@ export interface GradingListProps {
  * `pendingId` tracks the specific row being saved so only that row shows a
  * pending state; a single shared flag would freeze the whole list for one save.
  */
-export function GradingList({ submissions, maxMarks }: GradingListProps) {
+export function GradingList({ assignmentId, submissions, maxMarks }: GradingListProps) {
   const router = useRouter();
   const { toast } = useToast();
 
@@ -81,7 +84,7 @@ export function GradingList({ submissions, maxMarks }: GradingListProps) {
     }
 
     setPendingId(submission.id);
-    const result = await gradeSubmissionAction(submission.id, marks, draft.feedback);
+    const result = await gradeSubmissionAction(assignmentId, submission.id, marks, draft.feedback);
     setPendingId(null);
 
     if (!result.success) {
