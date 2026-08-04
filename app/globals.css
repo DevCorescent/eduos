@@ -1,26 +1,344 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   THEME — "Premium White 2026"
+   ============================================================================
+   The single source of colour, shadow, radius and motion for the whole product.
+   Nothing outside this file declares a colour: every component styles itself
+   with the semantic utilities generated below (bg-surface, text-heading,
+   border-border, shadow-soft …), so changing a value here changes it
+   everywhere.
+
+   Light only, by design. There is no prefers-color-scheme block and no dark
+   palette — the surface is always white or off-white. Re-introducing dark mode
+   means adding one @media block here and nothing else.
+
+   Two layers, deliberately:
+     1. :root  — the raw brand tokens, named as the design system names them.
+     2. @theme — the mapping that turns each one into a Tailwind utility.
+   Keeping them apart means a brand tweak is a one-line edit in layer 1, with
+   no utility names changing.
+   ========================================================================= */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* --- Backgrounds ------------------------------------------------------ */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f9fafc;
+  --bg-secondary-end: #f1f4f9;
+  /* Panels sit on this rather than solid white, so the blur behind them has
+     something to pick up. Fully opaque glass is just a white box. */
+  --bg-glass: rgba(255, 255, 255, 0.7);
+  --border-color: #e8eaf0;
+
+  /* --- Primary brand ---------------------------------------------------- */
+  --color-primary-base: #4f46e5;
+  --color-primary-hover-base: #4338ca;
+  --color-primary-active-base: #3730a3;
+  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  /* Tinted background for a selected nav item or a subtle primary chip. */
+  --color-primary-tint: #eef2ff;
+  --color-primary-tint-fg: #4338ca;
+
+  /* --- Accent ----------------------------------------------------------- */
+  --color-accent-base: #06b6d4;
+  --gradient-accent: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+  --color-cta: #f59e0b;
+
+  /* --- Text ------------------------------------------------------------- */
+  /* Never pure black — #0F172A reads as black at body sizes but is softer
+     against a white background at large heading sizes. */
+  --text-heading: #0f172a;
+  --text-body: #334155;
+  --text-muted: #94a3b8;
+
+  /* --- Status ----------------------------------------------------------- */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  /* Tints for banners and badges: the solid status colour is for icons,
+     borders and fills, never for a large background behind body text. */
+  --color-success-tint: #ecfdf5;
+  --color-success-tint-fg: #047857;
+  --color-warning-tint: #fffbeb;
+  --color-warning-tint-fg: #b45309;
+  --color-error-tint: #fef2f2;
+  --color-error-tint-fg: #b91c1c;
+  --color-info-tint: #eff6ff;
+  --color-info-tint-fg: #1d4ed8;
+
+  /* --- Shadows ---------------------------------------------------------- */
+  /* Tinted with the brand indigo rather than neutral black, which is what
+     stops stacked cards looking grey and dirty. */
+  --shadow-soft: 0 4px 20px rgba(79, 70, 229, 0.08);
+  --shadow-hover: 0 8px 30px rgba(79, 70, 229, 0.15);
+  --shadow-glow: 0 0 0 1px rgba(79, 70, 229, 0.1), 0 8px 30px rgba(79, 70, 229, 0.25);
+
+  /* --- Hero ------------------------------------------------------------- */
+  --gradient-hero: linear-gradient(135deg, #eef2ff 0%, #f0f9ff 50%, #ffffff 100%);
+  --gradient-surface: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-secondary-end) 100%);
+
+  /* --- Motion ----------------------------------------------------------- */
+  --transition-base: all 0.2s ease;
+
+  /* --- Compatibility aliases -------------------------------------------- */
+  /* The component library was built against these semantic names. They are
+     kept as aliases rather than renamed across ~60 files: the indirection
+     costs nothing at runtime and means the design system and the brand
+     vocabulary can each use their own terms. */
+  --background: var(--bg-primary);
+  --foreground: var(--text-body);
+  --heading: var(--text-heading);
+
+  --surface: var(--bg-primary);
+  --surface-hover: var(--bg-secondary);
+  --surface-active: var(--bg-secondary-end);
+  --border: var(--border-color);
+
+  --muted: var(--bg-secondary);
+  --muted-foreground: var(--text-muted);
+
+  --primary: var(--color-primary-base);
+  --primary-hover: var(--color-primary-hover-base);
+  --primary-active: var(--color-primary-active-base);
+  --primary-foreground: #ffffff;
+  --primary-bg: var(--color-primary-tint);
+  --primary-bg-foreground: var(--color-primary-tint-fg);
+
+  --secondary: var(--bg-primary);
+  --secondary-foreground: var(--text-body);
+  --accent: var(--bg-secondary);
+  --accent-foreground: var(--text-heading);
+
+  --danger: var(--color-error);
+  --danger-hover: #dc2626;
+  --danger-active: #b91c1c;
+  --danger-foreground: #ffffff;
+  --danger-bg: var(--color-error-tint);
+  --danger-bg-foreground: var(--color-error-tint-fg);
+
+  --success: var(--color-success);
+  --success-hover: #059669;
+  --success-foreground: #ffffff;
+  --success-bg: var(--color-success-tint);
+  --success-bg-foreground: var(--color-success-tint-fg);
+
+  --warning: var(--color-warning);
+  --warning-hover: #d97706;
+  --warning-foreground: #ffffff;
+  --warning-bg: var(--color-warning-tint);
+  --warning-bg-foreground: var(--color-warning-tint-fg);
+
+  --info: var(--color-info);
+  --info-hover: #2563eb;
+  --info-foreground: #ffffff;
+  --info-bg: var(--color-info-tint);
+  --info-bg-foreground: var(--color-info-tint-fg);
+
+  --ring: var(--color-primary-base);
+
+  /* Dimmer behind a modal or an off-canvas panel. Indigo-tinted and light,
+     because a hard black scrim under a white theme reads as a different
+     product. */
+  --overlay: rgba(15, 23, 42, 0.32);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-heading: var(--heading);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-active: var(--surface-active);
+  --color-border: var(--border);
+  --color-overlay: var(--overlay);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-bg: var(--primary-bg);
+  --color-primary-bg-foreground: var(--primary-bg-foreground);
+
+  --color-accent-brand: var(--color-accent-base);
+  --color-cta: var(--color-cta);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-active: var(--danger-active);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-bg: var(--danger-bg);
+  --color-danger-bg-foreground: var(--danger-bg-foreground);
+
+  --color-success: var(--success);
+  --color-success-hover: var(--success-hover);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-bg: var(--success-bg);
+  --color-success-bg-foreground: var(--success-bg-foreground);
+
+  --color-warning: var(--warning);
+  --color-warning-hover: var(--warning-hover);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-bg-foreground: var(--warning-bg-foreground);
+
+  --color-info: var(--info);
+  --color-info-hover: var(--info-hover);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-bg: var(--info-bg);
+  --color-info-bg-foreground: var(--info-bg-foreground);
+
+  --color-ring: var(--ring);
+
+  /* Brand-tinted elevation, exposed as shadow-soft / shadow-hover / shadow-glow. */
+  --shadow-soft: var(--shadow-soft);
+  --shadow-hover: var(--shadow-hover);
+  --shadow-glow: var(--shadow-glow);
+
+  /* Softer corners across the board. Overriding the scale rather than editing
+     every component means `rounded-md` and `rounded-lg` already in the codebase
+     pick up the premium radius with no change at the call site. */
+  --radius-sm: 0.5rem;   /* 8px  — badges, chips */
+  --radius-md: 0.75rem;  /* 12px — buttons, inputs */
+  --radius-lg: 1rem;     /* 16px — cards, modals */
+  --radius-xl: 1.25rem;  /* 20px — hero panels */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* ============================================================================
+   BASE
+   ========================================================================= */
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-body);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  /* Fine-stemmed type on a bright background benefits from this; without it
+     the indigo-on-white headings look heavier than intended. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings default to the darker ink without every component having to say so.
+   A utility class still wins, so `text-danger` on an <h3> behaves as expected. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--text-heading);
+}
+
+::placeholder {
+  color: var(--text-muted);
+}
+
+::selection {
+  background: var(--color-primary-tint);
+  color: var(--color-primary-tint-fg);
+}
+
+/* ============================================================================
+   THEME UTILITIES
+   ============================================================================
+   Declared after the Tailwind import so they win at equal specificity, and
+   kept as plain classes so they compose with `cn()` like any other utility.
+   ========================================================================= */
+
+/* Frosted panel — cards, navbar, sidebar, modals.
+   The blur only reads if something sits behind it, which is why page
+   backgrounds are gradients rather than flat white. */
+.glass {
+  background-color: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Same frosting without the border or shadow, for elements that supply their
+   own edge — a sticky top bar with only a bottom border, for instance. */
+.glass-plain {
+  background-color: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.gradient-primary {
+  background-image: var(--gradient-primary);
+}
+
+.gradient-accent {
+  background-image: var(--gradient-accent);
+}
+
+.gradient-hero {
+  background-image: var(--gradient-hero);
+}
+
+.gradient-surface {
+  background-image: var(--gradient-surface);
+}
+
+/* Gradient text for hero headlines. */
+.text-gradient {
+  background-image: var(--gradient-primary);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* The primary action treatment: gradient fill, lifting to a glow on hover.
+   The slight rise is what separates "premium" from "flat" — but it is
+   suppressed below, along with every other transition, for users who have
+   asked for reduced motion. */
+.btn-gradient {
+  background-image: var(--gradient-primary);
+  color: #ffffff;
+  box-shadow: var(--shadow-soft);
+  transition: var(--transition-base);
+}
+
+.btn-gradient:hover:not(:disabled) {
+  box-shadow: var(--shadow-glow);
+  transform: translateY(-1px);
+}
+
+.btn-gradient:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Card lift on hover, for cards that are themselves links. */
+.hover-lift {
+  transition: var(--transition-base);
+}
+
+.hover-lift:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-gradient,
+  .hover-lift {
+    transition: none;
+  }
+
+  .btn-gradient:hover:not(:disabled),
+  .hover-lift:hover {
+    transform: none;
+  }
 }
