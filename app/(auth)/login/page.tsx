@@ -1,94 +1,41 @@
-"use client";
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { LoginForm } from "./LoginForm";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+export const metadata: Metadata = {
+  title: "Sign in",
+};
 
+/**
+ * Login page — a Server Component wrapping the interactive form.
+ *
+ * The Suspense boundary is required, not stylistic: LoginForm reads
+ * useSearchParams() (for ?tenant= and ?next=), which suspends during
+ * prerendering. Without a boundary Next.js fails the build; with one, the card
+ * shell renders immediately and only the form waits.
+ */
 export default function LoginPage() {
-  const router = useRouter();
-  const [form, setForm] = useState({ tenantSlug: "", email: "", password: "" });
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-
-      if (!data.success) {
-        setError(data.error);
-        return;
-      }
-
-      router.push("/dashboard");
-    } catch {
-      setError("Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
-    <div className="bg-white shadow rounded-lg p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Sign in to eduOS</h1>
+    <Suspense fallback={<LoginFormFallback />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-          {error}
-        </div>
-      )}
+/** Matches the form's card dimensions so the layout does not shift on swap. */
+function LoginFormFallback() {
+  return (
+    <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-8 shadow-sm">
+      <Skeleton height="1.5rem" width="60%" />
+      <Skeleton height="1rem" width="85%" className="mt-2" />
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Institution Code</label>
-          <input
-            type="text"
-            required
-            value={form.tenantSlug}
-            onChange={(e) => setForm({ ...form, tenantSlug: e.target.value })}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="your-university"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-          <input
-            type="email"
-            required
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="you@university.edu"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-          <input
-            type="password"
-            required
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+      <div className="mt-6 flex flex-col gap-4">
+        <Skeleton height="4rem" />
+        <Skeleton height="4rem" />
+        <Skeleton height="4rem" />
+        <Skeleton height="3rem" />
+      </div>
     </div>
   );
 }

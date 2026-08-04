@@ -1,29 +1,43 @@
 import type { ReactNode } from "react";
-import { requireSession } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
+import { getPortalSession } from "@/services/session";
+import { PortalShell } from "@/components/layout/PortalShell";
+import { UNIVERSITY_NAV, filterNav } from "@/constants/navigation";
+import { ROLES, UNIVERSITY_ROLES, hasAnyRole, homeRouteForRoles } from "@/constants/roles";
+import { topbarUserFromSession } from "@/utils/user";
 
+/**
+ * University Admin portal — the tenant's own operations console.
+ *
+ * Open to UNIVERSITY_ADMIN, CAMPUS_ADMIN and HOD, who see progressively less of
+ * the same portal rather than being routed to different ones: filterNav drops
+ * the links their roles do not cover (a head of department gets no Users &
+ * Roles or Finance entry). One portal with a role-shaped nav beats three
+ * near-identical portals to keep in step.
+ *
+ * SUPER_ADMIN is admitted too. The platform owner needs to be able to open a
+ * tenant's console to reproduce a support issue, and every API call they make
+ * is still tenant-scoped by requireTenant against their own JWT.
+ */
 export default async function UniversityLayout({ children }: { children: ReactNode }) {
-  try {
-    await requireSession();
-  } catch {
-    redirect("/login");
+  const session = await getPortalSession();
+  if (!session) redirect("/login");
+
+  const isPermitted =
+    hasAnyRole(session.roles, UNIVERSITY_ROLES) || session.roles.includes(ROLES.SUPER_ADMIN);
+
+  if (!isPermitted) {
+    redirect(homeRouteForRoles(session.roles));
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <span className="text-lg font-bold text-blue-600">eduOS</span>
-        </div>
-        <nav className="flex-1 px-4 py-4 space-y-1">
-          <a href="/dashboard" className="block px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-100">Dashboard</a>
-          <a href="/students" className="block px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-100">Students</a>
-          <a href="/faculty" className="block px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-100">Faculty</a>
-          <a href="/courses" className="block px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-100">Courses</a>
-          <a href="/finance" className="block px-3 py-2 rounded text-sm text-gray-700 hover:bg-gray-100">Finance</a>
-        </nav>
-      </aside>
-      <main className="flex-1 overflow-auto">{children}</main>
-    </div>
+    <PortalShell
+      sections={filterNav(UNIVERSITY_NAV, session.roles)}
+      user={topbarUserFromSession(session)}
+      portalName="University"
+      homeHref="/dashboard"
+    >
+      {children}
+    </PortalShell>
   );
 }
