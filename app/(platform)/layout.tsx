@@ -1,31 +1,41 @@
 import type { ReactNode } from "react";
-import { requireSession } from "@/lib/auth/session";
 import { redirect } from "next/navigation";
+import { getPortalSession } from "@/services/session";
+import { PortalShell } from "@/components/layout/PortalShell";
+import { PLATFORM_NAV, filterNav } from "@/constants/navigation";
+import { ROLES, homeRouteForRoles } from "@/constants/roles";
+import { topbarUserFromSession } from "@/utils/user";
 
+/**
+ * Platform Admin portal — the tenant onboarding and billing console.
+ *
+ * A Server Component, which is what makes the guard below meaningful: the
+ * session is read from the httpOnly cookie on the server, so a caller without
+ * SUPER_ADMIN never receives the page's markup at all. A client-side check
+ * would ship the page and then hide it.
+ *
+ * The API enforces the same rule independently — every route under
+ * /api/platform calls requireRole("SUPER_ADMIN"). This guard decides who
+ * reaches a screen; it is not what protects the data.
+ */
 export default async function PlatformLayout({ children }: { children: ReactNode }) {
-  let session;
-  try {
-    session = await requireSession();
-  } catch {
-    redirect("/login");
+  const session = await getPortalSession();
+  if (!session) redirect("/login");
+
+  // Sent to their own portal rather than to /login: they are signed in
+  // correctly, just not entitled to this one.
+  if (!session.roles.includes(ROLES.SUPER_ADMIN)) {
+    redirect(homeRouteForRoles(session.roles));
   }
 
-  const isSuperAdmin = session.roles.includes("SUPER_ADMIN");
-  if (!isSuperAdmin) redirect("/dashboard");
-
   return (
-    <div className="flex h-screen bg-gray-100">
-      <aside className="w-64 bg-gray-900 text-white flex flex-col">
-        <div className="px-6 py-4 border-b border-gray-700">
-          <span className="text-lg font-bold">eduOS Platform</span>
-        </div>
-        <nav className="flex-1 px-4 py-4 space-y-1">
-          <a href="/platform/dashboard" className="block px-3 py-2 rounded text-sm hover:bg-gray-700">Dashboard</a>
-          <a href="/platform/tenants" className="block px-3 py-2 rounded text-sm hover:bg-gray-700">Tenants</a>
-          <a href="/platform/subscriptions" className="block px-3 py-2 rounded text-sm hover:bg-gray-700">Subscriptions</a>
-        </nav>
-      </aside>
-      <main className="flex-1 overflow-auto">{children}</main>
-    </div>
+    <PortalShell
+      sections={filterNav(PLATFORM_NAV, session.roles)}
+      user={topbarUserFromSession(session)}
+      portalName="Platform"
+      homeHref="/platform/dashboard"
+    >
+      {children}
+    </PortalShell>
   );
 }
