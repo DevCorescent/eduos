@@ -110,8 +110,17 @@ export async function POST(request: NextRequest) {
     response.cookies.set(REFRESH_COOKIE, refreshToken, cookieOptions(30 * 24 * 60 * 60));
 
     return response;
-  } catch (err) {
-    console.error("[POST /api/auth/login]", err);
-    return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
-  }
+  } catch (error) {
+  console.error("LOGIN ERROR");
+  console.error(error);
+  console.error(JSON.stringify(error, null, 2));
+
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Internal Server Error",
+    },
+    { status: 500 }
+  );
+}
 }
