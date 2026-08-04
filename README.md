@@ -251,10 +251,986 @@ Hierarchy: Campus → School → Department → Programme → Specialisation
 | POST | `/api/ai/generate-questions` | Generate quiz from content |
 
 ---
+# Future Roadmap (Phase 15+)
 
+The following phases are proposed to transform eduOS into a complete Enterprise University ERP comparable to Oracle Campus Solutions, CAMU ERP and Academia ERP.
+
+---
+
+## Phase 15 — Smart Attendance Analytics
+
+### Importance
+
+Current attendance only stores records. This phase introduces attendance intelligence by helping students and faculty monitor attendance trends, predict shortages, and maintain the mandatory attendance criteria.
+
+### Roles
+
+- UNIVERSITY_ADMIN
+- DEPARTMENT_HOD
+- FACULTY
+- STUDENT
+
+### Features
+
+- Overall Attendance
+- Subject Wise Attendance
+- Monthly Attendance
+- Semester Attendance
+- Attendance Graph
+- Attendance Trend
+- Classes Conducted
+- Classes Attended
+- Classes Missed
+- Classes Required
+- Classes Student Can Leave
+- Attendance Prediction
+- Attendance Alerts
+- Low Attendance Notification
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/attendance/analytics/[studentId]` | Complete attendance analytics |
+| GET | `/api/attendance/leave-calculator/[studentId]` | Remaining classes student can miss |
+| GET | `/api/attendance/prediction/[studentId]` | Attendance prediction |
+| GET | `/api/attendance/subject-wise/[studentId]` | Subject-wise attendance |
+| GET | `/api/attendance/dashboard` | Attendance dashboard |
+
+---
+
+## Phase 16 — Advanced Result Management
+
+### Importance
+
+Current examination module stores only examination results. This phase introduces complete semester-wise academic performance management.
+
+### Roles
+
+- UNIVERSITY_ADMIN
+- DEPARTMENT_HOD
+- FACULTY
+- STUDENT
+- PARENT
+
+### Features
+
+- ST1
+- ST2
+- PUT
+- University Theory
+- Practical
+- Viva
+- Attendance Marks
+- Faculty Evaluation
+- Internal Marks
+- External Marks
+- SGPA
+- CGPA
+- Grade Card
+- Rank
+- Result Analytics
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/results/student/[studentId]` | Complete result |
+| GET | `/api/results/semester/[semesterId]` | Semester result |
+| GET | `/api/results/analytics/[studentId]` | Result analytics |
+| POST | `/api/results/internal` | Upload internal marks |
+| POST | `/api/results/external` | Upload external marks |
+| GET | `/api/results/transcript/[studentId]` | Final transcript |
+
+---
+
+## Phase 17 — Student Finance Portal
+
+### Importance
+
+Students should be able to manage fee payments independently without administrative assistance.
+
+### Roles
+
+- STUDENT
+- UNIVERSITY_ADMIN
+
+### Features
+
+- Payment History
+- Pending Fees
+- Receipt Download
+- Receipt Preview
+- QR Verification
+- Scholarship
+- Fine Details
+- Payment Status
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/fees/history` | Student payment history |
+| GET | `/api/fees/receipts` | All receipts |
+| GET | `/api/fees/receipt/[receiptId]` | Receipt details |
+| GET | `/api/fees/download/[receiptId]` | Download receipt |
+| GET | `/api/fees/pending` | Pending dues |
+
+---
+
+## Phase 18 — Student Profile Portal
+
+### Importance
+
+Creates a centralized student profile with academic and personal information.
+
+### Roles
+
+- STUDENT
+- UNIVERSITY_ADMIN
+
+### Features
+
+- Professional Photograph
+- Personal Details
+- Academic Details
+- Parent Details
+- Documents
+- Certificates
+- Achievements
+- Emergency Contacts
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/student/profile` | Student profile |
+| GET | `/api/student/dashboard` | Dashboard information |
+| GET | `/api/student/achievements` | Student achievements |
+
+---
+
+## Phase 19 — Open Elective Management
+
+### Importance
+
+Allows departments to offer electives while enabling students to select courses according to eligibility and seat availability.
+
+### Roles
+
+- UNIVERSITY_ADMIN
+- DEPARTMENT_HOD
+- STUDENT
+
+### Features
+
+- Department Electives
+- Branch Electives
+- Preference Filling
+- Seat Allocation
+- Approval Workflow
+- Locking
+- Allocation Report
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/open-electives` | Available electives |
+| POST | `/api/open-electives/select` | Student preference |
+| GET | `/api/open-electives/status` | Allocation status |
+| POST | `/api/open-electives/allocate` | Allocate electives |
+| PATCH | `/api/open-electives/lock` | Lock elective selection |
+
+---
+
+## Phase 20 — Faculty Feedback System
+
+### Importance
+
+Collects structured student feedback for continuous faculty improvement and institutional quality assessment.
+
+### Roles
+
+- STUDENT
+- FACULTY
+- DEPARTMENT_HOD
+- UNIVERSITY_ADMIN
+
+### Features
+
+- Faculty Rating
+- Lab Rating
+- Anonymous Feedback
+- Teaching Evaluation
+- Behaviour
+- Communication
+- Practical Knowledge
+- Infrastructure Rating
+
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/feedback/faculty` | Submit faculty feedback |
+| POST | `/api/feedback/lab` | Submit lab feedback |
+| GET | `/api/feedback/faculty/[facultyId]` | Faculty analytics |
+| GET | `/api/feedback/report` | Institution feedback report |
 ## File Structure
+---
 
+## Phase 21 — Student Permission System
+
+### Importance
+
+Students should have controlled access to the ERP. They must only be able to view their academic information, perform student-specific operations, and must never modify institutional records.
+
+### Roles
+
+- STUDENT
+
+### Permissions
+
+Students CAN
+
+- View Dashboard
+- View Attendance
+- View Timetable
+- View Results
+- View Certificates
+- View Assignments
+- Submit Assignments
+- Download Question Papers
+- Download Solutions
+- View Fee Ledger
+- Download Receipts
+- Fill Open Electives
+- Submit Faculty Feedback
+- View Notifications
+- Update Limited Profile Information (Profile Photo, Contact Details if permitted)
+
+Students CANNOT
+
+- Modify Attendance
+- Modify Marks
+- Modify Internal Assessment
+- Modify Timetable
+- Modify Fees
+- Modify Curriculum
+- Modify Faculty Information
+
+### APIs
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/student/dashboard` | Student dashboard |
+| GET | `/api/student/profile` | Student profile |
+| GET | `/api/student/permissions` | Student permission matrix |
+
+---
+
+## Phase 22 — Attendance Lock & Audit System
+
+### Importance
+
+Attendance is a legal academic record. Once attendance is finalized, no faculty member should be able to modify it unless explicitly unlocked by the HOD.
+
+### Roles
+
+- DEPARTMENT_HOD
+- FACULTY
+
+### Features
+
+- Lock Attendance
+- Unlock Attendance
+- Attendance Freeze
+- Approval Workflow
+- Audit History
+- Faculty Notification
+- Lock Status
+- Semester Lock
+
+### APIs
+
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/attendance/lock` | Lock attendance |
+| POST | `/api/attendance/unlock` | Unlock attendance |
+| GET | `/api/attendance/lock-status` | Attendance lock status |
+| GET | `/api/attendance/audit` | Attendance audit history |
+
+---
+
+## Phase 23 — Faculty Profile & Performance Analytics
+
+### Importance
+
+Maintains complete faculty profiles while providing institutional analytics on teaching performance, workload, and student feedback.
+
+### Roles
+
+- UNIVERSITY_ADMIN
+- DEPARTMENT_HOD
+- FACULTY
+
+### Features
+
+- Professional Photo
+- Faculty Number
+- Qualification
+- Designation
+- Department
+- Experience
+- Research Publications
+- Certifications
+- Education History
+- Subjects Teaching
+- Weekly Timetable
+- Lecture Count
+- Student Count
+- Feedback Rating
+- Teaching Performance
+- Attendance Statistics
+- Result Analytics
+- Dashboard Charts
+
+### APIs
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/faculty/profile/[facultyId]` | Faculty profile |
+| PATCH | `/api/faculty/profile/[facultyId]` | Update profile |
+| GET | `/api/faculty/performance/[facultyId]` | Performance dashboard |
+| GET | `/api/faculty/workload/[facultyId]` | Teaching workload |
+| GET | `/api/faculty/analytics/[facultyId]` | Faculty analytics |
+
+---
+
+## Phase 24 — Assignment Management Enhancement
+
+### Importance
+
+Provides complete assignment lifecycle management including creation, submission, evaluation, grading, reminders, and analytics.
+
+### Roles
+
+- FACULTY
+- STUDENT
+
+### Features
+
+Faculty
+
+- Create Assignment
+- Publish Assignment
+- Edit Assignment
+- Delete Assignment
+- View Submitted Students
+- View Pending Students
+- Grade Assignment
+- Add Feedback
+- Assignment Analytics
+
+Student
+
+- Assignment List
+- Upload Submission
+- Resubmit
+- Submission History
+- View Marks
+- Faculty Feedback
+
+### APIs
+
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/assignments` | Create assignment |
+| PATCH | `/api/assignments/[id]` | Update assignment |
+| DELETE | `/api/assignments/[id]` | Delete assignment |
+| GET | `/api/assignments/[id]/pending` | Pending students |
+| GET | `/api/assignments/[id]/submitted` | Submitted students |
+| POST | `/api/assignments/[id]/submit` | Student submission |
+| PATCH | `/api/assignments/[id]/grade` | Grade assignment |
+| GET | `/api/assignments/analytics` | Assignment analytics |
+
+---
+
+## Phase 25 — AI Assisted Internal Assessment
+
+### Importance
+
+Assists faculty in awarding fair internal marks using attendance, assignments, quizzes, practical work, and previous academic performance while keeping the final decision with the faculty.
+
+### Roles
+
+- FACULTY
+- DEPARTMENT_HOD
+- UNIVERSITY_ADMIN
+
+### Features
+
+- Suggested Internal Marks
+- Attendance Analysis
+- Assignment Analysis
+- Quiz Analysis
+- Practical Analysis
+- AI Recommendation
+- Confidence Score
+- Faculty Override
+- Remarks
+- Audit Trail
+
+> Internal marking rules are configured by the university. Faculty can override AI suggestions within the allowed range.
+
+### APIs
+
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/internal-assessment/generate` | Generate AI suggestions |
+| GET | `/api/internal-assessment/student/[studentId]` | Student internal marks |
+| PATCH | `/api/internal-assessment/[studentId]` | Faculty update |
+| GET | `/api/internal-assessment/audit/[studentId]` | Audit history |
+| GET | `/api/internal-assessment/rules` | University marking rules |
+
+---
+
+## Phase 26 — Question Paper & Solution Repository
+
+### Importance
+
+Provides a centralized digital repository for question papers, official solutions, marking schemes, and previous year papers. It helps students prepare effectively while giving faculty a structured platform for publishing examination resources.
+
+### Roles
+
+- UNIVERSITY_ADMIN
+- DEPARTMENT_HOD
+- FACULTY
+- STUDENT
+
+### Features
+
+Faculty
+
+- Upload Question Paper
+- Upload Official Solution
+- Upload Marking Scheme
+- Upload Answer Key
+- Upload Reference Material
+- Upload Formula Sheet
+- Draft Mode
+- Publish Immediately
+- Schedule Publish
+- Archive Resources
+
+Student
+
+- View Question Papers
+- Download Question Papers
+- View Official Solutions
+- Download Solutions
+- Download Marking Scheme
+- Previous Year Question Papers
+- Resource Search
+- Semester-wise Resources
+- Subject-wise Resources
+
+HOD
+
+- View Uploaded Resources
+- Verify Uploads
+- Publish/Unpublish
+- Department Repository
+
+### APIs
+
+| Method | Route | Description |
+|---|---|---|
+| POST | `/api/exam-resources` | Upload examination resource |
+| GET | `/api/exam-resources` | List resources |
+| GET | `/api/exam-resources/[id]` | Resource details |
+| PATCH | `/api/exam-resources/[id]` | Update resource |
+| DELETE | `/api/exam-resources/[id]` | Delete resource |
+| GET | `/api/students/me/exam-resources` | Student resource list |
+| GET | `/api/students/me/exam-resources/[id]` | View resource |
+| GET | `/api/students/me/exam-resources/[id]/download` | Download resource |
+| PATCH | `/api/exam-resources/[id]/publish` | Publish resource |
+| PATCH | `/api/exam-resources/[id]/archive` | Archive resource |
+
+---
+
+## Phase 27 — Notification Center & Announcement System
+
+### Importance
+
+Creates a centralized communication platform for all users. Real-time notifications ensure students, faculty, HODs, and administrators receive timely updates about academic, financial, and administrative events.
+
+### Roles
+
+- SUPER_ADMIN
+- UNIVERSITY_ADMIN
+- CAMPUS_ADMIN
+- DEPARTMENT_HOD
+- FACULTY
+- STUDENT
+- PARENT
+
+### Features
+
+Notification Bell
+
+- Unread Count
+- Read/Unread Status
+- Notification Drawer
+- Mark as Read
+- Mark All Read
+- Delete Notification
+- Archive Notification
+
+Notification Categories
+
+- Academic
+- Attendance
+- Assignments
+- Results
+- Fees
+- Certificates
+- Timetable
+- AI
+- Finance
+- General Announcement
+- Emergency Alerts
+
+Announcement System
+
+- Institution-wide Announcements
+- Department Announcements
+- Batch Announcements
+- Section Announcements
+- Scheduled Announcements
+- Pinned Announcements
+
+Student Notifications
+
+- Attendance Updated
+- Attendance Below 75%
+- Assignment Published
+- Assignment Deadline
+- Assignment Evaluated
+- Fee Demand Generated
+- Payment Successful
+- Receipt Generated
+- Result Published
+- Certificate Issued
+- Open Elective Window
+- Timetable Updated
+- New Study Material
+- Question Paper Uploaded
+- Solution Uploaded
+
+Faculty Notifications
+
+- Attendance Lock
+- Attendance Unlock
+- Assignment Submission
+- Internal Marks Reminder
+- Student Feedback
+- Timetable Updated
+- HOD Announcement
+- Exam Duty
+- Paper Upload Reminder
+
+Administration Notifications
+
+- New Admission
+- Pending Approval
+- Fee Collection Summary
+- Daily ERP Report
+- Department Analytics
+
+### APIs
+
+| Method | Route | Description |
+|---|---|---|
+| GET | `/api/notifications` | Notification list |
+| GET | `/api/notifications/unread` | Unread notifications |
+| PATCH | `/api/notifications/[id]/read` | Mark notification as read |
+| PATCH | `/api/notifications/read-all` | Mark all notifications as read |
+| DELETE | `/api/notifications/[id]` | Delete notification |
+| POST | `/api/announcements` | Create announcement |
+| GET | `/api/announcements` | List announcements |
+| GET | `/api/announcements/[id]` | Announcement details |
+| PATCH | `/api/announcements/[id]` | Update announcement |
+| DELETE | `/api/announcements/[id]` | Delete announcement |
+
+---
+
+# Enterprise Expansion Roadmap
+
+The following modules are recommended after completion of the academic ERP to transform eduOS into a comprehensive university management platform.
+
+| Phase | Module | Priority |
+|-------|--------|----------|
+| Phase 28 | Hostel Management | Medium |
+| Phase 29 | Library Management | Medium |
+| Phase 30 | Transport Management | Medium |
+| Phase 31 | Placement & Training Cell | High |
+| Phase 32 | Alumni Portal | Medium |
+| Phase 33 | Research & Innovation Portal | Medium |
+| Phase 34 | Event & Club Management | Medium |
+| Phase 35 | Leave Management System | Medium |
+| Phase 36 | Asset & Inventory Management | Medium |
+| Phase 37 | Visitor & Gate Pass Management | Medium |
+| Phase 38 | Mobile Application (Android & iOS) | High |
+| Phase 39 | Executive Analytics & BI Dashboard | High |
+
+---
+
+# Updated Project Statistics
+
+| Category | Count |
+|-----------|------:|
+| Completed Backend Phases | **14** |
+| Planned Core ERP Phases | **13** |
+| Enterprise Expansion Phases | **12** |
+| **Total Planned Phases** | **39** |
+| Approximate Backend APIs | **160+** |
+| Supported User Roles | **7** |
+| Multi-Tenant Architecture | ✅ |
+| AI Integration | ✅ |
+| Enterprise Ready | ✅ |
+
+---
+
+# Supported Roles
+
+- SUPER_ADMIN
+- UNIVERSITY_ADMIN
+- CAMPUS_ADMIN
+- DEPARTMENT_HOD
+- FACULTY
+- STUDENT
+- PARENT
+
+---
+
+# Future Integrations
+
+- Razorpay Payment Gateway
+- SMS Gateway
+- WhatsApp Notifications
+- Mobile Push Notifications
+- WebSocket Real-Time Updates
+- AI Academic Advisor
+- AI Attendance Prediction
+- AI Student Performance Prediction
+- AI Course Recommendation
+- AI Placement Recommendation
+- AI Chat Assistant
+- AI Report Generator
+- Learning Analytics
+- Business Intelligence Dashboard
+
+---
+
+# Project Goal
+
+Build **eduOS** into a complete **Enterprise Multi-University ERP** that manages the full academic lifecycle—from admissions and curriculum to examinations, finance, AI-assisted learning, analytics, and institutional administration—through a secure, scalable, and modern SaaS platform.
+---
+
+## Folder Structure (Updated)
+
+```text
+eduos/
+├── app/
+│   ├── (auth)/
+│   ├── (platform)/
+│   ├── (university)/
+│   ├── (faculty)/
+│   ├── (student)/
+│   ├── api/
+│   │
+│   ├── auth/
+│   ├── platform/
+│   ├── campuses/
+│   ├── schools/
+│   ├── departments/
+│   ├── programmes/
+│   ├── academic-years/
+│   ├── semesters/
+│   ├── batches/
+│   ├── sections/
+│   ├── users/
+│   ├── roles/
+│   ├── students/
+│   ├── parents/
+│   ├── faculty/
+│   ├── employees/
+│   ├── courses/
+│   ├── curricula/
+│   ├── timetables/
+│   ├── attendance/
+│   ├── assignments/
+│   ├── examinations/
+│   ├── results/
+│   ├── fee-structures/
+│   ├── fee-demands/
+│   ├── finance/
+│   ├── certificates/
+│   ├── certificate-templates/
+│   ├── notifications/
+│   ├── notification-templates/
+│   ├── announcements/
+│   ├── ai/
+│   ├── open-electives/
+│   ├── feedback/
+│   ├── internal-assessment/
+│   ├── exam-resources/
+│   └── analytics/
+│
+├── prisma/
+│   ├── schema.prisma
+│   └── migrations/
+│
+├── lib/
+│   ├── auth/
+│   ├── db/
+│   ├── middleware/
+│   ├── validations/
+│   ├── services/
+│   ├── utils/
+│   └── ai/
+│
+├── types/
+├── actions/
+├── services/
+├── utils/
+├── components/
+├── hooks/
+└── public/
 ```
+
+---
+
+# Complete Module Coverage
+
+| Module | Status |
+|---------|:------:|
+| Authentication | ✅ |
+| Platform Management | ✅ |
+| Campus Management | ✅ |
+| School Management | ✅ |
+| Department Management | ✅ |
+| Programme Management | ✅ |
+| Academic Calendar | ✅ |
+| Users & RBAC | ✅ |
+| Students | ✅ |
+| Faculty | ✅ |
+| Employees | ✅ |
+| Curriculum | ✅ |
+| Courses | ✅ |
+| Timetable | ✅ |
+| Attendance | ✅ |
+| Assignments | ✅ |
+| Examination | ✅ |
+| Results | ✅ |
+| Finance | ✅ |
+| Certificates | ✅ |
+| Notifications | ✅ |
+| AI | ✅ |
+| Attendance Analytics | 🚧 |
+| Student Dashboard | 🚧 |
+| Result Analytics | 🚧 |
+| Open Electives | 🚧 |
+| Faculty Feedback | 🚧 |
+| Internal Assessment | 🚧 |
+| Question Repository | 🚧 |
+| Notification Center | 🚧 |
+
+---
+
+# Estimated Backend APIs
+
+| Module | APIs |
+|----------|----:|
+| Authentication | 6 |
+| Platform | 7 |
+| Institution | 14 |
+| Academic Calendar | 8 |
+| Users | 5 |
+| Students | 8 |
+| Faculty | 5 |
+| Curriculum | 6 |
+| Attendance | 8 |
+| Timetable | 4 |
+| Assignments | 8 |
+| Examination | 6 |
+| Finance | 7 |
+| Certificates | 6 |
+| Notifications | 6 |
+| AI | 3 |
+| Attendance Analytics | 5 |
+| Results | 6 |
+| Open Electives | 5 |
+| Faculty Feedback | 4 |
+| Student Dashboard | 3 |
+| Internal Assessment | 5 |
+| Question Repository | 9 |
+| Notification Center | 10 |
+
+### Total Planned APIs
+
+**≈ 170+ REST APIs**
+
+---
+
+# Security Features
+
+- Multi-Tenant Isolation
+- JWT Authentication
+- Refresh Token Rotation
+- Session Management
+- RBAC
+- Scope Based Authorization
+- Tenant Resolution
+- Audit Logging
+- Input Validation (Zod)
+- Rate Limiting (Future)
+- CSRF Protection
+- HTTP Only Cookies
+- Secure Password Hashing
+- Cloud Storage Access Control
+
+---
+
+# Development Standards
+
+Every backend phase must satisfy the following before merge:
+
+- Feature Complete
+- APIs Implemented
+- Authentication Implemented
+- Authorization Implemented
+- Validation Implemented
+- Tenant Isolation Verified
+- Unit Tests Passed
+- Integration Tests Passed
+- TypeScript Clean
+- ESLint Clean
+- Production Build Successful
+- API Documentation Updated
+- Postman Collection Updated
+
+---
+
+# Coding Standards
+
+- TypeScript Strict Mode
+- Prisma Best Practices
+- Repository Pattern
+- Service Layer Architecture
+- Reusable Validation
+- Shared Response Envelope
+- No Business Logic in Routes
+- Proper Error Handling
+- Audit Logging
+- Environment Variable Driven Configuration
+
+---
+
+# API Response Standard
+
+## Success
+
+```json
+{
+  "success": true,
+  "data": {},
+  "message": "Success"
+}
+```
+
+## Error
+
+```json
+{
+  "success": false,
+  "error": "Something went wrong",
+  "code": "SERVER_ERROR"
+}
+```
+
+---
+
+# Common Error Codes
+
+- VALIDATION_ERROR
+- UNAUTHORIZED
+- FORBIDDEN
+- NOT_FOUND
+- CONFLICT
+- SERVER_ERROR
+- PROVIDER_ERROR
+- PROVIDER_TIMEOUT
+
+---
+
+# Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Generate Prisma Client
+npx prisma generate
+
+# Run migrations
+npx prisma migrate dev
+
+# Seed demo data
+npm run seed
+
+# Start development server
+npm run dev
+```
+
+---
+
+# Production Checklist
+
+- Environment variables configured
+- Prisma migrations applied
+- Database seeded
+- SMTP configured
+- Cloudflare R2 configured
+- Groq API configured
+- HTTPS enabled
+- Cookies marked Secure
+- Rate limiting enabled
+- Monitoring configured
+- Backup strategy configured
+
+---
+
+# Long-Term Vision
+
+eduOS aims to become a complete **Enterprise Multi-University ERP** that supports:
+
+- Academic Administration
+- Student Information System (SIS)
+- Learning Management
+- Finance & Fee Management
+- Faculty Management
+- AI-Powered Learning
+- Examination Automation
+- Attendance Intelligence
+- Digital Certificates
+- Notification & Communication
+- Analytics & Business Intelligence
+- Multi-Tenant SaaS Deployment
+
+---
+
+# Current Progress
+
+| Metric | Value |
+|--------|------:|
+| Backend Phases Completed | **14 / 27** |
+| Future Enterprise Phases | **12** |
+| Total Planned Phases | **39** |
+| Approximate Backend APIs | **170+** |
+| User Roles Supported | **7** |
+| Technology Stack | **Next.js + Prisma + Neon + Groq** |
+| Architecture | **Multi-Tenant SaaS** |
+| Status | **Production Ready Core, Enterprise Expansion Planned** |```
 eduos/
 ├── app/
 │   ├── (auth)/                   # Login, forgot-password pages
