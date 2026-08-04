@@ -3,25 +3,34 @@
 // PURPOSE: Decides, in one place, whether the service layer answers from the
 //          mock fixtures or from the live routes under app/api.
 //
-//          This is the whole of the "backend integration" step. Flipping
-//          NEXT_PUBLIC_USE_MOCKS to "false" moves every screen onto the real
-//          API with no page edit, because a page only ever imports from
-//          services/ and never learns which branch ran.
+//          This is the whole of the "backend integration" step. A page only
+//          ever imports from services/ and never learns which branch ran, so
+//          the switch below moves every screen at once with no page edit.
 // ============================================================================
 
 /**
- * True while screens are served from mock fixtures.
+ * True while screens are served from mock fixtures instead of app/api.
  *
- * Defaults to mock. The frontend is being built ahead of several backend
- * modules (courses, timetable, attendance, finance, certificates have no
- * routes yet), so mock is the only mode in which every screen renders today.
- * Opting *in* to the live API is therefore the explicit action, not opting out.
+ * Mocks are OPT-IN: the value must be exactly "true" to enable them. Every
+ * other value — "false", "", or unset — serves the live API.
+ *
+ *   NEXT_PUBLIC_USE_MOCKS="true"   -> mock fixtures   (local UI work only)
+ *   NEXT_PUBLIC_USE_MOCKS="false"  -> live API
+ *   unset                          -> live API
+ *
+ * Opt-in matters because the failure is silent. Under the previous
+ * `!== "true"` test the flag meant the opposite of its own name: an
+ * NEXT_PUBLIC_USE_MOCKS="false" — the natural way to write "no mocks" — left
+ * mocks ON, and an unset variable did too. A deployment with no config
+ * therefore served fabricated data from mock/ while looking completely
+ * healthy. Defaulting to the live API makes a misconfiguration fail loudly
+ * (an API error) instead of quietly (plausible fake rows).
  *
  * NEXT_PUBLIC_ prefix is required: this is read during client-component
  * rendering as well as on the server, and Next.js only inlines prefixed vars
  * into the client bundle.
  */
-export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS !== "true";
+export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";
 
 /**
  * Absolute origin for server-side fetches.
