@@ -581,31 +581,31 @@ model Employee {
 }
 
 model Timetable {
-  id          String        @id @default(cuid())
+  id String @id @default(cuid())
 
-  tenantId    String
-  semesterId  String
-  sectionId   String
-  courseId    String
-  facultyId   String
+  tenantId   String
+  semesterId String
+  sectionId  String
+  courseId   String
+  facultyId  String
 
-  day         DayOfWeek
-  startTime   String
-  endTime     String
-  roomNo      String?
+  day       DayOfWeek
+  startTime String
+  endTime   String
+  roomNo    String?
 
-  sessionType SessionType   @default(LECTURE)
-  isActive    Boolean       @default(true)
+  sessionType SessionType @default(LECTURE)
+  isActive    Boolean     @default(true)
 
-  createdAt   DateTime      @default(now())
+  createdAt DateTime @default(now())
 
-  course       Course        @relation(fields: [courseId], references: [id])
-  faculty      FacultyMember @relation(fields: [facultyId], references: [id])
-  section      Section       @relation(fields: [sectionId], references: [id])
-  semester     Semester      @relation(fields: [semesterId], references: [id])
+  course   Course        @relation(fields: [courseId], references: [id])
+  faculty  FacultyMember @relation(fields: [facultyId], references: [id])
+  section  Section       @relation(fields: [sectionId], references: [id])
+  semester Semester      @relation(fields: [semesterId], references: [id])
 
   // Phase 15
-  attendance   Attendance[]
+  attendance Attendance[]
 
   @@index([tenantId])
   @@index([semesterId])
@@ -616,36 +616,35 @@ model Timetable {
 }
 
 model Attendance {
-  id            String           @id @default(cuid())
+  id String @id @default(cuid())
 
-  tenantId      String
-  studentId     String
-  facultyId     String?
-  sectionId     String?
-  courseId      String?
+  tenantId  String
+  studentId String
+  facultyId String?
+  sectionId String?
+  courseId  String?
 
-  timetableId   String?
+  timetableId String?
 
-  date          DateTime         @db.Date
+  date DateTime @db.Date
 
-  status        AttendanceStatus @default(PRESENT)
+  status AttendanceStatus @default(PRESENT)
 
-  sessionType   SessionType      @default(LECTURE)
+  sessionType SessionType @default(LECTURE)
 
-  source        AttendanceSource @default(MANUAL)
+  source AttendanceSource @default(MANUAL)
 
-  remarks       String?
+  remarks String?
 
-  markedAt      DateTime         @default(now())
-  markedBy      String?
+  markedAt DateTime @default(now())
+  markedBy String?
 
-  student        Student          @relation(fields: [studentId], references: [id])
-  faculty        FacultyMember?   @relation(fields: [facultyId], references: [id])
-  section        Section?         @relation(fields: [sectionId], references: [id])
-  timetable      Timetable?       @relation(fields: [timetableId], references: [id])
+  student   Student        @relation(fields: [studentId], references: [id])
+  faculty   FacultyMember? @relation(fields: [facultyId], references: [id])
+  section   Section?       @relation(fields: [sectionId], references: [id])
+  timetable Timetable?     @relation(fields: [timetableId], references: [id])
 
   @@unique([studentId, courseId, date, sessionType])
-
   @@index([tenantId])
   @@index([studentId])
   @@index([courseId])
@@ -1059,6 +1058,15 @@ enum AttendanceStatus {
   ABSENT
   LATE
   EXCUSED
+}
+
+enum AttendanceSource {
+  MANUAL
+  BIOMETRIC
+  RFID
+  QR
+  FACE
+  IMPORT
 }
 
 enum AssignmentType {
