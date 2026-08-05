@@ -8,38 +8,39 @@ datasource db {
 }
 
 model Tenant {
-  id              String                @id @default(cuid())
-  slug            String                @unique
-  name            String
-  type            InstitutionType       @default(UNIVERSITY)
-  status          TenantStatus          @default(TRIAL)
-  logoUrl         String?
-  faviconUrl      String?
-  primaryColor    String?
-  accentColor     String?
-  timezone        String                @default("Asia/Kolkata")
-  locale          String                @default("en")
-  country         String                @default("IN")
-  address         Json?
-  contactEmail    String?
-  contactPhone    String?
-  website         String?
-  accreditationNo String?
-  establishedYear Int?
-  settings        Json?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  academicYears   AcademicYear[]
-  auditLogs       AuditLog[]
-  campuses        Campus[]
-  certTemplates   CertificateTemplate[]
-  domains         Domain[]
-  idSequences     IdSequence[]
-  notifications   Notification[]
-  invoices        PlatformInvoice[]
-  roles           Role[]
-  subscriptions   Subscription[]
-  users           User[]
+  id                String                @id @default(cuid())
+  slug              String                @unique
+  name              String
+  type              InstitutionType       @default(UNIVERSITY)
+  status            TenantStatus          @default(TRIAL)
+  logoUrl           String?
+  faviconUrl        String?
+  primaryColor      String?
+  accentColor       String?
+  timezone          String                @default("Asia/Kolkata")
+  locale            String                @default("en")
+  country           String                @default("IN")
+  address           Json?
+  contactEmail      String?
+  contactPhone      String?
+  website           String?
+  accreditationNo   String?
+  establishedYear   Int?
+  settings          Json?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  academicYears     AcademicYear[]
+  auditLogs         AuditLog[]
+  campuses          Campus[]
+  certTemplates     CertificateTemplate[]
+  domains           Domain[]
+  idSequences       IdSequence[]
+  notifications     Notification[]
+  invoices          PlatformInvoice[]
+  roles             Role[]
+  subscriptions     Subscription[]
+  users             User[]
+  evaluationSchemes EvaluationScheme[]
 
   @@index([slug])
   @@index([status])
@@ -254,24 +255,25 @@ model Department {
 }
 
 model Programme {
-  id              String           @id @default(cuid())
-  tenantId        String
-  departmentId    String
-  name            String
-  code            String
-  type            ProgrammeType    @default(UNDERGRADUATE)
-  durationValue   Int
-  durationUnit    DurationUnit     @default(YEARS)
-  totalCredits    Int?
-  eligibility     String?
-  description     String?
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  batches         Batch[]
-  curricula       Curriculum[]
-  department      Department       @relation(fields: [departmentId], references: [id])
-  specialisations Specialisation[]
+  id                String             @id @default(cuid())
+  tenantId          String
+  departmentId      String
+  name              String
+  code              String
+  type              ProgrammeType      @default(UNDERGRADUATE)
+  durationValue     Int
+  durationUnit      DurationUnit       @default(YEARS)
+  totalCredits      Int?
+  eligibility       String?
+  description       String?
+  isActive          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  batches           Batch[]
+  curricula         Curriculum[]
+  department        Department         @relation(fields: [departmentId], references: [id])
+  specialisations   Specialisation[]
+  evaluationSchemes EvaluationScheme[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -295,36 +297,38 @@ model Specialisation {
 }
 
 model AcademicYear {
-  id        String     @id @default(cuid())
-  tenantId  String
-  name      String
-  startDate DateTime
-  endDate   DateTime
-  isCurrent Boolean    @default(false)
-  createdAt DateTime   @default(now())
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  batches   Batch[]
-  semesters Semester[]
+  id                String             @id @default(cuid())
+  tenantId          String
+  name              String
+  startDate         DateTime
+  endDate           DateTime
+  isCurrent         Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batches           Batch[]
+  semesters         Semester[]
+  evaluationSchemes EvaluationScheme[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
 }
 
 model Semester {
-  id             String        @id @default(cuid())
-  tenantId       String
-  academicYearId String
-  name           String
-  semesterNumber Int
-  startDate      DateTime
-  endDate        DateTime
-  isCurrent      Boolean       @default(false)
-  createdAt      DateTime      @default(now())
-  examinations   Examination[]
-  feeDemands     FeeDemand[]
-  sections       Section[]
-  academicYear   AcademicYear  @relation(fields: [academicYearId], references: [id])
-  timetables     Timetable[]
+  id                String             @id @default(cuid())
+  tenantId          String
+  academicYearId    String
+  name              String
+  semesterNumber    Int
+  startDate         DateTime
+  endDate           DateTime
+  isCurrent         Boolean            @default(false)
+  createdAt         DateTime           @default(now())
+  examinations      Examination[]
+  feeDemands        FeeDemand[]
+  sections          Section[]
+  academicYear      AcademicYear       @relation(fields: [academicYearId], references: [id])
+  timetables        Timetable[]
+  evaluationSchemes EvaluationScheme[]
 
   @@unique([academicYearId, semesterNumber])
   @@index([tenantId])
@@ -581,31 +585,31 @@ model Employee {
 }
 
 model Timetable {
-  id          String        @id @default(cuid())
+  id String @id @default(cuid())
 
-  tenantId    String
-  semesterId  String
-  sectionId   String
-  courseId    String
-  facultyId   String
+  tenantId   String
+  semesterId String
+  sectionId  String
+  courseId   String
+  facultyId  String
 
-  day         DayOfWeek
-  startTime   String
-  endTime     String
-  roomNo      String?
+  day       DayOfWeek
+  startTime String
+  endTime   String
+  roomNo    String?
 
-  sessionType SessionType   @default(LECTURE)
-  isActive    Boolean       @default(true)
+  sessionType SessionType @default(LECTURE)
+  isActive    Boolean     @default(true)
 
-  createdAt   DateTime      @default(now())
+  createdAt DateTime @default(now())
 
-  course       Course        @relation(fields: [courseId], references: [id])
-  faculty      FacultyMember @relation(fields: [facultyId], references: [id])
-  section      Section       @relation(fields: [sectionId], references: [id])
-  semester     Semester      @relation(fields: [semesterId], references: [id])
+  course   Course        @relation(fields: [courseId], references: [id])
+  faculty  FacultyMember @relation(fields: [facultyId], references: [id])
+  section  Section       @relation(fields: [sectionId], references: [id])
+  semester Semester      @relation(fields: [semesterId], references: [id])
 
   // Phase 15
-  attendance   Attendance[]
+  attendance Attendance[]
 
   @@index([tenantId])
   @@index([semesterId])
@@ -616,36 +620,35 @@ model Timetable {
 }
 
 model Attendance {
-  id            String           @id @default(cuid())
+  id String @id @default(cuid())
 
-  tenantId      String
-  studentId     String
-  facultyId     String?
-  sectionId     String?
-  courseId      String?
+  tenantId  String
+  studentId String
+  facultyId String?
+  sectionId String?
+  courseId  String?
 
-  timetableId   String?
+  timetableId String?
 
-  date          DateTime         @db.Date
+  date DateTime @db.Date
 
-  status        AttendanceStatus @default(PRESENT)
+  status AttendanceStatus @default(PRESENT)
 
-  sessionType   SessionType      @default(LECTURE)
+  sessionType SessionType @default(LECTURE)
 
-  source        AttendanceSource @default(MANUAL)
+  source AttendanceSource @default(MANUAL)
 
-  remarks       String?
+  remarks String?
 
-  markedAt      DateTime         @default(now())
-  markedBy      String?
+  markedAt DateTime @default(now())
+  markedBy String?
 
-  student        Student          @relation(fields: [studentId], references: [id])
-  faculty        FacultyMember?   @relation(fields: [facultyId], references: [id])
-  section        Section?         @relation(fields: [sectionId], references: [id])
-  timetable      Timetable?       @relation(fields: [timetableId], references: [id])
+  student   Student        @relation(fields: [studentId], references: [id])
+  faculty   FacultyMember? @relation(fields: [facultyId], references: [id])
+  section   Section?       @relation(fields: [sectionId], references: [id])
+  timetable Timetable?     @relation(fields: [timetableId], references: [id])
 
   @@unique([studentId, courseId, date, sessionType])
-
   @@index([tenantId])
   @@index([studentId])
   @@index([courseId])
@@ -726,23 +729,53 @@ model Examination {
 }
 
 model ExamResult {
-  id            String      @id @default(cuid())
+  id            String    @id @default(cuid())
   examinationId String
   studentId     String
-  marksObtained Decimal?    @db.Decimal(6, 2)
+  marksObtained Decimal?  @db.Decimal(6, 2)
   grade         String?
-  gradePoint    Decimal?    @db.Decimal(4, 2)
+  gradePoint    Decimal?  @db.Decimal(4, 2)
   isPassed      Boolean?
-  isAbsent      Boolean     @default(false)
+  isAbsent      Boolean   @default(false)
   remarks       String?
   publishedAt   DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  examination   Examination @relation(fields: [examinationId], references: [id])
-  student       Student     @relation(fields: [studentId], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  examination Examination @relation(fields: [examinationId], references: [id])
+  student     Student     @relation(fields: [studentId], references: [id])
 
   @@unique([examinationId, studentId])
   @@index([studentId])
+}
+
+model EvaluationScheme {
+  id String @id @default(cuid())
+
+  tenantId    String
+  name        String
+  code        String
+  description String?
+
+  academicYearId String?
+  programmeId    String?
+  semesterId     String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id])
+  programme    Programme?    @relation(fields: [programmeId], references: [id])
+  semester     Semester?     @relation(fields: [semesterId], references: [id])
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([academicYearId])
+  @@index([programmeId])
+  @@index([semesterId])
 }
 
 model FeeStructure {
@@ -1061,6 +1094,15 @@ enum AttendanceStatus {
   EXCUSED
 }
 
+enum AttendanceSource {
+  MANUAL
+  BIOMETRIC
+  RFID
+  QR
+  FACE
+  IMPORT
+}
+
 enum AssignmentType {
   HOMEWORK
   PROJECT
@@ -1196,4 +1238,46 @@ enum DocumentType {
   INCOME_CERTIFICATE
   CATEGORY_CERTIFICATE
   OTHER
+}
+
+enum EvaluationComponentType {
+  THEORY
+  PRACTICAL
+  VIVA
+  LAB
+  ASSIGNMENT
+  QUIZ
+  ATTENDANCE
+  PROJECT
+  SEMINAR
+  PRESENTATION
+  INTERNAL
+  EXTERNAL
+  CUSTOM
+}
+
+enum EvaluationRuleType {
+  SUM
+  AVERAGE
+  BEST_OF
+  DROP_LOWEST
+  WEIGHTED
+}
+
+enum GradeCalculationMethod {
+  ABSOLUTE
+  RELATIVE
+}
+
+enum ResultPublicationStatus {
+  DRAFT
+  VERIFIED
+  APPROVED
+  PUBLISHED
+}
+
+enum TranscriptStatus {
+  GENERATED
+  VERIFIED
+  ISSUED
 }
