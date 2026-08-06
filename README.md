@@ -297,48 +297,26 @@ Current attendance only stores records. This phase introduces attendance intelli
 
 ---
 
-## Phase 16 — Advanced Result Management
+## Phase 16 — Enterprise Academic Evaluation & Result Management
 
-### Importance
-
-Current examination module stores only examination results. This phase introduces complete semester-wise academic performance management.
-
-### Roles
-
-- UNIVERSITY_ADMIN
-- DEPARTMENT_HOD
-- FACULTY
-- STUDENT
-- PARENT
-
-### Features
-
-- ST1
-- ST2
-- PUT
-- University Theory
-- Practical
-- Viva
-- Attendance Marks
-- Faculty Evaluation
-- Internal Marks
-- External Marks
-- SGPA
-- CGPA
-- Grade Card
-- Rank
-- Result Analytics
-
-| Method | Route | Description |
-|---|---|---|
-| GET | `/api/results/student/[studentId]` | Complete result |
-| GET | `/api/results/semester/[semesterId]` | Semester result |
-| GET | `/api/results/analytics/[studentId]` | Result analytics |
-| POST | `/api/results/internal` | Upload internal marks |
-| POST | `/api/results/external` | Upload external marks |
-| GET | `/api/results/transcript/[studentId]` | Final transcript |
-
----
+Method | Route | Description
+-------|-------|------------
+GET/POST | /api/evaluation-schemes | List / create evaluation schemes
+GET/PATCH/DELETE | /api/evaluation-schemes/[id] | Manage evaluation scheme
+POST | /api/evaluation-schemes/[id]/activate | Activate evaluation scheme
+POST | /api/evaluation-schemes/[id]/archive | Archive evaluation scheme
+GET/POST | /api/evaluation-schemes/[id]/components | List / create evaluation components
+GET/PATCH/DELETE | /api/evaluation-schemes/[id]/components/[componentId] | Manage evaluation component
+GET/POST | /api/evaluation-schemes/[id]/rules | List / create evaluation rules
+GET/PATCH/DELETE | /api/evaluation-schemes/[id]/rules/[ruleId] | Manage evaluation rule
+GET/POST | /api/evaluation-schemes/[id]/passing-criteria | List / create passing criteria
+GET/PATCH/DELETE | /api/evaluation-schemes/[id]/passing-criteria/[criterionId] | Manage passing criterion
+POST | /api/results/internal | Upload internal assessment marks
+POST | /api/results/external | Upload university/external examination marks
+GET | /api/results/student/[studentId] | Complete student result
+GET | /api/results/semester/[semesterId] | Semester results
+GET | /api/results/analytics/[studentId] | Student result analytics
+GET | /api/results/transcript/[studentId] | Final transcript---
 
 ## Phase 17 — Student Finance Portal
 
