@@ -27,6 +27,22 @@ export const ROLES = {
   HOD: "HOD",
   FACULTY: "FACULTY",
   STUDENT: "STUDENT",
+  PARENT: "PARENT",
+
+  // Phase 16 — the two roles the Advanced Result Management phase names but
+  // that existed nowhere in the project: not in prisma/seed.ts ALL_ROLES, not
+  // here, and not in any route guard.
+  //
+  // CONTROLLER_OF_EXAMINATION owns the examination lifecycle: it is the role
+  // that authorises an evaluation regulation and, later, publishes results.
+  //
+  // DEPARTMENT_HOD is spelled as the Phase 16 specification names it. The
+  // pre-existing HOD above is retained untouched because UNIVERSITY_ROLES and
+  // homeRouteForRoles already branch on it and renaming it would change
+  // frontend portal routing. The duplicate vocabulary is recorded as debt to
+  // be converged in a dedicated pass, not silently resolved here.
+  CONTROLLER_OF_EXAMINATION: "CONTROLLER_OF_EXAMINATION",
+  DEPARTMENT_HOD: "DEPARTMENT_HOD",
 } as const;
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
@@ -72,6 +88,9 @@ export function roleLabel(role: string): string {
     HOD: "Head of Department",
     FACULTY: "Faculty",
     STUDENT: "Student",
+    PARENT: "Parent",
+    CONTROLLER_OF_EXAMINATION: "Controller of Examination",
+    DEPARTMENT_HOD: "Head of Department",
   };
   // A tenant's custom role is title-cased rather than shown as raw SNAKE_CASE.
   return (
