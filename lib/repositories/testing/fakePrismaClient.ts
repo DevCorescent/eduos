@@ -106,6 +106,11 @@ export class FakePrismaClient {
       return { _max: { sequenceNumber: null } };
     }
 
+    if (operation === "count") {
+      // An unconfigured count reports an empty table, matching findMany above.
+      return 0;
+    }
+
     if (operation === "updateMany") {
       return { count: 1 };
     }
@@ -125,6 +130,7 @@ export class FakePrismaClient {
   private delegate(model: string) {
     return {
       findMany: async (args: Record<string, unknown>) => this.record(model, "findMany", args),
+      count: async (args: Record<string, unknown>) => this.record(model, "count", args),
       findFirst: async (args: Record<string, unknown>) => this.record(model, "findFirst", args),
       aggregate: async (args: Record<string, unknown>) => this.record(model, "aggregate", args),
       create: async (args: Record<string, unknown>) => this.record(model, "create", args),
@@ -182,5 +188,22 @@ export class FakePrismaClient {
 
   get studentComponentScore() {
     return this.delegate("studentComponentScore");
+  }
+
+  // --- Phase 17 finance delegates -------------------------------------------
+  //
+  // Added additively for the Student Finance read layer. The existing getters
+  // above are untouched, so every prior suite behaves exactly as before.
+
+  get payment() {
+    return this.delegate("payment");
+  }
+
+  get feeDemand() {
+    return this.delegate("feeDemand");
+  }
+
+  get feeStructure() {
+    return this.delegate("feeStructure");
   }
 }
