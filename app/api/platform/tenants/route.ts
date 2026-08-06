@@ -81,7 +81,8 @@ export async function GET(request: NextRequest) {
         },
       })
     );
-  } catch (err) {
+  }
+   catch (err) {
     console.error("[GET /api/platform/tenants]", err);
     return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
   }

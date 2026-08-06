@@ -471,6 +471,7 @@ model Student {
   parents             StudentParent[]
   personal            StudentPersonal?
   courseRegistrations CourseRegistration[]
+  achievements        Achievement[]
 
   @@unique([tenantId, enrollmentNo])
   @@index([tenantId])
@@ -538,6 +539,80 @@ model StudentParent {
   student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
 
   @@id([studentId, parentId])
+}
+
+/// A student-claimed accomplishment: a prize, a publication, a competition
+/// placing, a certification earned outside the institution.
+///
+/// DELIBERATELY NOT A Certificate. Certificate is INSTITUTION-ISSUED — it has a
+/// template, a certificateNo, a verification QR and a revocation flag, and the
+/// university stands behind it. An Achievement is STUDENT-CLAIMED: the
+/// institution records it without asserting it. Conflating the two would put
+/// unverified claims inside the certificate verification path, which is the one
+/// place in this system that must never carry anything the university has not
+/// itself issued.
+///
+/// TENANCY, AND WHY IT IS WEAKER HERE THAN IN PHASE 16
+/// Phase 16 proves tenant ownership STRUCTURALLY with a composite foreign key
+/// -- @relation(fields: [tenantId, studentId], references: [tenantId, id]) --
+/// which requires @@unique([tenantId, id]) on the parent. Student does not
+/// carry that key, and adding it would build a new unique index on the students
+/// table: a modification to an existing table, which this phase forbids.
+///
+/// So tenantId is carried alongside a plain studentId foreign key, exactly as
+/// FeeDemand, Payment and StudentDocument already do. Cross-tenant consistency
+/// is therefore enforced by the REPOSITORY -- every query filters on both
+/// columns -- rather than by the database. That is a real and stated weakening,
+/// not an oversight; it can be tightened later by adding @@unique([tenantId, id])
+/// to Student in a phase permitted to alter it.
+model Achievement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// The student who holds it. Cascades on delete, matching StudentDocument and
+  /// StudentPersonal: an achievement has no meaning without its student, and
+  /// leaving orphans behind would corrupt every count on the profile portal.
+  studentId String
+
+  title String
+
+  /// A broad, institution-neutral grouping. An enum rather than free text for
+  /// the same reason DocumentType and CertificateType are enums: a portal has
+  /// to group these, and free text would give one tenant "Sports", "sports" and
+  /// "Sport" as three categories. OTHER plus `description` carries the tail.
+  category AchievementCategory
+
+  description String
+
+  /// Who awarded or conferred it — a body outside this institution, which is
+  /// what distinguishes an achievement from a Certificate.
+  issuer String
+
+  /// When it was achieved. Distinct from createdAt, which is when it was
+  /// entered: a student records a 2023 prize in 2026, and a profile must show
+  /// the former.
+  achievedOn DateTime
+
+  /// A certificate the ISSUER provided. Optional — many achievements have none.
+  certificateUrl String?
+
+  /// Supporting evidence: a results page, a publication DOI, a news link.
+  evidenceUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  /// The portal read, exactly: one student's achievements within one tenant,
+  /// newest first. Composite because this is a NEW table and can be indexed for
+  /// the query it actually serves -- unlike FeeDemand and Payment, which carry
+  /// separate single-column indexes this phase may not alter.
+  @@index([tenantId, studentId, achievedOn])
+  /// Supports the cascade on student deletion. PostgreSQL does not index a
+  /// foreign key automatically, and without this a student deletion would
+  /// sequentially scan this table.
+  @@index([studentId])
 }
 
 model FacultyMember {
@@ -2327,6 +2402,23 @@ enum BloodGroup {
   AB_NEG
   O_POS
   O_NEG
+}
+
+/// Broad groupings a student achievement falls into.
+///
+/// Institution-neutral on purpose: these must mean the same thing to every
+/// tenant, so nothing here names a competition, a society or a degree. A tenant
+/// needing finer granularity uses `title` and `description`, which are free
+/// text, rather than expecting this list to grow per university.
+enum AchievementCategory {
+  ACADEMIC
+  SPORTS
+  CULTURAL
+  TECHNICAL
+  RESEARCH
+  SOCIAL_SERVICE
+  PROFESSIONAL
+  OTHER
 }
 
 enum DocumentType {

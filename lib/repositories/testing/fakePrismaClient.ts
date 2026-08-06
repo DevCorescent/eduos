@@ -206,4 +206,29 @@ export class FakePrismaClient {
   get feeStructure() {
     return this.delegate("feeStructure");
   }
+
+  // --- Phase 18 profile delegates -------------------------------------------
+  //
+  // Added additively for the Student Profile Portal. Every getter above is
+  // untouched, so all prior suites behave exactly as before.
+
+  get achievement() {
+    return this.delegate("achievement");
+  }
+
+  get studentDocument() {
+    return this.delegate("studentDocument");
+  }
+
+  get studentParent() {
+    return this.delegate("studentParent");
+  }
+
+  get certificate() {
+    return this.delegate("certificate");
+  }
+
+  get notification() {
+    return this.delegate("notification");
+  }
 }

@@ -289,13 +289,24 @@ describe("StudentFinanceService — receipt not found", () => {
     const notFound = buildService({ receiptById: null });
     const notMine = buildService({ receiptById: null });
 
-    const errors = await Promise.all(
+    // Resolving is mapped to null so a SUCCESSFUL call is distinguishable from
+    // a raised one; previously the union of "DTO or AppError" left the
+    // assertions below reaching for properties the DTO branch does not have.
+    const outcomes: unknown[] = await Promise.all(
       [notFound, notMine].map(({ service }) =>
         service
           .getReceiptDetail(TENANT_ID, USER_ID, RECEIPT_ID)
-          .catch((err: unknown) => err as AppError)
+          .then((): unknown => null)
+          .catch((err: unknown) => err)
       )
     );
+
+    const errors = outcomes.map((outcome) => {
+      // Narrows to AppError, and strengthens the test while doing so: it now
+      // also proves the service RAISED rather than quietly returning a receipt.
+      assert.ok(outcome instanceof AppError, "the service resolved instead of raising");
+      return outcome;
+    });
 
     assert.equal(errors[0].statusCode, errors[1].statusCode);
     assert.equal(errors[0].message, errors[1].message);
