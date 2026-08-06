@@ -138,6 +138,8 @@ model User {
   evaluationSchemesCreated   EvaluationScheme[] @relation("EvaluationSchemeCreatedBy")
   evaluationSchemesActivated EvaluationScheme[] @relation("EvaluationSchemeActivatedBy")
 
+  openElectiveOfferingsCreated OpenElectiveOffering[]
+
   @@unique([tenantId, email])
   @@index([tenantId])
   @@index([email])
@@ -259,6 +261,8 @@ model Department {
   faculty    FacultyMember[]
   programmes Programme[]
 
+  openElectiveOfferings OpenElectiveOffering[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([campusId])
@@ -285,6 +289,8 @@ model Programme {
   specialisations     Specialisation[]
   courseRegistrations CourseRegistration[]
 
+  openElectiveEligibilities OpenElectiveEligibility[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([departmentId])
@@ -301,6 +307,8 @@ model Specialisation {
   createdAt   DateTime  @default(now())
   programme   Programme @relation(fields: [programmeId], references: [id])
   students    Student[]
+
+  openElectiveEligibilities OpenElectiveEligibility[]
 
   @@unique([tenantId, code])
   @@index([programmeId])
@@ -339,6 +347,8 @@ model Semester {
   timetables          Timetable[]
   courseRegistrations CourseRegistration[]
   assessmentEvents    AssessmentEvent[]
+
+  openElectiveOfferings OpenElectiveOffering[]
 
   @@unique([academicYearId, semesterNumber])
   @@index([tenantId])
@@ -437,6 +447,8 @@ model Course {
   courseRegistrations CourseRegistration[]
   assessmentEvents    AssessmentEvent[]
 
+  openElectiveOfferings OpenElectiveOffering[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([departmentId])
@@ -472,6 +484,9 @@ model Student {
   personal            StudentPersonal?
   courseRegistrations CourseRegistration[]
   achievements        Achievement[]
+
+  openElectivePreferences OpenElectivePreference[]
+  openElectiveAllocations OpenElectiveAllocation[]
 
   @@unique([tenantId, enrollmentNo])
   @@index([tenantId])
@@ -613,6 +628,214 @@ model Achievement {
   /// foreign key automatically, and without this a student deletion would
   /// sequentially scan this table.
   @@index([studentId])
+}
+
+/// One course offered as an open elective, in one semester, by one department.
+///
+/// THE MODEL PHASE 19 COULD NOT PROCEED WITHOUT.
+/// `Course.type = ELECTIVE` is a permanent property of a course, and
+/// `CurriculumSubject.isCompulsory = false` is programme curriculum design.
+/// Neither says "this course is available to other departments THIS semester
+/// with N seats", which is the entire subject of this phase.
+///
+/// SEATS ARE DERIVED, NEVER STORED.
+/// `totalSeats` is the CAPACITY the department declared. Seats REMAINING is
+/// `totalSeats - count(allocations where outcome = ALLOCATED)`, computed on
+/// read. A stored remaining-count is a cache that drifts the moment two
+/// allocations race, and a drifted seat count either oversubscribes a room or
+/// refuses a student who should have been admitted.
+model OpenElectiveOffering {
+  id       String @id @default(cuid())
+  tenantId String
+
+  courseId   String
+  semesterId String
+
+  /// The department that OWNS this offering. Not derived from Course.departmentId
+  /// because a course may be co-owned or transferred, and the offering's owner
+  /// is who answers for its seats in the semester it was offered.
+  offeringDepartmentId String
+
+  /// The regulation that will grade it.
+  ///
+  /// Carried HERE because CourseRegistration.evaluationSchemeId is NOT NULL and
+  /// an open elective is taken outside the student's own programme — so the
+  /// student's own scheme is the wrong answer. Per the Phase 19 decision,
+  /// evaluation follows the OFFERING department's scheme, and recording it on
+  /// the offering is what makes that reproducible after the scheme is
+  /// superseded.
+  evaluationSchemeId String
+
+  /// Capacity the department declared. Remaining seats are derived from this.
+  totalSeats Int
+
+  status OpenElectiveStatus @default(DRAFT)
+
+  allocationStrategy ElectiveAllocationStrategy @default(FCFS)
+
+  statusChangedAt DateTime @default(now())
+
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course     Course     @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  semester   Semester   @relation(fields: [semesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  department Department @relation(fields: [offeringDepartmentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy  User?      @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// Composite, tenant-proving: EvaluationScheme carries @@unique([tenantId, id]),
+  /// so an offering cannot cite another tenant's regulation. The same pattern
+  /// CourseRegistration already uses for the same column.
+  evaluationScheme EvaluationScheme @relation(fields: [tenantId, evaluationSchemeId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  eligibility OpenElectiveEligibility[]
+  preferences OpenElectivePreference[]
+  allocations OpenElectiveAllocation[]
+
+  /// One offering per course per semester. A second would split its seats into
+  /// two pools nobody could reconcile.
+  @@unique([courseId, semesterId])
+  /// Lets every child table below prove tenant ownership STRUCTURALLY through a
+  /// composite foreign key, rather than by a predicate a query could forget.
+  /// Available here because this is a new table; Student could not be given the
+  /// same key without altering an existing one.
+  @@unique([tenantId, id])
+  /// The catalogue read: which electives are open, in this semester, for this
+  /// tenant.
+  @@index([tenantId, semesterId, status])
+  @@index([offeringDepartmentId])
+}
+
+/// One positive rule about who may take an offering.
+///
+/// ABSENCE OF ROWS MEANS UNRESTRICTED. A row is an ALLOW rule, and multiple
+/// rows are OR-ed: "open to CSE" plus "open to ECE semester 5" admits both.
+/// Modelling restrictions as rows rather than as JSON on the offering is what
+/// makes "which electives can THIS student see" a query rather than a scan
+/// through blobs in application memory.
+///
+/// All three narrowing columns are nullable, and each null means "any":
+/// programmeId null = any programme, specialisationId null = any branch,
+/// semesterNumber null = any semester.
+model OpenElectiveEligibility {
+  id       String @id @default(cuid())
+  tenantId String
+
+  offeringId String
+
+  /// Null means any programme.
+  programmeId String?
+
+  /// Null means any branch. "Branch" is Specialisation, per the Phase 19 decision.
+  specialisationId String?
+
+  /// Null means any semester. The student's currentSemester, not a Semester id.
+  semesterNumber Int?
+
+  createdAt DateTime @default(now())
+
+  offering       OpenElectiveOffering @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+  programme      Programme?           @relation(fields: [programmeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  specialisation Specialisation?      @relation(fields: [specialisationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Reading one offering's rules, and supporting the cascade.
+  @@index([tenantId, offeringId])
+  /// NOT declared unique. PostgreSQL treats NULLs as DISTINCT in a unique
+  /// constraint, so (offering, null, null, null) could be inserted twice and
+  /// the constraint would permit it — a guarantee that holds for some rows and
+  /// not others is worse than none. Duplicate-rule prevention is the service's,
+  /// and is stated there rather than implied here.
+  @@index([programmeId])
+  @@index([specialisationId])
+}
+
+/// One student's ranked wish for one offering.
+///
+/// CourseRegistration cannot express any of this: it has no rank, no notion of
+/// an unfulfilled wish, and cannot hold three competing choices for one slot.
+/// This table is the input to allocation; CourseRegistration is its output.
+model OpenElectivePreference {
+  id       String @id @default(cuid())
+  tenantId String
+
+  studentId  String
+  offeringId String
+
+  /// Denormalised from the offering.
+  ///
+  /// Carried here ONLY so the rank-uniqueness constraint below can be
+  /// expressed — a unique index cannot reach through a relation. The service
+  /// copies it from the offering and must keep the two consistent; that is a
+  /// stated obligation, not an invariant the database enforces.
+  semesterId String
+
+  /// 1 is the most preferred. Ordering is ALWAYS honoured before any
+  /// tie-breaking strategy.
+  preferenceRank Int
+
+  /// When the student submitted. The FCFS tie-breaker reads this, which is why
+  /// it is a column rather than a reliance on createdAt semantics.
+  submittedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student  Student              @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  offering OpenElectiveOffering @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// A student cannot rank one offering twice.
+  @@unique([studentId, offeringId])
+  /// A student cannot spend one rank on two offerings in the same semester.
+  /// This is the constraint the denormalised semesterId exists to make
+  /// expressible.
+  @@unique([studentId, semesterId, preferenceRank])
+  /// The allocation read: every preference for one offering, in rank order,
+  /// with the FCFS tie-breaker available on the same index.
+  @@index([tenantId, offeringId, preferenceRank, submittedAt])
+}
+
+/// What an allocation run concluded for one student at one offering.
+///
+/// AUDIT AND HISTORY ONLY. The enrolment itself is a CourseRegistration with
+/// RegistrationType.OPEN_ELECTIVE — this table never becomes a second source of
+/// truth about who is enrolled. It exists because CourseRegistration cannot
+/// record WHICH PREFERENCE RANK was satisfied, and cannot record a student who
+/// received nothing; without both, an allocation report cannot be produced and
+/// a disputed outcome cannot be explained.
+model OpenElectiveAllocation {
+  id       String @id @default(cuid())
+  tenantId String
+
+  offeringId String
+  studentId  String
+
+  /// The rank this allocation satisfied. Recorded for ALLOCATED and
+  /// NOT_ALLOCATED alike, because "you were refused at rank 1" and "you were
+  /// refused at rank 4" are different answers to the same complaint.
+  preferenceRank Int
+
+  outcome ElectiveAllocationOutcome
+
+  /// The enrolment this produced. Null exactly when outcome is NOT_ALLOCATED.
+  courseRegistrationId String?
+
+  allocatedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  offering           OpenElectiveOffering @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+  student            Student              @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  courseRegistration CourseRegistration?  @relation(fields: [courseRegistrationId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// One verdict per student per offering. A re-run must replace the previous
+  /// verdict rather than accumulate a second one beside it.
+  @@unique([offeringId, studentId])
+  /// The seat count and the allocation report both read this shape.
+  @@index([tenantId, offeringId, outcome])
+  @@index([studentId])
+  @@index([courseRegistrationId])
 }
 
 model FacultyMember {
@@ -1161,6 +1384,8 @@ model EvaluationScheme {
   /// One revision number per named regulation per tenant. This REPLACES the
   /// previous @@unique([tenantId, code]), which made versioning impossible: a
   /// second revision would have collided with the first on the same code.
+  openElectiveOfferings OpenElectiveOffering[]
+
   @@unique([tenantId, code, version])
   /// Not a uniqueness rule — `id` is already unique. This is the TARGET of the
   /// self-relation above and of every composite foreign key that later cites a
@@ -1715,6 +1940,8 @@ model CourseRegistration {
   /// predicate no unique index can hold; the service enforces that, and it is
   /// the single check covering both duplicate registration and duplicate
   /// attempt.
+  openElectiveAllocations OpenElectiveAllocation[]
+
   @@unique([studentId, courseId, attemptNumber])
   /// Composite-FK target for the marks and result tables that will cite a
   /// registration. Declared now because adding a unique index to a
@@ -2419,6 +2646,56 @@ enum AchievementCategory {
   SOCIAL_SERVICE
   PROFESSIONAL
   OTHER
+}
+
+/// Lifecycle of an open-elective offering.
+///
+/// DRAFT     — being configured. Invisible to students; seats and eligibility
+///             may still change.
+/// OPEN      — students may submit and EDIT preferences. The only state in
+///             which a preference may be written.
+/// LOCKED    — preferences frozen. Nothing may be added, changed or withdrawn;
+///             the cohort is now fixed and allocation may run against it.
+/// ALLOCATED — allocation has run and seats are assigned. Terminal.
+///
+/// LOCKED precedes ALLOCATED deliberately: freezing the input set before
+/// computing against it is what makes an allocation reproducible. Allocating
+/// first and locking afterwards would compute against a set that could still
+/// move underneath the run.
+enum OpenElectiveStatus {
+  DRAFT
+  OPEN
+  LOCKED
+  ALLOCATED
+}
+
+/// How an offering breaks ties once preference order has been honoured.
+///
+/// Preference rank is ALWAYS respected first; this decides only what happens
+/// between two students competing at the same rank for the last seat.
+///
+/// FCFS  — the earlier `submittedAt` wins. Cheap and needs nothing beyond the
+///         preference row itself.
+/// MERIT — the higher CGPA wins, read from the result engine. Undefined for a
+///         first-semester student, which the service must handle rather than
+///         treating an absent CGPA as zero.
+///
+/// Stored on the offering because it is CONFIGURATION: two departments in one
+/// university may legitimately allocate differently, and neither is the
+/// engine's business to choose.
+enum ElectiveAllocationStrategy {
+  FCFS
+  MERIT
+}
+
+/// What an allocation run concluded for one student at one offering.
+///
+/// NOT_ALLOCATED rows are written, not omitted. A student who asked and was
+/// refused is the single most important row in an allocation report, and a
+/// table that recorded only winners could not answer "why did I not get it".
+enum ElectiveAllocationOutcome {
+  ALLOCATED
+  NOT_ALLOCATED
 }
 
 enum DocumentType {

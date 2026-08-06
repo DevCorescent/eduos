@@ -106,6 +106,11 @@ export class FakePrismaClient {
       return { _max: { sequenceNumber: null } };
     }
 
+    if (operation === "groupBy") {
+      // An unconfigured groupBy reports no groups, matching findMany above.
+      return [];
+    }
+
     if (operation === "count") {
       // An unconfigured count reports an empty table, matching findMany above.
       return 0;
@@ -131,6 +136,7 @@ export class FakePrismaClient {
     return {
       findMany: async (args: Record<string, unknown>) => this.record(model, "findMany", args),
       count: async (args: Record<string, unknown>) => this.record(model, "count", args),
+      groupBy: async (args: Record<string, unknown>) => this.record(model, "groupBy", args),
       findFirst: async (args: Record<string, unknown>) => this.record(model, "findFirst", args),
       aggregate: async (args: Record<string, unknown>) => this.record(model, "aggregate", args),
       create: async (args: Record<string, unknown>) => this.record(model, "create", args),
@@ -230,5 +236,26 @@ export class FakePrismaClient {
 
   get notification() {
     return this.delegate("notification");
+  }
+
+  // --- Phase 19 open-elective delegates -------------------------------------
+  //
+  // Added additively for Open Elective Management. Every getter above is
+  // untouched, so all prior suites behave exactly as before.
+
+  get openElectiveOffering() {
+    return this.delegate("openElectiveOffering");
+  }
+
+  get openElectiveEligibility() {
+    return this.delegate("openElectiveEligibility");
+  }
+
+  get openElectivePreference() {
+    return this.delegate("openElectivePreference");
+  }
+
+  get openElectiveAllocation() {
+    return this.delegate("openElectiveAllocation");
   }
 }
