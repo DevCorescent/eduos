@@ -7,9 +7,2072 @@ datasource db {
   provider = "postgresql"
 }
 
-// ─────────────────────────────────────────────
-// ENUMS
-// ─────────────────────────────────────────────
+model Tenant {
+  id                String                @id @default(cuid())
+  slug              String                @unique
+  name              String
+  type              InstitutionType       @default(UNIVERSITY)
+  status            TenantStatus          @default(TRIAL)
+  logoUrl           String?
+  faviconUrl        String?
+  primaryColor      String?
+  accentColor       String?
+  timezone          String                @default("Asia/Kolkata")
+  locale            String                @default("en")
+  country           String                @default("IN")
+  address           Json?
+  contactEmail      String?
+  contactPhone      String?
+  website           String?
+  accreditationNo   String?
+  establishedYear   Int?
+  settings          Json?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  academicYears     AcademicYear[]
+  auditLogs         AuditLog[]
+  campuses          Campus[]
+  certTemplates     CertificateTemplate[]
+  domains           Domain[]
+  idSequences       IdSequence[]
+  notifications     Notification[]
+  invoices          PlatformInvoice[]
+  roles             Role[]
+  subscriptions     Subscription[]
+  users             User[]
+  evaluationSchemes EvaluationScheme[]
+  gradeScales       GradeScale[]
+
+  @@index([slug])
+  @@index([status])
+}
+
+model Domain {
+  id        String     @id @default(cuid())
+  tenantId  String
+  domain    String     @unique
+  type      DomainType @default(SUBDOMAIN)
+  verified  Boolean    @default(false)
+  isPrimary Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([domain])
+}
+
+model Subscription {
+  id            String             @id @default(cuid())
+  tenantId      String
+  plan          SubscriptionPlan   @default(STARTER)
+  status        SubscriptionStatus @default(TRIAL)
+  billingCycle  BillingCycle       @default(MONTHLY)
+  startDate     DateTime
+  endDate       DateTime?
+  trialEndsAt   DateTime?
+  maxStudents   Int?
+  maxFaculty    Int?
+  maxStorage    BigInt?
+  features      Json?
+  pricePerMonth Decimal?           @db.Decimal(10, 2)
+  currency      String             @default("INR")
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  invoices      PlatformInvoice[]
+  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model PlatformInvoice {
+  id             String        @id @default(cuid())
+  tenantId       String
+  subscriptionId String?
+  invoiceNo      String        @unique
+  amount         Decimal       @db.Decimal(10, 2)
+  tax            Decimal       @default(0) @db.Decimal(10, 2)
+  total          Decimal       @db.Decimal(10, 2)
+  currency       String        @default("INR")
+  status         InvoiceStatus @default(DRAFT)
+  dueDate        DateTime?
+  paidAt         DateTime?
+  paymentRef     String?
+  notes          String?
+  lineItems      Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+  tenant         Tenant        @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+}
+
+model User {
+  id           String         @id @default(cuid())
+  tenantId     String
+  email        String
+  phone        String?
+  passwordHash String
+  firstName    String
+  lastName     String
+  displayName  String?
+  avatarUrl    String?
+  isActive     Boolean        @default(true)
+  isVerified   Boolean        @default(false)
+  lastLoginAt  DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  employee     Employee?
+  faculty      FacultyMember?
+  sessions     Session[]
+  student      Student?
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles    UserRole[]
+
+  // Phase 16 — back-relations for GradeScale governance attribution. Two
+  // relations to the same model must be named to be unambiguous.
+  gradeScalesCreated   GradeScale[] @relation("GradeScaleCreatedBy")
+  gradeScalesActivated GradeScale[] @relation("GradeScaleActivatedBy")
+
+  // Phase 16 — back-relations for EvaluationScheme governance attribution.
+  evaluationSchemesCreated   EvaluationScheme[] @relation("EvaluationSchemeCreatedBy")
+  evaluationSchemesActivated EvaluationScheme[] @relation("EvaluationSchemeActivatedBy")
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  refreshToken String?  @unique
+  expiresAt    DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Role {
+  id              String           @id @default(cuid())
+  tenantId        String
+  name            String
+  description     String?
+  isSystem        Boolean          @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Permission {
+  id              String           @id @default(cuid())
+  resource        String
+  action          String
+  scope           String           @default("*")
+  rolePermissions RolePermission[]
+
+  @@unique([resource, action, scope])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  grantedAt    DateTime   @default(now())
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model UserRole {
+  userId    String
+  roleId    String
+  scope     Json?
+  grantedAt DateTime @default(now())
+  grantedBy String?
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+model Campus {
+  id          String       @id @default(cuid())
+  tenantId    String
+  name        String
+  code        String
+  address     Json?
+  phone       String?
+  email       String?
+  isMain      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  departments Department[]
+  schools     School[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model School {
+  id          String       @id @default(cuid())
+  tenantId    String
+  campusId    String
+  name        String
+  code        String
+  deanName    String?
+  email       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  departments Department[]
+  campus      Campus       @relation(fields: [campusId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([campusId])
+}
+
+model Department {
+  id         String          @id @default(cuid())
+  tenantId   String
+  campusId   String
+  schoolId   String?
+  name       String
+  code       String
+  hodName    String?
+  email      String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  campus     Campus          @relation(fields: [campusId], references: [id])
+  school     School?         @relation(fields: [schoolId], references: [id])
+  faculty    FacultyMember[]
+  programmes Programme[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([campusId])
+}
+
+model Programme {
+  id                  String               @id @default(cuid())
+  tenantId            String
+  departmentId        String
+  name                String
+  code                String
+  type                ProgrammeType        @default(UNDERGRADUATE)
+  durationValue       Int
+  durationUnit        DurationUnit         @default(YEARS)
+  totalCredits        Int?
+  eligibility         String?
+  description         String?
+  isActive            Boolean              @default(true)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  batches             Batch[]
+  curricula           Curriculum[]
+  department          Department           @relation(fields: [departmentId], references: [id])
+  specialisations     Specialisation[]
+  courseRegistrations CourseRegistration[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([departmentId])
+}
+
+model Specialisation {
+  id          String    @id @default(cuid())
+  tenantId    String
+  programmeId String
+  name        String
+  code        String
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  programme   Programme @relation(fields: [programmeId], references: [id])
+  students    Student[]
+
+  @@unique([tenantId, code])
+  @@index([programmeId])
+}
+
+model AcademicYear {
+  id        String     @id @default(cuid())
+  tenantId  String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  isCurrent Boolean    @default(false)
+  createdAt DateTime   @default(now())
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batches   Batch[]
+  semesters Semester[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Semester {
+  id                  String               @id @default(cuid())
+  tenantId            String
+  academicYearId      String
+  name                String
+  semesterNumber      Int
+  startDate           DateTime
+  endDate             DateTime
+  isCurrent           Boolean              @default(false)
+  createdAt           DateTime             @default(now())
+  examinations        Examination[]
+  feeDemands          FeeDemand[]
+  sections            Section[]
+  academicYear        AcademicYear         @relation(fields: [academicYearId], references: [id])
+  timetables          Timetable[]
+  courseRegistrations CourseRegistration[]
+  assessmentEvents    AssessmentEvent[]
+
+  @@unique([academicYearId, semesterNumber])
+  @@index([tenantId])
+}
+
+model Batch {
+  id             String       @id @default(cuid())
+  tenantId       String
+  programmeId    String
+  academicYearId String
+  name           String
+  code           String
+  maxStrength    Int?
+  createdAt      DateTime     @default(now())
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  programme      Programme    @relation(fields: [programmeId], references: [id])
+  sections       Section[]
+  students       Student[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([programmeId])
+}
+
+model Section {
+  id                  String               @id @default(cuid())
+  tenantId            String
+  batchId             String
+  semesterId          String
+  name                String
+  maxStrength         Int?
+  createdAt           DateTime             @default(now())
+  attendance          Attendance[]
+  batch               Batch                @relation(fields: [batchId], references: [id])
+  semester            Semester             @relation(fields: [semesterId], references: [id])
+  students            Student[]
+  timetables          Timetable[]
+  courseRegistrations CourseRegistration[]
+  assessmentEvents    AssessmentEvent[]
+
+  @@unique([batchId, semesterId, name])
+  @@index([tenantId])
+}
+
+model Curriculum {
+  id            String              @id @default(cuid())
+  tenantId      String
+  programmeId   String
+  name          String
+  version       String
+  effectiveFrom DateTime
+  isActive      Boolean             @default(true)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  programme     Programme           @relation(fields: [programmeId], references: [id])
+  subjects      CurriculumSubject[]
+
+  @@unique([programmeId, version])
+  @@index([tenantId])
+}
+
+model CurriculumSubject {
+  id             String     @id @default(cuid())
+  curriculumId   String
+  courseId       String
+  semesterNumber Int
+  isCompulsory   Boolean    @default(true)
+  credits        Int
+  internalMarks  Int?
+  externalMarks  Int?
+  createdAt      DateTime   @default(now())
+  course         Course     @relation(fields: [courseId], references: [id])
+  curriculum     Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+
+  @@unique([curriculumId, courseId, semesterNumber])
+}
+
+model Course {
+  id                  String                    @id @default(cuid())
+  tenantId            String
+  departmentId        String?
+  name                String
+  code                String
+  type                CourseType                @default(CORE)
+  credits             Int                       @default(3)
+  description         String?
+  syllabus            String?
+  isActive            Boolean                   @default(true)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+  assignments         Assignment[]
+  curriculumSubjects  CurriculumSubject[]
+  examinations        Examination[]
+  facultyAssignments  FacultyCourseAssignment[]
+  timetables          Timetable[]
+  courseRegistrations CourseRegistration[]
+  assessmentEvents    AssessmentEvent[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([departmentId])
+}
+
+model Student {
+  id                  String                 @id @default(cuid())
+  tenantId            String
+  userId              String                 @unique
+  enrollmentNo        String
+  programmeId         String?
+  batchId             String?
+  sectionId           String?
+  specialisationId    String?
+  currentSemester     Int                    @default(1)
+  status              StudentStatus          @default(ACTIVE)
+  admissionDate       DateTime
+  graduationDate      DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  submissions         AssignmentSubmission[]
+  attendance          Attendance[]
+  certificates        Certificate[]
+  examResults         ExamResult[]
+  feeDemands          FeeDemand[]
+  payments            Payment[]
+  batch               Batch?                 @relation(fields: [batchId], references: [id])
+  section             Section?               @relation(fields: [sectionId], references: [id])
+  specialisation      Specialisation?        @relation(fields: [specialisationId], references: [id])
+  user                User                   @relation(fields: [userId], references: [id])
+  documents           StudentDocument[]
+  parents             StudentParent[]
+  personal            StudentPersonal?
+  courseRegistrations CourseRegistration[]
+
+  @@unique([tenantId, enrollmentNo])
+  @@index([tenantId])
+  @@index([batchId])
+  @@index([sectionId])
+}
+
+model StudentPersonal {
+  id               String      @id @default(cuid())
+  studentId        String      @unique
+  dateOfBirth      DateTime?
+  gender           Gender?
+  bloodGroup       BloodGroup?
+  nationality      String?
+  religion         String?
+  category         String?
+  motherTongue     String?
+  permanentAddr    Json?
+  localAddr        Json?
+  emergencyContact Json?
+  disability       Boolean     @default(false)
+  disabilityDesc   String?
+  updatedAt        DateTime    @updatedAt
+  student          Student     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+model StudentDocument {
+  id         String       @id @default(cuid())
+  studentId  String
+  type       DocumentType
+  fileName   String
+  fileUrl    String
+  fileSize   Int?
+  mimeType   String?
+  isVerified Boolean      @default(false)
+  verifiedBy String?
+  verifiedAt DateTime?
+  uploadedAt DateTime     @default(now())
+  student    Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+}
+
+model Parent {
+  id           String          @id @default(cuid())
+  tenantId     String
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String
+  occupation   String?
+  annualIncome Decimal?        @db.Decimal(12, 2)
+  relation     String
+  createdAt    DateTime        @default(now())
+  students     StudentParent[]
+
+  @@index([tenantId])
+}
+
+model StudentParent {
+  studentId String
+  parentId  String
+  isPrimary Boolean @default(false)
+  parent    Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  student   Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, parentId])
+}
+
+model FacultyMember {
+  id                String                    @id @default(cuid())
+  tenantId          String
+  userId            String                    @unique
+  employeeId        String
+  departmentId      String?
+  designation       String?
+  qualification     String?
+  specialization    String?
+  experience        Int?
+  status            EmployeeStatus            @default(ACTIVE)
+  joinDate          DateTime
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  attendance        Attendance[]
+  courseAssignments FacultyCourseAssignment[]
+  department        Department?               @relation(fields: [departmentId], references: [id])
+  user              User                      @relation(fields: [userId], references: [id])
+  timetables        Timetable[]
+  assessmentEvents  AssessmentEvent[]
+
+  @@unique([tenantId, employeeId])
+  @@index([tenantId])
+  @@index([departmentId])
+}
+
+model FacultyCourseAssignment {
+  id         String        @id @default(cuid())
+  tenantId   String
+  facultyId  String
+  courseId   String
+  sectionId  String?
+  semesterId String?
+  isActive   Boolean       @default(true)
+  createdAt  DateTime      @default(now())
+  course     Course        @relation(fields: [courseId], references: [id])
+  faculty    FacultyMember @relation(fields: [facultyId], references: [id])
+
+  @@unique([facultyId, courseId, sectionId, semesterId])
+  @@index([tenantId])
+}
+
+model Employee {
+  id           String         @id @default(cuid())
+  tenantId     String
+  userId       String         @unique
+  employeeId   String
+  departmentId String?
+  designation  String?
+  type         EmployeeType   @default(NON_TEACHING)
+  status       EmployeeStatus @default(ACTIVE)
+  joinDate     DateTime
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  user         User           @relation(fields: [userId], references: [id])
+
+  @@unique([tenantId, employeeId])
+  @@index([tenantId])
+}
+
+model Timetable {
+  id String @id @default(cuid())
+
+  tenantId   String
+  semesterId String
+  sectionId  String
+  courseId   String
+  facultyId  String
+
+  day       DayOfWeek
+  startTime String
+  endTime   String
+  roomNo    String?
+
+  sessionType SessionType @default(LECTURE)
+  isActive    Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+
+  course   Course        @relation(fields: [courseId], references: [id])
+  faculty  FacultyMember @relation(fields: [facultyId], references: [id])
+  section  Section       @relation(fields: [sectionId], references: [id])
+  semester Semester      @relation(fields: [semesterId], references: [id])
+
+  // Phase 15
+  attendance Attendance[]
+
+  @@index([tenantId])
+  @@index([semesterId])
+  @@index([sectionId])
+  @@index([courseId])
+  @@index([facultyId])
+  @@index([day])
+}
+
+model Attendance {
+  id String @id @default(cuid())
+
+  tenantId  String
+  studentId String
+  facultyId String?
+  sectionId String?
+  courseId  String?
+
+  timetableId String?
+
+  date DateTime @db.Date
+
+  status AttendanceStatus @default(PRESENT)
+
+  sessionType SessionType @default(LECTURE)
+
+  source AttendanceSource @default(MANUAL)
+
+  remarks String?
+
+  markedAt DateTime @default(now())
+  markedBy String?
+
+  student   Student        @relation(fields: [studentId], references: [id])
+  faculty   FacultyMember? @relation(fields: [facultyId], references: [id])
+  section   Section?       @relation(fields: [sectionId], references: [id])
+  timetable Timetable?     @relation(fields: [timetableId], references: [id])
+
+  @@unique([studentId, courseId, date, sessionType])
+  @@index([tenantId])
+  @@index([studentId])
+  @@index([courseId])
+  @@index([sectionId])
+  @@index([facultyId])
+  @@index([timetableId])
+  @@index([date])
+}
+
+model Assignment {
+  id          String                 @id @default(cuid())
+  tenantId    String
+  courseId    String
+  sectionId   String?
+  createdBy   String
+  title       String
+  description String?
+  type        AssignmentType         @default(HOMEWORK)
+  status      AssignmentStatus       @default(DRAFT)
+  maxMarks    Int                    @default(100)
+  dueDate     DateTime?
+  publishedAt DateTime?
+  attachments Json?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+  course      Course                 @relation(fields: [courseId], references: [id])
+  submissions AssignmentSubmission[]
+
+  @@index([tenantId])
+  @@index([courseId])
+}
+
+model AssignmentSubmission {
+  id           String           @id @default(cuid())
+  assignmentId String
+  studentId    String
+  status       SubmissionStatus @default(PENDING)
+  submittedAt  DateTime?
+  attachments  Json?
+  marks        Int?
+  feedback     String?
+  gradedAt     DateTime?
+  gradedBy     String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  assignment   Assignment       @relation(fields: [assignmentId], references: [id])
+  student      Student          @relation(fields: [studentId], references: [id])
+
+  @@unique([assignmentId, studentId])
+  @@index([studentId])
+}
+
+model Examination {
+  id           String          @id @default(cuid())
+  tenantId     String
+  semesterId   String
+  courseId     String
+  title        String
+  type         ExaminationType @default(INTERNAL)
+  status       ExamStatus      @default(SCHEDULED)
+  date         DateTime?
+  startTime    String?
+  endTime      String?
+  venue        String?
+  maxMarks     Int             @default(100)
+  passMark     Int?
+  duration     Int?
+  instructions String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  results      ExamResult[]
+  course       Course          @relation(fields: [courseId], references: [id])
+  semester     Semester        @relation(fields: [semesterId], references: [id])
+
+  @@index([tenantId])
+  @@index([semesterId])
+  @@index([courseId])
+}
+
+model ExamResult {
+  id            String    @id @default(cuid())
+  examinationId String
+  studentId     String
+  marksObtained Decimal?  @db.Decimal(6, 2)
+  grade         String?
+  gradePoint    Decimal?  @db.Decimal(4, 2)
+  isPassed      Boolean?
+  isAbsent      Boolean   @default(false)
+  remarks       String?
+  publishedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  examination Examination @relation(fields: [examinationId], references: [id])
+  student     Student     @relation(fields: [studentId], references: [id])
+
+  @@unique([examinationId, studentId])
+  @@index([studentId])
+}
+
+/// Phase 16 — Component 1.
+///
+/// A versioned, tenant-owned grading vocabulary: the rule that turns a
+/// percentage into a grade letter and a grade point.
+///
+/// OWNERSHIP    : Tenant. One tenant may run several concurrent scales (an
+///                undergraduate 10-point scale and a doctoral pass/fail scale)
+///                distinguished by `code`.
+/// LIFECYCLE    : DRAFT -> ACTIVE -> ARCHIVED. A scale is freely editable only
+///                while DRAFT. Activation freezes the row and every GradeBand
+///                beneath it; a regulation change is a NEW version, never an
+///                edit, so a grade card issued in 2019 can always be recomputed
+///                from the exact bands that produced it.
+/// VERSIONING   : (tenantId, code) names the scale; `version` names the
+///                revision. Result rows reference a specific GradeScale.id —
+///                that is, one immutable revision — which is what makes a
+///                historical result reproducible.
+/// SOURCE OF    : The mapping percentage -> grade -> gradePoint, and nothing
+/// TRUTH          else. It owns no marks, no results and no weightage.
+model GradeScale {
+  id String @id @default(cuid())
+
+  tenantId String
+
+  /// Stable identifier of the scale ACROSS versions, e.g. "UG-10-POINT".
+  /// Two rows sharing a code are two revisions of one regulation.
+  code String
+
+  name        String
+  description String?
+
+  /// Revision number within (tenantId, code), starting at 1. Never reused:
+  /// a superseded version keeps its number forever.
+  version Int @default(1)
+
+  status GradeScaleStatus @default(DRAFT)
+
+  /// ABSOLUTE maps a percentage directly through the bands. RELATIVE ranks the
+  /// cohort first and assigns bands by position. The enum is the branch the
+  /// engine dispatches on, so it is a column, never JSON.
+  method GradeCalculationMethod @default(ABSOLUTE)
+
+  /// Parameters for `method`, read only AFTER the engine has branched on it —
+  /// the one sanctioned use of JSON in this design.
+  ///
+  /// ABSOLUTE : must be null. The bands are the entire rule.
+  /// RELATIVE : { "cohortScope": "SECTION" | "BATCH" | "COURSE",
+  ///              "minCohortSize": number,
+  ///              "distribution": [{ "grade": string, "topPercent": number }],
+  ///              "fallbackToAbsolute": boolean }
+  ///
+  /// Nothing here is ever filtered or aggregated on, which is precisely why it
+  /// is not modelled as columns. The shape is enforced by Zod at the service
+  /// boundary, not by the database.
+  methodConfig Json?
+
+  /// The scale's ceiling — 10.00 on an Indian scale, 4.00 on a US one. Stored
+  /// because SGPA/CGPA must be normalisable across scales when a student
+  /// transfers, and because no band may declare a gradePoint above it.
+  maxGradePoint Decimal @db.Decimal(4, 2)
+
+  /// The revision that replaced this one. Null on the newest revision and on a
+  /// version retired without a successor, so it is NOT derivable from `status`.
+  supersededById String?
+
+  activatedAt   DateTime?
+  activatedById String?
+  archivedAt    DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Tenancy anchor. Cascade matches the treatment of every other tenant-owned
+  /// configuration root (Role, Campus, AcademicYear, IdSequence): removing a
+  /// university removes its regulations.
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Governance attribution: who drafted this revision, and who authorised it.
+  /// Both are nullable with SetNull because DELETE /api/users/[id] is a hard
+  /// delete that a Restrict here would start rejecting — an existing endpoint
+  /// this component must not alter. The permanent, actor-preserving record is
+  /// AuditLog, whose userId deliberately carries no foreign key and therefore
+  /// survives the user row.
+  createdBy   User? @relation("GradeScaleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  activatedBy User? @relation("GradeScaleActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+
+  /// Version chain, tenant-scoped by construction: the composite key proves a
+  /// revision can only ever be superseded by a revision of the SAME tenant.
+  ///
+  /// NoAction rather than Restrict is deliberate and load-bearing. PostgreSQL
+  /// checks NO ACTION at end-of-statement and RESTRICT immediately, so under
+  /// NoAction a tenant-level cascade deletes an entire version chain in one
+  /// statement, while Restrict would abort it on the first still-referenced
+  /// ancestor.
+  supersededBy GradeScale?  @relation("GradeScaleVersion", fields: [tenantId, supersededById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  supersedes   GradeScale[] @relation("GradeScaleVersion")
+
+  bands             GradeBand[]
+  evaluationSchemes EvaluationScheme[]
+
+  /// One revision number per named scale per tenant.
+  @@unique([tenantId, code, version])
+  /// Not a uniqueness rule — `id` is already unique. This is the TARGET of the
+  /// composite foreign keys above and in GradeBand, which is what makes a
+  /// cross-tenant reference structurally impossible rather than merely avoided.
+  @@unique([tenantId, id])
+  /// Serves the only two collection reads: "the active scales of this tenant"
+  /// and the status-filtered configuration list.
+  @@index([tenantId, status])
+  /// Serves the version-chain walk and the NO ACTION referential check, so
+  /// neither degrades to a sequential scan as the table accumulates revisions
+  /// across hundreds of tenants.
+  @@index([tenantId, supersededById])
+}
+
+/// Phase 16 — Component 1.
+///
+/// One row of a GradeScale: a percentage interval and the grade it awards.
+///
+/// OWNERSHIP    : GradeScale. A band has no meaning or lifecycle of its own and
+///                is deleted with its scale.
+/// LIFECYCLE    : Mutable only while the parent scale is DRAFT; frozen from
+///                activation onward. Bands are never edited in place on an
+///                ACTIVE scale — the scale is cloned to a new version instead.
+/// SOURCE OF    : The interval -> grade -> gradePoint mapping, plus whether the
+/// TRUTH          band clears the course and whether it enters the GPA. Credits
+///                earned are DERIVED (isPass ? registeredCredits : 0) and are
+///                deliberately not stored here.
+/// INTERVALS    : minPercent and maxPercent are BOTH inclusive. The bands of an
+///                ACTIVE scale must tile [0.00, 100.00] exactly, each band
+///                starting one step (0.01) above the previous band's ceiling.
+///                Decimal(5,2) is exact base-10, so this tiling has no gaps and
+///                no floating-point ambiguity — unlike a float interval, where
+///                a mark landing on a boundary could fall through every band.
+///                Totals are rounded to 2dp before lookup.
+model GradeBand {
+  id String @id @default(cuid())
+
+  /// Carried so the composite foreign key below can prove this band and its
+  /// scale belong to the same tenant. It is NOT a second ownership record: the
+  /// FK constrains it to equal GradeScale.tenantId, so the two cannot diverge.
+  tenantId     String
+  gradeScaleId String
+
+  /// The awarded symbol — "O", "A+", "P", "F", "W". Free text, because the
+  /// vocabulary is the university's and an enum here would make every new
+  /// grade letter a migration.
+  grade String
+
+  /// Human-readable expansion, e.g. "Outstanding".
+  label String?
+
+  minPercent Decimal @db.Decimal(5, 2)
+  maxPercent Decimal @db.Decimal(5, 2)
+
+  /// Points contributed per credit. Bounded above by GradeScale.maxGradePoint.
+  gradePoint Decimal @db.Decimal(4, 2)
+
+  /// Does this band clear the course? Drives backlog detection and credit
+  /// award. False for "F" and "W".
+  isPass Boolean @default(true)
+
+  /// Does this band enter the SGPA calculation? Independent of isPass, and the
+  /// two together express every real regulation without a third column:
+  ///   O/A/B  -> isPass true,  countsForGpa true   (ordinary graded pass)
+  ///   P, T   -> isPass true,  countsForGpa false  (pass-only, transfer credit)
+  ///   F (US) -> isPass false, countsForGpa true   (zero points, still in the
+  ///                                                credit denominator)
+  ///   F (IN) -> isPass false, countsForGpa false  (excluded until cleared)
+  ///   W      -> isPass false, countsForGpa false  (withdrawn)
+  countsForGpa Boolean @default(true)
+
+  /// Presentation order, 1 = highest band. Stored rather than derived from
+  /// minPercent so a scale may list non-percentage bands (W, I) in a chosen
+  /// position without implying an interval ordering.
+  sequence Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Composite parent key: a band can only attach to a scale of its own tenant,
+  /// enforced by the database rather than by application discipline. Cascade
+  /// because a band cannot outlive its scale.
+  gradeScale GradeScale @relation(fields: [tenantId, gradeScaleId], references: [tenantId, id], onDelete: Cascade)
+
+  /// One row per grade symbol per scale. Both columns are NOT NULL, so
+  /// PostgreSQL enforces this completely — unlike the nullable-column unique
+  /// constraints recorded as TD-001 and TD-003, where NULL-distinctness leaves
+  /// duplicates storable.
+  @@unique([gradeScaleId, grade])
+  /// Deterministic ordering. Without it two bands could share a position and a
+  /// grade card would order them differently between requests.
+  @@unique([gradeScaleId, sequence])
+  /// Composite-FK target, so a future CourseResult can record the exact band it
+  /// applied under the same tenant-proving constraint. No index is declared on
+  /// (tenantId, gradeScaleId): the unique index above leads with gradeScaleId
+  /// and the planner uses it for both the join and the cascade check, on a table
+  /// bounded at roughly a dozen rows per scale.
+  @@unique([tenantId, id])
+}
+
+/// Phase 16 — Component 2.
+///
+/// A versioned, tenant-owned ACADEMIC REGULATION: the named rulebook under
+/// which a course is evaluated. It answers "how are numbers computed and
+/// rounded, and against which grading vocabulary" — and nothing else.
+///
+/// OWNERSHIP    : Tenant. A university runs many regulations concurrently
+///                (B.Tech 2023, MBA 2024, MBBS 2021), distinguished by `code`.
+/// LIFECYCLE    : DRAFT -> ACTIVE -> ARCHIVED, identical in shape to
+///                GradeScale. Editable only while DRAFT. Activation freezes the
+///                row; a regulation change is a NEW version, never an edit, so a
+///                result computed in 2019 can be recomputed from the exact
+///                policy that produced it.
+/// VERSIONING   : (tenantId, code) names the regulation; `version` names the
+///                revision. Result rows will reference a specific
+///                EvaluationScheme.id — one immutable revision — which is what
+///                makes a historical SGPA reproducible.
+/// SOURCE OF    : Computation policy only — which grade scale applies, how
+/// TRUTH          repeated attempts are reconciled, and how marks and GPA are
+///                rounded. It owns NO thresholds (those are EvaluationRule),
+///                NO weightage (that is EvaluationComponent) and NO binding to
+///                courses (that is the scheme-assignment component).
+/// BOUNDARY     : Scheme = how a number is computed. Rule = what threshold that
+///                number must clear. Keeping the two apart is what stops a
+///                pass mark being expressible in two places at once.
+model EvaluationScheme {
+  id String @id @default(cuid())
+
+  tenantId String
+
+  /// Stable identifier of the regulation ACROSS versions, e.g. "BTECH-R2023".
+  /// Two rows sharing a code are two revisions of one rulebook.
+  code String
+
+  name        String
+  description String?
+
+  /// Revision number within (tenantId, code), starting at 1. Never reused: a
+  /// superseded revision keeps its number forever.
+  version Int @default(1)
+
+  status EvaluationSchemeStatus @default(DRAFT)
+
+  /// The grading vocabulary this regulation grades against — a specific,
+  /// immutable GradeScale REVISION, not a scale family. Required: a regulation
+  /// that cannot award a grade is not a regulation, and making it nullable
+  /// would force a "not determinable" branch through the entire engine.
+  gradeScaleId String
+
+  /// How a course sat more than once is reconciled when CGPA is computed.
+  /// A column and not JSON because the engine branches on it and because
+  /// "which regulations use BEST_ATTEMPT" is a question an examination
+  /// controller genuinely asks.
+  attemptPolicy AttemptPolicy @default(LATEST_ATTEMPT)
+
+  /// Rounding is versioned policy, not an implementation detail — it is the
+  /// arithmetic universities are challenged on, and a student who was awarded
+  /// 39.5 -> 40 must still be seen to have passed a decade later.
+  ///
+  /// Marks and GPA are rounded independently and deliberately: an institution
+  /// may round marks HALF_UP in the student's favour while rounding GPA
+  /// HALF_EVEN, which removes the systematic upward bias HALF_UP introduces
+  /// across a cohort average.
+  marksRounding  RoundingMode @default(HALF_UP)
+  marksPrecision Int          @default(2)
+  gpaRounding    RoundingMode @default(HALF_UP)
+  gpaPrecision   Int          @default(2)
+
+  /// The revision that replaced this one. Null on the newest revision and on a
+  /// revision retired without a successor, so it is NOT derivable from `status`.
+  supersededById String?
+
+  activatedAt   DateTime?
+  activatedById String?
+  archivedAt    DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  /// Tenancy anchor. Cascade matches GradeScale and every other tenant-owned
+  /// configuration root: removing a university removes its regulations.
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Composite key, so a regulation can only ever cite a grade scale of its own
+  /// tenant — proven by the database, not by application discipline.
+  ///
+  /// NoAction rather than Restrict for the reason established in C1: PostgreSQL
+  /// checks NO ACTION at end-of-statement and RESTRICT immediately. NoAction
+  /// still refuses a standalone delete of a cited GradeScale (protecting
+  /// reproducibility), while allowing a tenant-level cascade — which drops the
+  /// scheme and the scale in the same statement — to succeed. Restrict would
+  /// abort that cascade depending on the order rows happen to be removed in.
+  gradeScale GradeScale @relation(fields: [tenantId, gradeScaleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// Governance attribution: who drafted this revision, and who authorised it.
+  /// Nullable with SetNull for the reason established in C1 — DELETE
+  /// /api/users/[id] is a hard delete, and Restrict here would begin rejecting
+  /// it. The permanent, actor-preserving record is AuditLog.
+  createdBy   User? @relation("EvaluationSchemeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  activatedBy User? @relation("EvaluationSchemeActivatedBy", fields: [activatedById], references: [id], onDelete: SetNull)
+
+  /// Version chain, tenant-scoped by construction.
+  supersededBy EvaluationScheme?  @relation("EvaluationSchemeVersion", fields: [tenantId, supersededById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  supersedes   EvaluationScheme[] @relation("EvaluationSchemeVersion")
+
+  components EvaluationComponent[]
+
+  /// Policy transforms this regulation applies. Frozen with it on activation,
+  /// which is what keeps a historical result reproducible.
+  rules EvaluationRule[]
+
+  /// Minimum thresholds this regulation requires beyond a passing grade.
+  passingCriteria     PassingCriterion[]
+  courseRegistrations CourseRegistration[]
+
+  /// One revision number per named regulation per tenant. This REPLACES the
+  /// previous @@unique([tenantId, code]), which made versioning impossible: a
+  /// second revision would have collided with the first on the same code.
+  @@unique([tenantId, code, version])
+  /// Not a uniqueness rule — `id` is already unique. This is the TARGET of the
+  /// self-relation above and of every composite foreign key that later cites a
+  /// regulation revision, which is what makes a cross-tenant reference
+  /// structurally impossible.
+  @@unique([tenantId, id])
+  /// Serves the configuration list and the "active regulations" read.
+  @@index([tenantId, status])
+  /// Serves the version-chain walk and the NO ACTION referential check.
+  @@index([tenantId, supersededById])
+  /// Serves the composite foreign key's referencing side and the question an
+  /// administrator must answer before archiving a scale: "which regulations
+  /// still cite this grade scale revision?"
+  @@index([tenantId, gradeScaleId])
+}
+
+/// Phase 16 — Component 3.
+///
+/// One node of a regulation's assessment structure: an ordered tree whose
+/// leaves are the things a mark is entered against, and whose branches roll
+/// their children up by weight.
+///
+/// This tree IS the configurability requirement. "Internal 30 / Theory 70",
+/// "ST1 / ST2 / PUT / Assignment / Attendance / Practical / Viva" and
+/// "Clinical / Logbook / Viva" are the same model with different rows — no
+/// backend change, no migration, no enum edit.
+///
+/// OWNERSHIP    : EvaluationScheme. A component has no lifecycle of its own and
+///                is frozen, versioned and archived with its regulation.
+/// LIFECYCLE    : Mutable only while the owning scheme is DRAFT. Activation
+///                freezes the whole tree.
+/// SOURCE OF    : The structure, the weights and the aggregation rules. It owns
+/// TRUTH          no marks and no results.
+/// VALIDATION   : Per-node rules are checked on write. Whole-tree rules —
+///                sibling weights totalling 100, leaf/branch coherence, absence
+///                of cycles — are checked at ACTIVATION, not on insert, because
+///                a draft is legitimately incomplete while it is being built.
+model EvaluationComponent {
+  id String @id @default(cuid())
+
+  /// Carried so the composite foreign keys below can prove this node, its
+  /// scheme and its parent all belong to one tenant. Constrained by those keys
+  /// to equal the scheme's tenantId, so it is not a second ownership record.
+  tenantId String
+
+  schemeId          String
+  parentComponentId String?
+
+  /// Stable identifier within the scheme — "ST1", "THEORY", "LOGBOOK". Free
+  /// text, because the vocabulary is the university's; an enum here would make
+  /// every new component kind a migration, which is exactly what this phase
+  /// exists to avoid.
+  code String
+
+  name        String
+  description String?
+
+  /// Classification, never identity. `type` exists so reports and the
+  /// specification's internal/external upload routes can filter; what a
+  /// component IS, is its code. A medical college's logbook is
+  /// code "LOGBOOK", type CUSTOM — no schema change.
+  type EvaluationComponentType
+
+  /// Where this node's marks come from. This single column is what makes
+  /// "Attendance Marks" and "Faculty Evaluation" configurable rather than
+  /// coded: a node whose source is ATTENDANCE_DERIVED is never typed in, it is
+  /// computed from attendance by the engine using ruleConfig.
+  sourceType ComponentSource @default(MANUAL_ENTRY)
+
+  /// The raw scale a mark is entered on — ST1 out of 20.
+  maxMarks Decimal @db.Decimal(6, 2)
+
+  /// The percentage this node contributes to its PARENT's total, or to the
+  /// course total when it is a root.
+  ///
+  /// maxMarks and weightage are NOT two names for one number, which is what the
+  /// superseded draft made them. A quiz may be marked out of 10 and be worth 5%
+  /// of the course; separating the scale from the contribution is what lets one
+  /// model serve a university that marks internals out of 30 worth 30% and one
+  /// that marks them out of 50 worth 20%.
+  weightage Decimal @db.Decimal(5, 2)
+
+  /// How this node's own repeated sessions combine — three sittings of ST1
+  /// reduced to one figure. Meaningful on a LEAF only.
+  aggregation ComponentAggregation?
+
+  /// How this node's CHILDREN combine into its own figure. Meaningful on a
+  /// BRANCH only.
+  ///
+  /// The superseded draft had a single `ruleType` covering both, which
+  /// conflated two operators applied at two different levels of the tree and
+  /// left "best 2 of 3 tests" indistinguishable from "weighted sum of internal
+  /// and external".
+  rollup ComponentRollup?
+
+  /// Parameters for `aggregation` and `sourceType`, read only AFTER the engine
+  /// has branched on them — the one sanctioned use of JSON here.
+  ///
+  ///   { "count": number }            — BEST_N keeps N; DROP_LOWEST_N drops N.
+  ///   { "attendanceBands": [ { "minPercent": number, "marks": number } ] }
+  ///                                  — ATTENDANCE_DERIVED band table.
+  ///
+  /// Nothing in it is ever filtered or aggregated on, which is precisely why it
+  /// is not columns. The shape is enforced by Zod at the service boundary.
+  ruleConfig Json?
+
+  /// Presentation order among siblings.
+  sequence Int
+
+  /// Whether a missing mark blocks computation (mandatory) or is treated as not
+  /// attempted (optional). The engine branches on it, so it is a column.
+  isMandatory Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Owning regulation, tenant-proving. Cascade because a component cannot
+  /// outlive its scheme.
+  scheme EvaluationScheme @relation(fields: [tenantId, schemeId], references: [tenantId, id], onDelete: Cascade)
+
+  /// Parent node — a THREE-column composite key, and the extra column is the
+  /// point of it. Keying on (tenantId, schemeId, parentComponentId) makes it
+  /// structurally impossible for a node to be parented to a component of a
+  /// DIFFERENT REGULATION, not merely of a different tenant. The superseded
+  /// draft keyed on the bare id, so one scheme's tree could silently graft
+  /// itself onto another's.
+  ///
+  /// NoAction rather than Cascade, for the reason established in C1 and C2:
+  /// PostgreSQL defers NO ACTION to end-of-statement, so deleting a scheme —
+  /// or a whole subtree in one statement — succeeds, while a stray single-row
+  /// delete that would orphan children is still refused. Subtree deletion is
+  /// performed deliberately by the service, in one bulk statement, so the audit
+  /// entry records exactly which nodes went; a database cascade would remove
+  /// rows the audit log never sees.
+  parent   EvaluationComponent?  @relation("EvaluationComponentTree", fields: [tenantId, schemeId, parentComponentId], references: [tenantId, schemeId, id], onDelete: NoAction, onUpdate: NoAction)
+  children EvaluationComponent[] @relation("EvaluationComponentTree")
+  /// Rules that adjust this component's computed value.
+  rules    EvaluationRule[]
+
+  /// Minimum thresholds this component must independently meet.
+  passingCriteria  PassingCriterion[]
+  assessmentEvents AssessmentEvent[]
+
+  /// One code per scheme.
+  @@unique([schemeId, code])
+  /// One position per sibling group.
+  ///
+  /// NOTE — parentComponentId is nullable and PostgreSQL treats NULL as
+  /// distinct, so this constrains non-root siblings completely but leaves ROOT
+  /// components able to share a sequence. That is the TD-001 / TD-003 shape,
+  /// and here it is known and compensated rather than accidental: the service
+  /// enforces root ordering, and list order is (sequence, code) — total
+  /// regardless, because code is unique per scheme. A partial unique index is
+  /// available as migration hardening.
+  @@unique([schemeId, parentComponentId, sequence])
+  /// Composite-FK target for a future ComponentMark, which needs the tenant but
+  /// not the scheme.
+  @@unique([tenantId, id])
+  /// Composite-FK target for the parent relation above.
+  @@unique([tenantId, schemeId, id])
+  /// The module's only hot query: load one scheme's entire tree in a single
+  /// statement. Every tree operation is then performed in memory.
+  @@index([tenantId, schemeId])
+  /// Serves the parent relation's referencing side and the children lookup.
+  @@index([tenantId, parentComponentId])
+}
+
+/// Phase 16 — Component 4.
+///
+/// A POLICY TRANSFORM applied at a named stage of the calculation pipeline.
+///
+/// Read the boundary carefully, because it is the whole design:
+///
+///   EvaluationComponent answers "what is assessed, and how do its own numbers
+///   reduce to one figure" — structure, weight, order, and the intrinsic
+///   aggregation of a component's own sessions.
+///
+///   EvaluationRule answers "what does the regulation then DO to that figure" —
+///   scale it, cap it, add a bonus, award grace, moderate it against the
+///   cohort, or run a bespoke formula.
+///
+///   PassingCriteria (a later component) answers "what threshold must the
+///   result clear". No rule here owns a threshold.
+///
+///   GradeScale answers "how does a percentage become a grade".
+///
+/// A rule is therefore a pure numeric transformation: numbers in, one number
+/// out. It never reads a threshold, never assigns a grade, and never changes
+/// the shape of the tree.
+///
+/// OWNERSHIP    : EvaluationScheme. Rules are frozen, versioned and archived
+///                with the regulation, exactly like components — which is what
+///                makes a historical result reproducible: the rules that
+///                produced it cannot have changed.
+/// LIFECYCLE    : Mutable only while the owning scheme is DRAFT.
+/// PIPELINE     : (phase, sequence) is the execution order. Rules at one phase
+///                run in sequence, each consuming the previous one's output, so
+///                "add grace, then cap at the maximum" is two ordered rows
+///                rather than a special combined operator.
+model EvaluationRule {
+  id String @id @default(cuid())
+
+  /// Carried so the composite foreign keys below can prove the rule, its
+  /// scheme and its component all belong to one tenant.
+  tenantId String
+
+  schemeId String
+
+  /// The component whose value this rule transforms, or NULL when the rule
+  /// transforms the COURSE-LEVEL figure after every component has rolled up.
+  ///
+  /// The null is meaningful, not absent data: a curve applies to the course
+  /// result and to no single component, and modelling that as a second table
+  /// would duplicate every column to express one distinction.
+  componentId String?
+
+  /// Stable handle, unique within the scheme — "GRACE5", "MODERATE-2024".
+  ///
+  /// Not decoration. A computed result must be explainable years later, so the
+  /// computation trace records which rules touched a mark; a trace citing
+  /// cuids explains nothing to a registrar reading it.
+  code String
+
+  name        String
+  description String?
+
+  /// Which stage of the pipeline this rule runs at.
+  phase RulePhase
+
+  /// What the rule does. The engine dispatches on this, so it is a column.
+  operation RuleOperation
+
+  /// Order within (component, phase). Rules compose in this order.
+  sequence Int
+
+  /// Parameters for `operation`, read only AFTER the engine has dispatched on
+  /// it — the sanctioned use of JSON.
+  ///
+  ///   ADD_CONSTANT    { "amount": number }
+  ///   ADD_PERCENTAGE  { "percent": number }
+  ///   SCALE           { "factor": number }
+  ///   CAP / FLOOR     { "limit": number }
+  ///   GRACE           { "maxAward": number }
+  ///   MODERATION      { "targetMean": number, "targetStdDev": number }
+  ///   CURVE           { "distribution": [{ "grade": string, "topPercent": number }] }
+  ///   CUSTOM_FORMULA  { "expression": <restricted AST> }
+  ///
+  /// None of it is ever filtered or aggregated on, which is exactly why it is
+  /// not columns. Shape is enforced per operation by Zod at the service
+  /// boundary. CUSTOM_FORMULA carries a restricted, whitelisted expression tree
+  /// — never a source string, because nothing in this system will ever eval
+  /// tenant-supplied text.
+  config Json?
+
+  /// When the rule applies. NULL means unconditionally.
+  ///
+  /// This single column is what makes conditional policy expressible without a
+  /// redesign: grace marks are by definition conditional, and "a bonus only for
+  /// students above 90% attendance" is a predicate, not a new operator. Stored
+  /// as a restricted predicate tree for the same reason as `config`.
+  condition Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Owning regulation, tenant-proving. Cascade because a rule cannot outlive
+  /// the regulation that declares it.
+  scheme EvaluationScheme @relation(fields: [tenantId, schemeId], references: [tenantId, id], onDelete: Cascade)
+
+  /// Target component — a THREE-column key, so a rule can only ever target a
+  /// component of its OWN regulation and tenant. Reuses the
+  /// @@unique([tenantId, schemeId, id]) that C3 declared for its parent
+  /// relation.
+  ///
+  /// Cascade rather than NoAction, and this is the one place in Phase 16 where
+  /// that is the right answer: C3's component removal deletes a whole subtree
+  /// in a single bulk statement, and NoAction would refuse that statement the
+  /// moment any doomed component carried a rule. Cascade keeps the shipped
+  /// deletion path working untouched.
+  component EvaluationComponent? @relation(fields: [tenantId, schemeId, componentId], references: [tenantId, schemeId, id], onDelete: Cascade)
+
+  /// One handle per regulation. Also the index PostgreSQL uses to find a
+  /// scheme's rules, since it leads with schemeId.
+  @@unique([schemeId, code])
+  /// One rule per position in a pipeline stage.
+  ///
+  /// NOTE — componentId is nullable and PostgreSQL treats NULL as distinct, so
+  /// this constrains component-scoped rules completely but leaves COURSE-level
+  /// rules able to share a position. Same known-and-compensated shape as C3:
+  /// the service enforces course-level ordering, and execution order is
+  /// (sequence, code) — total regardless, because code is unique per scheme.
+  @@unique([schemeId, componentId, phase, sequence])
+  /// Composite-FK target for the computation trace that will record which rule
+  /// produced which adjustment.
+  @@unique([tenantId, id])
+}
+
+/// Phase 16 — Component 5.
+///
+/// A MINIMUM THRESHOLD a student must meet, beyond simply scoring well enough
+/// to be awarded a passing grade.
+///
+/// The boundary, stated precisely because this is the model most at risk of
+/// duplicating another:
+///
+///   GradeBand.isPass (C1) decides whether the COURSE TOTAL is a pass. The
+///   lowest passing band IS the overall pass mark; nothing here restates it.
+///
+///   PassingCriterion adds the constraints a total cannot express — a minimum
+///   in one component, a minimum attendance, a minimum credit count. These can
+///   only ever turn a pass into a failure, never the reverse.
+///
+///   EvaluationRule (C4) transforms numbers. It never reads a threshold. A
+///   GRACE rule is the one operation that consults one, and it is handed the
+///   threshold by the engine rather than owning it.
+///
+/// The final outcome is therefore: the grade band decides the grade, and every
+/// criterion must additionally hold. One authority per question.
+///
+/// OWNERSHIP    : EvaluationScheme. Criteria are frozen, versioned and archived
+///                with the regulation, so a historical pass/fail decision stays
+///                reproducible.
+/// LIFECYCLE    : Mutable only while the owning scheme is DRAFT.
+/// EVALUATION   : Criteria form a CONJUNCTION — every one must hold. There is
+///                deliberately no ordering column: unlike a rule pipeline,
+///                where sequence changes the arithmetic, evaluating a
+///                conjunction in a different order cannot change its result.
+model PassingCriterion {
+  id String @id @default(cuid())
+
+  /// Carried so the composite foreign keys below can prove the criterion, its
+  /// scheme and its component all belong to one tenant.
+  tenantId String
+
+  schemeId String
+
+  /// The component this threshold applies to. Required when metric is
+  /// COMPONENT_SCORE, and NULL for every other metric — attendance and credits
+  /// are properties of the student in the course or the semester, not of one
+  /// component.
+  ///
+  /// A meaningful null, not absent data: it is what distinguishes
+  /// "theory must reach 21" from "attendance must reach 75%".
+  componentId String?
+
+  /// Stable handle, unique within the scheme — "MIN-THEORY", "ATT-75".
+  ///
+  /// A failed result must state WHICH requirement was missed, years later, to a
+  /// registrar who will not accept a cuid as an explanation.
+  code String
+
+  name        String
+  description String?
+
+  /// What is measured. Determines both the quantity and the scope at which the
+  /// engine evaluates it — course-scoped or semester-scoped — so no separate
+  /// scope column exists to fall out of step with it.
+  metric PassingMetric
+
+  /// The minimum that must be reached. Decimal(6,2) matches the marks columns
+  /// in C3 and is exact base-10, so a threshold of 21.00 is compared without
+  /// binary rounding error.
+  threshold Decimal @db.Decimal(6, 2)
+
+  /// How `threshold` should be read.
+  ///
+  /// Not redundant with `metric`: a component minimum is genuinely expressible
+  /// either way — "21 out of 70" and "30%" are both real regulations — and the
+  /// two diverge the moment a later scheme version rescales the component. The
+  /// author's intent is stored rather than silently converted. The service
+  /// rejects an incoherent pairing, such as CREDITS on an attendance metric.
+  unit ThresholdUnit
+
+  /// What missing this threshold does to the student.
+  ///
+  /// Justified by a materially different consequence, not by symmetry: a
+  /// failure carries a backlog the student may clear by re-sitting, while
+  /// ineligibility bars them from sitting at all. Attendance shortfall is
+  /// almost always the latter, and some regulations treat an internal-marks
+  /// shortfall the same way — which is exactly why this cannot be derived from
+  /// `metric` and must be declared.
+  failureOutcome CriterionOutcome
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Owning regulation, tenant-proving. Cascade because a criterion cannot
+  /// outlive the regulation that declares it.
+  scheme EvaluationScheme @relation(fields: [tenantId, schemeId], references: [tenantId, id], onDelete: Cascade)
+
+  /// Target component — a THREE-column key, so a criterion can only ever
+  /// constrain a component of its OWN regulation and tenant. Cascade for the
+  /// same reason as C4: C3 removes a subtree in one bulk statement, and
+  /// NoAction would refuse that statement the moment a doomed component carried
+  /// a criterion.
+  component EvaluationComponent? @relation(fields: [tenantId, schemeId, componentId], references: [tenantId, schemeId, id], onDelete: Cascade)
+
+  /// One handle per regulation. Also the index PostgreSQL uses to load a
+  /// scheme's criteria, since it leads with schemeId — which is why no separate
+  /// [tenantId, schemeId] index is declared.
+  @@unique([schemeId, code])
+  /// Composite-FK target for the future result record that will name the
+  /// criterion a student missed.
+  @@unique([tenantId, id])
+  /// Serves the component cascade. Without it, deleting a component during
+  /// draft editing degrades to a sequential scan of every tenant's criteria.
+  /// Declared for that reason alone — the engine itself never queries by
+  /// component, because it loads a scheme's whole criterion set in one
+  /// statement and indexes it in memory.
+  @@index([schemeId, componentId])
+}
+
+/// Phase 16 — Component 5.5.
+///
+/// The immutable academic contract between a student and a course.
+///
+/// This is NOT a student-course mapping. It is the record every downstream
+/// engine depends on — internal assessment, external assessment, result
+/// calculation, transcript, promotion, backlog tracking, improvement,
+/// revaluation and degree audit all resolve "who was officially enrolled in
+/// what, under which regulation, on which attempt" from here and from nowhere
+/// else.
+///
+/// WHY IT EXISTS
+///   Before this model, a roster could only be derived from Student.sectionId.
+///   That column is a single nullable FK, and Section is unique on
+///   [batchId, semesterId, name] — so a section belongs to exactly one
+///   semester and the student's value is OVERWRITTEN when they advance. The
+///   derivation returns the right answer today and the wrong one next term,
+///   and the historical roster is destroyed rather than merely inconvenient.
+///   Student.sectionId must never again be used to derive an academic roster.
+///
+/// SNAPSHOTS
+///   Four academic facts are copied here at registration and never change:
+///   credits, the governing evaluation scheme, the programme, and the attempt
+///   number. Each is copied because its source is MUTABLE and the historical
+///   value is otherwise unrecoverable — Course.credits can be edited,
+///   Student.programmeId is overwritten on transfer.
+///
+///   Deliberately NOT snapshotted: the grade scale, because EvaluationScheme is
+///   immutable once ACTIVE and already pins gradeScaleId to one revision — a
+///   second copy could disagree with it. Course code and title are likewise not
+///   copied: they are presentation facts a transcript will snapshot when it
+///   renders, not calculation inputs.
+///
+/// LIFECYCLE
+///   REGISTERED → CONFIRMED → COMPLETED, with WITHDRAWN, DROPPED and CANCELLED
+///   as exits. A registration is NEVER physically deleted: destroying one
+///   destroys the historical roster this model exists to preserve.
+model CourseRegistration {
+  id String @id @default(cuid())
+
+  /// Tenancy anchor. Also the leading column of the roster index, so a
+  /// tenant's registrations are contiguous — which is what makes partitioning
+  /// by tenant possible later without redesign.
+  tenantId String
+
+  studentId  String
+  courseId   String
+  semesterId String
+
+  /// The teaching group, when one is defined.
+  ///
+  /// Nullable because an open elective drawn from several batches has no single
+  /// Section — Section is keyed on batch, not on course. The roster is
+  /// therefore (courseId, semesterId); this only narrows it.
+  ///
+  /// Unlike the four snapshots, this is MUTABLE: a student may be moved between
+  /// teaching groups mid-term without their enrolment changing.
+  sectionId String?
+
+  /// SNAPSHOT — the programme this course was taken under.
+  ///
+  /// Student.programmeId is mutable and overwritten when a student transfers,
+  /// exactly as sectionId is. Degree audit must know which programme a credit
+  /// was earned toward, and after a transfer that is unrecoverable from the
+  /// student row. Nullable because Student.programmeId is.
+  programmeId String?
+
+  /// SNAPSHOT — the regulation governing this enrolment.
+  ///
+  /// Pins one immutable EvaluationScheme REVISION, which is what makes a result
+  /// computed years ago reproducible: the components, rules, passing criteria
+  /// and grade scale that produced it are all reachable from here and none of
+  /// them can have changed.
+  evaluationSchemeId String
+
+  /// SNAPSHOT — credits this enrolment carries toward the degree.
+  ///
+  /// Copied from Course.credits, which is mutable. Decimal rather than Int:
+  /// SGPA weights by credits and the phase computes in exact decimals, and a
+  /// half-credit course becomes expressible without a migration on what will be
+  /// one of the largest tables in the system.
+  credits Decimal @db.Decimal(4, 2)
+
+  /// Why this enrolment exists. The engine branches on it — an audit carries no
+  /// credit, a backlog and an improvement are reconciled differently under the
+  /// scheme's attempt policy — so it is a column rather than a note.
+  registrationType RegistrationType @default(REGULAR)
+
+  /// SNAPSHOT — which attempt at this course this is, starting at 1.
+  ///
+  /// Server-assigned, never accepted from a client. Numbered per
+  /// (student, course) across the whole degree rather than per semester,
+  /// because a backlog cleared two years later is the second attempt at the
+  /// same course, not the first attempt at a new one.
+  attemptNumber Int @default(1)
+
+  status RegistrationStatus @default(REGISTERED)
+
+  /// When the status last changed.
+  ///
+  /// ONE column rather than a nullable timestamp per state. Five sparse
+  /// timestamps would be the same unlinked state/time pattern recorded as TD-E,
+  /// and the full transition history — every state, with its actor and reason —
+  /// is already reconstructable from AuditLog, which records before and after
+  /// on every mutation.
+  statusChangedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Every reference uses NoAction, checked by PostgreSQL at end-of-statement.
+  /// It refuses a standalone delete that would orphan a registration — an
+  /// academic record must not be silently detachable — while still allowing a
+  /// cascading delete that removes a whole tenant in one statement.
+  student   Student    @relation(fields: [studentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  course    Course     @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  semester  Semester   @relation(fields: [semesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  /// SetNull rather than NoAction: a teaching group may be retired without
+  /// invalidating the enrolment, because (courseId, semesterId) is the roster.
+  section   Section?   @relation(fields: [sectionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  programme Programme? @relation(fields: [programmeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// Composite key, so a registration can only ever cite a regulation of its
+  /// own tenant — proven by the database rather than by application discipline.
+  /// The other four references use single-column keys because Student, Course,
+  /// Semester and Section are live, migrated tables and adding
+  /// @@unique([tenantId, id]) to each would mean a blocking index build on
+  /// populated data for a guarantee the single write path already provides.
+  evaluationScheme       EvaluationScheme        @relation(fields: [tenantId, evaluationSchemeId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  studentComponentScores StudentComponentScore[]
+
+  /// One row per attempt at a course.
+  ///
+  /// tenantId is deliberately absent: a Student belongs to exactly one tenant,
+  /// so this is already tenant-safe, and the narrower index is the better one.
+  /// It also serves the attempt-history read — every attempt a student has made
+  /// at one course — which is what backlog and improvement policy consult.
+  ///
+  /// What it cannot express is "no two CONCURRENT active attempts", a cross-row
+  /// predicate no unique index can hold; the service enforces that, and it is
+  /// the single check covering both duplicate registration and duplicate
+  /// attempt.
+  @@unique([studentId, courseId, attemptNumber])
+  /// Composite-FK target for the marks and result tables that will cite a
+  /// registration. Declared now because adding a unique index to a
+  /// million-row table later is the expensive kind of migration.
+  @@unique([tenantId, id])
+  /// THE roster query — "who is enrolled in this course this term". The hot
+  /// path for every marks-entry and result-computation run. A section-narrowed
+  /// roster rides the same index and filters a set bounded by class size.
+  ///
+  /// No [tenantId, studentId, semesterId] index is declared: the unique above
+  /// leads with studentId, and a student accumulates a few dozen registrations
+  /// in a whole degree, so filtering that set costs nothing an index would save.
+  @@index([tenantId, semesterId, courseId])
+}
+
+/// Phase 16 — Component 6.1.
+///
+/// One SITTING of one evaluation component: the ST1 held for CS101 section A in
+/// March, the end-semester theory paper, the viva, the practical.
+///
+/// WHY THIS IS NOT THE SAME THING AS A COMPONENT
+///   EvaluationComponent says an assessment EXISTS and how it aggregates — "ST1
+///   is worth 10, best 2 of 3 sittings count". This says a sitting HAPPENED:
+///   when, for which teaching group, out of what total, conducted by whom. A
+///   component with a BEST_N aggregation is meaningless without several of
+///   these, which is what `sequenceNumber` counts.
+///
+/// WHY IT IS NOT AN Examination
+///   The Phase 10 Examination model is a scheduling record and stays exactly as
+///   it is. This is the evaluation-plane equivalent, and it exists because most
+///   of what a regulation assesses is not an examination at all — an assignment,
+///   an attendance derivation and a faculty evaluation are all components with
+///   sittings, and none of them fits a model built around a venue and a
+///   duration.
+///
+/// OWNERSHIP    : Tenant, through the component whose sitting it is. The
+///                component pins the scheme, so the governing regulation is
+///                reachable from any mark without the event restating it.
+/// LIFECYCLE    : DRAFT -> OPEN -> LOCKED -> PUBLISHED, with LOCKED -> OPEN and
+///                PUBLISHED -> LOCKED as the correction paths. Marks may be
+///                entered only while OPEN; that single rule is what locking
+///                means.
+/// SOURCE OF    : When a sitting happened, what it was marked out of, and
+/// TRUTH          whether its marks are open, frozen or visible. It owns no
+///                marks and no results.
+model AssessmentEvent {
+  id String @id @default(cuid())
+
+  tenantId String
+
+  /// What is being assessed. Pins the component, and through it the immutable
+  /// scheme revision — so a mark recorded here is always explicable under the
+  /// regulation in force when it was taken.
+  evaluationComponentId String
+
+  /// The course and term this sitting belongs to.
+  ///
+  /// Both are required and NEITHER is derivable from the component: a component
+  /// belongs to a regulation, not to a course, and one regulation governs many
+  /// courses. Together they are also the key that resolves the roster from
+  /// CourseRegistration.
+  courseId   String
+  semesterId String
+
+  /// The teaching group, or NULL when the sitting covers every registration for
+  /// this course and term.
+  ///
+  /// A meaningful null: a university-conducted theory paper is sat by the whole
+  /// cohort at once, while an internal test is usually per section.
+  sectionId String?
+
+  /// Human label — "ST1 — March 2026". What distinguishes two sittings to a
+  /// person; `sequenceNumber` is what distinguishes them to the engine.
+  title String
+
+  /// What THIS PAPER was marked out of.
+  ///
+  /// Deliberately distinct from EvaluationComponent.maxMarks, and not a
+  /// duplicate of it. The component's figure is the scale the component
+  /// CONTRIBUTES on; this is the total the paper was actually set out of. A test
+  /// conducted out of 25 and contributing on a scale of 20 is an ordinary
+  /// arrangement, and the gap between them is closed by a SCALE rule rather than
+  /// by pretending the two numbers are one. Defaulted from the component when
+  /// the caller does not say otherwise.
+  maxMarks Decimal @db.Decimal(6, 2)
+
+  /// Which sitting of this component this is, starting at 1.
+  ///
+  /// Server-assigned, never accepted from a client. This is what makes BEST_N
+  /// and DROP_LOWEST_N meaningful: "best 2 of 3" is a statement about three rows
+  /// here, and a client able to choose the numbering could hide a sitting from
+  /// the aggregation.
+  sequenceNumber Int @default(1)
+
+  /// When the sitting was held. Nullable because an event is often created
+  /// before its date is fixed.
+  scheduledAt DateTime?
+
+  /// The faculty member who conducted it.
+  ///
+  /// Nullable, and carried rather than derived: FacultyCourseAssignment is
+  /// mutable and carries the duplicate-row defect recorded as TD-001, so it
+  /// cannot answer "who ran this sitting" after the fact. Faculty analytics
+  /// needs a stable attribution.
+  conductedById String?
+
+  status AssessmentEventStatus @default(DRAFT)
+
+  /// When the status last changed. ONE column rather than a nullable timestamp
+  /// per state: four sparse timestamps would be the unlinked state/time pattern
+  /// recorded as TD-E, and AuditLog already holds every transition with its
+  /// actor. While the status is PUBLISHED this is the publication date a
+  /// student is shown.
+  statusChangedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Composite key, so a sitting can only ever assess a component of its own
+  /// tenant — proven by the database rather than by application discipline.
+  evaluationComponent EvaluationComponent @relation(fields: [tenantId, evaluationComponentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// Single-column keys for the pre-Phase-16 tables, which have no
+  /// @@unique([tenantId, id]); adding one to each would mean a blocking index
+  /// build on live data for a guarantee the single write path already provides.
+  /// NoAction throughout, checked at end-of-statement: it refuses a standalone
+  /// delete that would orphan a sitting while still permitting a tenant cascade.
+  course                 Course                  @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  semester               Semester                @relation(fields: [semesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  section                Section?                @relation(fields: [sectionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  conductedBy            FacultyMember?          @relation(fields: [conductedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  studentComponentScores StudentComponentScore[]
+
+  /// One sitting per position, per component, per course, per term, per group.
+  ///
+  /// NOTE — sectionId is nullable and PostgreSQL treats NULL as distinct, so
+  /// this constrains section-scoped sittings completely but leaves
+  /// cohort-wide ones able to share a position. Known and compensated, as in C3
+  /// and C4: the service checks it, and list order ends on `id`, so the ordering
+  /// is total regardless.
+  @@unique([evaluationComponentId, courseId, semesterId, sectionId, sequenceNumber])
+  /// Composite-FK target for the marks table, which must cite a sitting.
+  @@unique([tenantId, id])
+  /// THE hot query — every sitting for a course in a term. The marks-entry
+  /// landing page, and the calculation engine's input set.
+  @@index([tenantId, semesterId, courseId])
+}
+
+/// Phase 16 — Component 6.2.
+///
+/// ONE STUDENT'S MARK AT ONE SITTING. The only marks table in the system.
+///
+/// THE PATH IS THE POINT
+///   CourseRegistration -> AssessmentEvent -> StudentComponentScore.
+///
+///   A mark cites an ENROLMENT, never a student. That single choice is what
+///   makes attempt tracking, backlogs, improvement, revaluation and a
+///   reproducible SGPA possible: the registration carries the attempt number,
+///   the credits and the immutable regulation the mark is graded under. A mark
+///   keyed on a student id would lose all four the moment that student advanced
+///   a semester.
+///
+/// WHAT IS DELIBERATELY NOT A COLUMN HERE
+///   Grace, moderation, improvement and revaluation are all supported, and none
+///   of them is a field on this row:
+///
+///     Grace       — an EvaluationRule (C4) GRACE operation, applied at
+///                   computation. Storing granted marks would bake a policy
+///                   into data and make it irreproducible if the policy changed.
+///     Moderation  — either an EvaluationRule MODERATION operation for a cohort
+///                   shift, or an ordinary amendment to this row for one
+///                   student, whose before and after AuditLog records.
+///     Improvement — a new CourseRegistration (C5.5) of type IMPROVEMENT, and
+///                   therefore a new attempt with its own marks.
+///     Revaluation — an amendment to THIS row. The attempt does not change, so
+///                   no new registration and no new mark: the value moves and
+///                   the audit trail holds what it was.
+///
+///   Adding columns for any of them would give one fact two homes.
+///
+/// SCALE
+///   This is the largest table in the phase — students × courses × components ×
+///   sittings. tenantId is carried rather than reached through the registration
+///   precisely because every query here must be tenant-scoped without a join,
+///   and because partitioning by tenant later needs it present. The composite
+///   foreign keys prove it agrees with both parents.
+model StudentComponentScore {
+  id String @id @default(cuid())
+
+  /// Denormalised for the reason above. Constrained by BOTH composite foreign
+  /// keys below to equal the parents' tenantId, so it cannot drift.
+  tenantId String
+
+  assessmentEventId    String
+  courseRegistrationId String
+
+  /// The mark, on the sitting's own scale.
+  ///
+  /// NULL if and only if the student was ABSENT — someone who did not sit has
+  /// no mark, which is different from a mark of zero and grades differently
+  /// under a mandatory component. Decimal(6,2) matches the maxMarks columns it
+  /// is bounded by, so a mark can never overflow the scale it was set against.
+  marksObtained Decimal? @db.Decimal(6, 2)
+
+  status MarkStatus @default(RECORDED)
+
+  /// Why, when the mark alone does not say — "absent, medical certificate
+  /// produced", "revalued on appeal". Free text, because the reasons a
+  /// university records are its own.
+  remarks String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Both parents are cited by COMPOSITE key, so a mark can only ever join a
+  /// sitting and an enrolment belonging to the same tenant — proven by the
+  /// database rather than by application discipline.
+  ///
+  /// NoAction on both: a mark must never be silently orphaned, and PostgreSQL
+  /// checks NO ACTION at end-of-statement, so a tenant-level cascade still
+  /// succeeds while a stray single-row delete is refused.
+  assessmentEvent    AssessmentEvent    @relation(fields: [tenantId, assessmentEventId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  courseRegistration CourseRegistration @relation(fields: [tenantId, courseRegistrationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  /// One mark per student per sitting — "no duplicate marks", enforced rather
+  /// than checked.
+  ///
+  /// Both columns are NOT NULL, so PostgreSQL enforces this COMPLETELY, unlike
+  /// the nullable-column constraints recorded as TD-001 and TD-003 where
+  /// NULL-distinctness leaves duplicates storable.
+  ///
+  /// Leading with assessmentEventId also makes this the index for the marks
+  /// sheet — every mark at one sitting — which is why no separate index on that
+  /// column is declared.
+  @@unique([assessmentEventId, courseRegistrationId])
+  /// Every mark for one enrolment: the result engine's input set, and the query
+  /// that turns a student's whole academic record into one index scan.
+  @@index([tenantId, courseRegistrationId])
+}
+
+model FeeStructure {
+  id             String         @id @default(cuid())
+  tenantId       String
+  programmeId    String?
+  batchId        String?
+  academicYearId String?
+  name           String
+  description    String?
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  components     FeeComponent[]
+  demands        FeeDemand[]
+
+  @@index([tenantId])
+}
+
+model FeeComponent {
+  id             String       @id @default(cuid())
+  feeStructureId String
+  name           String
+  type           FeeType      @default(TUITION)
+  amount         Decimal      @db.Decimal(10, 2)
+  isOptional     Boolean      @default(false)
+  isTaxable      Boolean      @default(false)
+  taxPercent     Decimal?     @db.Decimal(5, 2)
+  createdAt      DateTime     @default(now())
+  feeStructure   FeeStructure @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
+
+  @@index([feeStructureId])
+}
+
+model FeeDemand {
+  id             String        @id @default(cuid())
+  tenantId       String
+  studentId      String
+  semesterId     String?
+  feeStructureId String?
+  dueDate        DateTime
+  totalAmount    Decimal       @db.Decimal(10, 2)
+  paidAmount     Decimal       @default(0) @db.Decimal(10, 2)
+  waivedAmount   Decimal       @default(0) @db.Decimal(10, 2)
+  status         FeeStatus     @default(PENDING)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  feeStructure   FeeStructure? @relation(fields: [feeStructureId], references: [id])
+  semester       Semester?     @relation(fields: [semesterId], references: [id])
+  student        Student       @relation(fields: [studentId], references: [id])
+  payments       Payment[]
+
+  @@index([tenantId])
+  @@index([studentId])
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  tenantId      String
+  studentId     String
+  feeDemandId   String?
+  receiptNo     String        @unique
+  amount        Decimal       @db.Decimal(10, 2)
+  method        PaymentMethod @default(ONLINE)
+  status        PaymentStatus @default(PENDING)
+  transactionId String?
+  gatewayRef    String?
+  gatewayMeta   Json?
+  paidAt        DateTime?
+  remarks       String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  feeDemand     FeeDemand?    @relation(fields: [feeDemandId], references: [id])
+  student       Student       @relation(fields: [studentId], references: [id])
+
+  @@index([tenantId])
+  @@index([studentId])
+}
+
+model CertificateTemplate {
+  id           String          @id @default(cuid())
+  tenantId     String
+  name         String
+  type         CertificateType @default(CUSTOM)
+  htmlTemplate String
+  cssStyles    String?
+  variables    Json?
+  isActive     Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  certificates Certificate[]
+  tenant       Tenant          @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+}
+
+model Certificate {
+  id            String              @id @default(cuid())
+  tenantId      String
+  templateId    String
+  studentId     String
+  certificateNo String              @unique
+  type          CertificateType
+  data          Json?
+  issuedAt      DateTime            @default(now())
+  expiresAt     DateTime?
+  pdfUrl        String?
+  qrCode        String?
+  isRevoked     Boolean             @default(false)
+  revokedAt     DateTime?
+  revokedBy     String?
+  createdAt     DateTime            @default(now())
+  student       Student             @relation(fields: [studentId], references: [id])
+  template      CertificateTemplate @relation(fields: [templateId], references: [id])
+
+  @@index([tenantId])
+  @@index([studentId])
+  @@index([certificateNo])
+}
+
+model NotificationTemplate {
+  id            String           @id @default(cuid())
+  tenantId      String?
+  name          String
+  type          NotificationType
+  subject       String?
+  body          String
+  variables     Json?
+  isActive      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  notifications Notification[]
+
+  @@index([tenantId])
+}
+
+model Notification {
+  id         String                @id @default(cuid())
+  tenantId   String
+  templateId String?
+  userId     String?
+  type       NotificationType
+  subject    String?
+  body       String
+  data       Json?
+  sentAt     DateTime?
+  readAt     DateTime?
+  status     String                @default("PENDING")
+  error      String?
+  createdAt  DateTime              @default(now())
+  template   NotificationTemplate? @relation(fields: [templateId], references: [id])
+  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  action     String
+  resource   String
+  resourceId String?
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([resource, resourceId])
+  @@index([createdAt])
+}
+
+model IdSequence {
+  id             String        @id @default(cuid())
+  tenantId       String
+  entityType     String
+  prefix         String?
+  suffix         String?
+  format         String        @default("{PREFIX}{YEAR}{SEQ}")
+  padding        Int           @default(4)
+  lastSequence   Int           @default(0)
+  resetCycle     SequenceReset @default(YEARLY)
+  lastResetYear  Int?
+  lastResetMonth Int?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, entityType])
+  @@index([tenantId])
+}
 
 enum InstitutionType {
   UNIVERSITY
@@ -131,6 +2194,15 @@ enum AttendanceStatus {
   ABSENT
   LATE
   EXCUSED
+}
+
+enum AttendanceSource {
+  MANUAL
+  BIOMETRIC
+  RFID
+  QR
+  FACE
+  IMPORT
 }
 
 enum AssignmentType {
@@ -270,1005 +2342,368 @@ enum DocumentType {
   OTHER
 }
 
-// ─────────────────────────────────────────────
-// PLATFORM / MULTI-TENANCY
-// ─────────────────────────────────────────────
-
-model Tenant {
-  id              String          @id @default(cuid())
-  slug            String          @unique
-  name            String
-  type            InstitutionType @default(UNIVERSITY)
-  status          TenantStatus    @default(TRIAL)
-  logoUrl         String?
-  faviconUrl      String?
-  primaryColor    String?
-  accentColor     String?
-  timezone        String          @default("Asia/Kolkata")
-  locale          String          @default("en")
-  country         String          @default("IN")
-  address         Json?
-  contactEmail    String?
-  contactPhone    String?
-  website         String?
-  accreditationNo String?
-  establishedYear Int?
-  settings        Json?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-
-  domains       Domain[]
-  subscriptions Subscription[]
-  invoices      PlatformInvoice[]
-  users         User[]
-  roles         Role[]
-  campuses      Campus[]
-  academicYears AcademicYear[]
-  idSequences   IdSequence[]
-  certTemplates CertificateTemplate[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
-
-  @@index([slug])
-  @@index([status])
+/// Lifecycle of an EvaluationScheme revision.
+///
+/// Deliberately a SEPARATE enum from GradeScaleStatus despite sharing values
+/// today. The two aggregates version independently, and a regulation is the one
+/// likely to gain a state a grading vocabulary never needs — a
+/// PENDING_APPROVAL step for Controller-of-Examination sign-off. Sharing one
+/// enum would force that state onto GradeScale as well.
+enum EvaluationSchemeStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
 }
 
-model Domain {
-  id        String     @id @default(cuid())
-  tenantId  String
-  domain    String     @unique
-  type      DomainType @default(SUBDOMAIN)
-  verified  Boolean    @default(false)
-  isPrimary Boolean    @default(false)
-  createdAt DateTime   @default(now())
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  @@index([tenantId])
-  @@index([domain])
+/// How a course sat more than once is reconciled when CGPA is computed.
+///
+/// BEST_ATTEMPT  — the highest grade point counts; the rest are history.
+/// LATEST_ATTEMPT— the most recent attempt supersedes all earlier ones.
+/// FIRST_ATTEMPT — the original attempt stands; re-sits clear a backlog but do
+///                 not improve the grade.
+/// ALL_ATTEMPTS  — every attempt enters the average, including failures.
+enum AttemptPolicy {
+  BEST_ATTEMPT
+  LATEST_ATTEMPT
+  FIRST_ATTEMPT
+  ALL_ATTEMPTS
 }
 
-model Subscription {
-  id             String             @id @default(cuid())
-  tenantId       String
-  plan           SubscriptionPlan   @default(STARTER)
-  status         SubscriptionStatus @default(TRIAL)
-  billingCycle   BillingCycle       @default(MONTHLY)
-  startDate      DateTime
-  endDate        DateTime?
-  trialEndsAt    DateTime?
-  maxStudents    Int?
-  maxFaculty     Int?
-  maxStorage     BigInt?
-  features       Json?
-  pricePerMonth  Decimal?           @db.Decimal(10, 2)
-  currency       String             @default("INR")
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-
-  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  invoices PlatformInvoice[]
-
-  @@index([tenantId])
+/// Rounding applied to a computed figure, named after the IEEE 754 / Java
+/// BigDecimal vocabulary so the intent is unambiguous to any implementer.
+///
+/// HALF_UP   — 2.5 -> 3, -2.5 -> -3. The common institutional default.
+/// HALF_DOWN — 2.5 -> 2.
+/// HALF_EVEN — 2.5 -> 2, 3.5 -> 4. Banker's rounding; removes the systematic
+///             upward bias HALF_UP introduces across a large cohort.
+/// FLOOR     — always toward negative infinity.
+/// CEILING   — always toward positive infinity.
+enum RoundingMode {
+  HALF_UP
+  HALF_DOWN
+  HALF_EVEN
+  FLOOR
+  CEILING
 }
 
-model PlatformInvoice {
-  id             String        @id @default(cuid())
-  tenantId       String
-  subscriptionId String?
-  invoiceNo      String        @unique
-  amount         Decimal       @db.Decimal(10, 2)
-  tax            Decimal       @default(0) @db.Decimal(10, 2)
-  total          Decimal       @db.Decimal(10, 2)
-  currency       String        @default("INR")
-  status         InvoiceStatus @default(DRAFT)
-  dueDate        DateTime?
-  paidAt         DateTime?
-  paymentRef     String?
-  notes          String?
-  lineItems      Json?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
-
-  @@index([tenantId])
+enum EvaluationComponentType {
+  THEORY
+  PRACTICAL
+  VIVA
+  LAB
+  ASSIGNMENT
+  QUIZ
+  ATTENDANCE
+  PROJECT
+  SEMINAR
+  PRESENTATION
+  INTERNAL
+  EXTERNAL
+  CUSTOM
 }
 
-// ─────────────────────────────────────────────
-// AUTH / RBAC
-// ─────────────────────────────────────────────
-
-model User {
-  id           String    @id @default(cuid())
-  tenantId     String
-  email        String
-  phone        String?
-  passwordHash String
-  firstName    String
-  lastName     String
-  displayName  String?
-  avatarUrl    String?
-  isActive     Boolean   @default(true)
-  isVerified   Boolean   @default(false)
-  lastLoginAt  DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-
-  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  sessions  Session[]
-  userRoles UserRole[]
-
-  faculty  FacultyMember?
-  employee Employee?
-  student  Student?
-
-  @@unique([tenantId, email])
-  @@index([tenantId])
-  @@index([email])
+/// How ONE leaf component's repeated sessions reduce to a single figure.
+///
+/// SUM            — every session adds up; the scale is the total of them.
+/// AVERAGE        — the mean of every session sat.
+/// BEST_N         — the highest N sessions count; ruleConfig.count supplies N.
+/// DROP_LOWEST_N  — the lowest N are discarded; ruleConfig.count supplies N.
+/// MAX            — the single highest session.
+/// LATEST         — the most recent session supersedes the rest.
+///
+/// Replaces the superseded EvaluationRuleType, which mixed these session-level
+/// operators with the child-level ones now in ComponentRollup.
+enum ComponentAggregation {
+  SUM
+  AVERAGE
+  BEST_N
+  DROP_LOWEST_N
+  MAX
+  LATEST
 }
 
-model Session {
-  id           String   @id @default(cuid())
-  userId       String
-  token        String   @unique
-  refreshToken String?  @unique
-  expiresAt    DateTime
-  ipAddress    String?
-  userAgent    String?
-  createdAt    DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([token])
+/// How a BRANCH component's children reduce to its own figure.
+///
+/// WEIGHTED_SUM — each child contributes its weightage percent. The ordinary
+///                case, and the only one whose siblings must total 100.
+/// SUM          — children add up on their raw scales, weightage ignored.
+/// AVERAGE      — the unweighted mean of the children.
+enum ComponentRollup {
+  WEIGHTED_SUM
+  SUM
+  AVERAGE
 }
 
-model Role {
-  id          String   @id @default(cuid())
-  tenantId    String
-  name        String
-  description String?
-  isSystem    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  rolePermissions RolePermission[]
-  userRoles       UserRole[]
-
-  @@unique([tenantId, name])
-  @@index([tenantId])
+/// What a recorded mark means.
+///
+/// RECORDED  — the student sat and was marked. marksObtained is present.
+/// ABSENT    — the student did not sit. marksObtained is NULL, which is
+///             different from a mark of zero: a mandatory component treats the
+///             two differently, and a transcript shows them differently.
+/// WITHHELD  — a mark exists but must not be used or shown, pending a
+///             disciplinary or financial hold. marksObtained is present, since
+///             a student who did not sit is ABSENT rather than withheld.
+///
+/// The invariant, enforced by the service because no column-level constraint
+/// can express it: marksObtained is NULL exactly when the status is ABSENT.
+enum MarkStatus {
+  RECORDED
+  ABSENT
+  WITHHELD
 }
 
-model Permission {
-  id       String @id @default(cuid())
-  resource String
-  action   String
-  scope    String @default("*")
-
-  rolePermissions RolePermission[]
-
-  @@unique([resource, action, scope])
+/// The lifecycle of one assessment sitting.
+///
+/// DRAFT     — scheduled, but mark entry is not yet open. An assessment
+///             calendar is built before any paper is marked, and a sitting in
+///             this state accepts nothing.
+/// OPEN      — mark entry is permitted. This is the ONLY state in which a mark
+///             may be created or amended; that single rule is what locking
+///             means.
+/// LOCKED    — marks are frozen and verified, but not yet visible to students.
+///             The verification gate: a sitting cannot go straight from OPEN to
+///             PUBLISHED, so nothing reaches a student without someone having
+///             closed entry first.
+/// PUBLISHED — marks are visible to students.
+///
+/// Two transitions run BACKWARDS, deliberately. LOCKED -> OPEN reopens entry to
+/// correct an error, and PUBLISHED -> LOCKED is the unpublish the workflow
+/// requires. Both are audited like any other change. A lifecycle with no
+/// correction path is the defect recorded as TD-C40, where an accidental
+/// revocation could only be undone through direct database access.
+enum AssessmentEventStatus {
+  DRAFT
+  OPEN
+  LOCKED
+  PUBLISHED
 }
 
-model RolePermission {
-  roleId       String
-  permissionId String
-  grantedAt    DateTime @default(now())
-
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@id([roleId, permissionId])
+/// Why a course enrolment exists.
+///
+/// REGULAR         — the ordinary first sitting, within the student's own
+///                   programme.
+/// ELECTIVE        — chosen from the programme's own elective basket.
+/// OPEN_ELECTIVE   — chosen from another department's offering. Distinct from
+///                   ELECTIVE because degree audit counts the two against
+///                   different requirement buckets.
+/// AUDIT           — attended without credit. Carries no weight in SGPA, which
+///                   the engine derives from this member rather than from a
+///                   separate flag.
+/// BACKLOG         — a re-sit after the previous attempt FAILED on marks.
+/// IMPROVEMENT     — a re-sit after the previous attempt PASSED, to better the
+///                   grade. Reconciled under the scheme's attemptPolicy.
+/// REPEAT          — the course is taken again from scratch because the
+///                   previous attempt could not be completed — detained,
+///                   debarred or withdrawn. Distinct from BACKLOG because the
+///                   earlier attempt produced no mark to improve on, and a
+///                   transcript treats the two differently.
+/// CREDIT_TRANSFER — credit recognised from another institution. Carries
+///                   credits but expects no marks, so the calculation engine
+///                   skips it rather than reporting it as unmarked.
+///
+/// There is deliberately no SUMMER member: a summer term is a property of the
+/// Semester row, not of the enrolment, and encoding it here would be a second
+/// place to ask when a course was taken.
+enum RegistrationType {
+  REGULAR
+  ELECTIVE
+  OPEN_ELECTIVE
+  AUDIT
+  BACKLOG
+  IMPROVEMENT
+  REPEAT
+  CREDIT_TRANSFER
 }
 
-model UserRole {
-  userId    String
-  roleId    String
-  scope     Json?
-  grantedAt DateTime @default(now())
-  grantedBy String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@id([userId, roleId])
+/// The lifecycle of an academic enrolment.
+///
+/// REGISTERED — provisionally enrolled, within the add/drop window.
+/// CONFIRMED  — enrolment finalised; the student now counts toward assessment
+///              and appears on every roster.
+/// DROPPED    — left during add/drop. Leaves NO transcript record.
+/// WITHDRAWN  — left after confirmation. DOES appear on the transcript, which
+///              is precisely why it is a separate state from DROPPED rather
+///              than a nuance of one.
+/// COMPLETED  — the contract is discharged and a published result exists.
+/// CANCELLED  — the registration was an administrative error. Retained rather
+///              than deleted, so the correction itself stays auditable.
+///
+/// REGISTERED and CONFIRMED are the ACTIVE states; the other four are terminal.
+/// A registration is never physically deleted — destroying one would destroy
+/// the historical roster this model exists to preserve.
+enum RegistrationStatus {
+  REGISTERED
+  CONFIRMED
+  DROPPED
+  WITHDRAWN
+  COMPLETED
+  CANCELLED
 }
 
-// ─────────────────────────────────────────────
-// INSTITUTIONAL HIERARCHY
-// ─────────────────────────────────────────────
-
-model Campus {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  code      String
-  address   Json?
-  phone     String?
-  email     String?
-  isMain    Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  schools     School[]
-  departments Department[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
+/// What a passing criterion measures, and therefore when it is evaluated.
+///
+/// COMPONENT_SCORE         — one component's computed value. Course-scoped;
+///                           requires componentId. This is "Theory Pass",
+///                           "Internal Pass", "Practical Pass" — any of them,
+///                           with no per-component enum value, because the
+///                           component is named by a foreign key rather than by
+///                           a hard-coded vocabulary.
+/// ATTENDANCE_PERCENT      — attendance in the course. Course-scoped.
+/// SEMESTER_CREDITS_EARNED — credits earned across the semester.
+///                           SEMESTER-scoped: evaluated once per student per
+///                           semester against their governing regulation, not
+///                           once per course.
+///
+/// There is deliberately NO COURSE_TOTAL member. The overall pass mark is
+/// already the boundary of the lowest passing GradeBand, and declaring it twice
+/// would create two authorities for one question — the exact duplication this
+/// schema forbids. See the note on PassingCriterion.
+enum PassingMetric {
+  COMPONENT_SCORE
+  ATTENDANCE_PERCENT
+  SEMESTER_CREDITS_EARNED
 }
 
-model School {
-  id        String   @id @default(cuid())
-  tenantId  String
-  campusId  String
-  name      String
-  code      String
-  deanName  String?
-  email     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  campus      Campus      @relation(fields: [campusId], references: [id], onDelete: Cascade)
-  departments Department[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
-  @@index([campusId])
+/// How a criterion's threshold should be read.
+///
+/// MARKS   — an absolute figure on the component's own scale, "21 out of 70".
+/// PERCENT — a proportion, "30% of the component" or "75% attendance".
+/// CREDITS — a credit count, for SEMESTER_CREDITS_EARNED.
+enum ThresholdUnit {
+  MARKS
+  PERCENT
+  CREDITS
 }
 
-model Department {
-  id        String   @id @default(cuid())
-  tenantId  String
-  campusId  String
-  schoolId  String?
-  name      String
-  code      String
-  hodName   String?
-  email     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  campus      Campus       @relation(fields: [campusId], references: [id])
-  school      School?      @relation(fields: [schoolId], references: [id])
-  programmes  Programme[]
-  faculty     FacultyMember[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
-  @@index([campusId])
+/// The consequence of missing a threshold.
+///
+/// FAIL       — the requirement was not met. The student carries a backlog and
+///              may clear it by re-sitting.
+/// INELIGIBLE — the student was barred from the assessment, or from
+///              progressing. Not a mark-based failure and not clearable by
+///              re-sitting the same attempt.
+///
+/// Two values because the downstream consequence genuinely differs; no third
+/// value for promotion, because at semester scope INELIGIBLE already reads as
+/// "not eligible to progress".
+enum CriterionOutcome {
+  FAIL
+  INELIGIBLE
 }
 
-model Programme {
-  id             String        @id @default(cuid())
-  tenantId       String
-  departmentId   String
-  name           String
-  code           String
-  type           ProgrammeType @default(UNDERGRADUATE)
-  durationValue  Int
-  durationUnit   DurationUnit  @default(YEARS)
-  totalCredits   Int?
-  eligibility    String?
-  description    String?
-  isActive       Boolean       @default(true)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  department      Department      @relation(fields: [departmentId], references: [id])
-  specialisations Specialisation[]
-  batches         Batch[]
-  curricula       Curriculum[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
-  @@index([departmentId])
+/// The stage of the calculation pipeline a rule runs at.
+///
+/// The pipeline is: raw sessions → [SESSION_ADJUSTMENT] → component
+/// aggregation (owned by EvaluationComponent) → [COMPONENT_ADJUSTMENT] →
+/// weighted rollup up the tree → course total → [COURSE_ADJUSTMENT] → grade
+/// assignment (owned by GradeScale).
+///
+/// SESSION_ADJUSTMENT   — transforms each raw session mark BEFORE the component
+///                        aggregates them. "Two bonus marks on every quiz."
+/// COMPONENT_ADJUSTMENT — transforms one component's aggregated figure.
+///                        "Normalise the 20-mark internal onto 30."
+/// COURSE_ADJUSTMENT    — transforms the course total after everything has
+///                        rolled up. Grace, moderation and curving live here.
+///
+/// A new phase is a new pipeline stage, which needs engine code regardless, so
+/// nothing is lost by making this an enum — and a great deal is gained, since
+/// the engine dispatches on it and an unconstrained string would let a typo
+/// silently disable a rule.
+enum RulePhase {
+  SESSION_ADJUSTMENT
+  COMPONENT_ADJUSTMENT
+  COURSE_ADJUSTMENT
 }
 
-model Specialisation {
-  id          String   @id @default(cuid())
-  tenantId    String
-  programmeId String
-  name        String
-  code        String
-  description String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-
-  programme Programme @relation(fields: [programmeId], references: [id])
-  students  Student[]
-
-  @@unique([tenantId, code])
-  @@index([programmeId])
+/// What a rule does to the value flowing through its stage.
+///
+/// Every operation is a pure numeric transform: it takes the incoming value
+/// (and, for cohort operations, the cohort's distribution) and returns one
+/// number. None of them reads a pass threshold, assigns a grade, or alters the
+/// component tree.
+///
+/// ADD_CONSTANT   — value + amount. Fixed bonus marks.
+/// ADD_PERCENTAGE — value + value × percent/100. Proportional bonus.
+/// SCALE          — value × factor. Normalising a component onto another scale.
+/// CAP            — min(value, limit). The guard that stops a bonus exceeding
+///                  the maximum; always the last rule in a stage.
+/// FLOOR          — max(value, limit).
+/// GRACE          — a conditional top-up of at most config.maxAward. The one
+///                  operation that consults a threshold, and it does not own
+///                  that threshold: PassingCriteria supplies it and the engine
+///                  passes it in.
+/// MODERATION     — shifts the cohort onto a target mean and spread.
+/// CURVE          — redistributes the cohort onto a target distribution.
+/// CUSTOM_FORMULA — evaluates a restricted, whitelisted expression tree. This
+///                  is the escape hatch that makes "no redesign for a future
+///                  rule" true: arithmetic nobody anticipated is a config
+///                  value, not a migration.
+///
+/// MODERATION and CURVE are COHORT-SCOPED — they cannot be computed for one
+/// student in isolation. That is derivable from the operation itself, so no
+/// column records it; storing a flag would be a second source of truth for a
+/// fact this enum already determines.
+enum RuleOperation {
+  ADD_CONSTANT
+  ADD_PERCENTAGE
+  SCALE
+  CAP
+  FLOOR
+  GRACE
+  MODERATION
+  CURVE
+  CUSTOM_FORMULA
 }
 
-// ─────────────────────────────────────────────
-// ACADEMIC TIME
-// ─────────────────────────────────────────────
-
-model AcademicYear {
-  id        String   @id @default(cuid())
-  tenantId  String
-  name      String
-  startDate DateTime
-  endDate   DateTime
-  isCurrent Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  semesters Semester[]
-  batches   Batch[]
-
-  @@unique([tenantId, name])
-  @@index([tenantId])
+/// Where a component's marks originate.
+///
+/// MANUAL_ENTRY       — typed in by faculty against an assessment session.
+/// ATTENDANCE_DERIVED — computed from the student's attendance percentage via
+///                      ruleConfig.attendanceBands. This is what makes
+///                      "Attendance Marks" configuration rather than code.
+/// ASSIGNMENT_DERIVED — pulled from the existing assignment submissions.
+/// COMPUTED           — produced by the engine from other components; carries
+///                      no marks of its own.
+enum ComponentSource {
+  MANUAL_ENTRY
+  ATTENDANCE_DERIVED
+  ASSIGNMENT_DERIVED
+  COMPUTED
 }
 
-model Semester {
-  id             String   @id @default(cuid())
-  tenantId       String
-  academicYearId String
-  name           String
-  semesterNumber Int
-  startDate      DateTime
-  endDate        DateTime
-  isCurrent      Boolean  @default(false)
-  createdAt      DateTime @default(now())
-
-  academicYear AcademicYear          @relation(fields: [academicYearId], references: [id])
-  sections     Section[]
-  timetables   Timetable[]
-  examinations Examination[]
-  feeDemands   FeeDemand[]
-
-  @@unique([academicYearId, semesterNumber])
-  @@index([tenantId])
+/// Lifecycle of a GradeScale revision.
+///
+/// DRAFT    — under construction, freely editable, never used by any
+///            calculation. Bands may be incomplete; the tiling rule is checked
+///            at activation, not on every insert, so a scale can be built up
+///            one band at a time.
+/// ACTIVE   — frozen and in use. Exactly one revision per (tenantId, code) may
+///            hold this state; that single-active rule is enforced by the
+///            activation transaction in the service layer, since PostgreSQL
+///            cannot express it without a partial unique index that Prisma
+///            would not track.
+/// ARCHIVED — frozen and retired. Still readable forever, because results
+///            already computed against it must remain reproducible.
+enum GradeScaleStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
 }
 
-model Batch {
-  id             String   @id @default(cuid())
-  tenantId       String
-  programmeId    String
-  academicYearId String
-  name           String
-  code           String
-  maxStrength    Int?
-  createdAt      DateTime @default(now())
-
-  programme    Programme    @relation(fields: [programmeId], references: [id])
-  academicYear AcademicYear @relation(fields: [academicYearId], references: [id])
-  sections     Section[]
-  students     Student[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
-  @@index([programmeId])
+enum GradeCalculationMethod {
+  ABSOLUTE
+  RELATIVE
 }
 
-model Section {
-  id         String   @id @default(cuid())
-  tenantId   String
-  batchId    String
-  semesterId String
-  name       String
-  maxStrength Int?
-  createdAt  DateTime @default(now())
-
-  batch      Batch       @relation(fields: [batchId], references: [id])
-  semester   Semester    @relation(fields: [semesterId], references: [id])
-  students   Student[]
-  timetables Timetable[]
-  attendance Attendance[]
-
-  @@unique([batchId, semesterId, name])
-  @@index([tenantId])
+enum ResultPublicationStatus {
+  DRAFT
+  VERIFIED
+  APPROVED
+  PUBLISHED
 }
 
-// ─────────────────────────────────────────────
-// CURRICULUM & COURSES
-// ─────────────────────────────────────────────
-
-model Curriculum {
-  id            String   @id @default(cuid())
-  tenantId      String
-  programmeId   String
-  name          String
-  version       String
-  effectiveFrom DateTime
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  programme Programme           @relation(fields: [programmeId], references: [id])
-  subjects  CurriculumSubject[]
-
-  @@unique([programmeId, version])
-  @@index([tenantId])
-}
-
-model CurriculumSubject {
-  id             String     @id @default(cuid())
-  curriculumId   String
-  courseId       String
-  semesterNumber Int
-  isCompulsory   Boolean    @default(true)
-  credits        Int
-  internalMarks  Int?
-  externalMarks  Int?
-  createdAt      DateTime   @default(now())
-
-  curriculum Curriculum @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
-  course     Course     @relation(fields: [courseId], references: [id])
-
-  @@unique([curriculumId, courseId, semesterNumber])
-}
-
-model Course {
-  id           String     @id @default(cuid())
-  tenantId     String
-  departmentId String?
-  name         String
-  code         String
-  type         CourseType @default(CORE)
-  credits      Int        @default(3)
-  description  String?
-  syllabus     String?
-  isActive     Boolean    @default(true)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-
-  curriculumSubjects   CurriculumSubject[]
-  facultyAssignments   FacultyCourseAssignment[]
-  timetables           Timetable[]
-  assignments          Assignment[]
-  examinations         Examination[]
-
-  @@unique([tenantId, code])
-  @@index([tenantId])
-  @@index([departmentId])
-}
-
-// ─────────────────────────────────────────────
-// STUDENTS
-// ─────────────────────────────────────────────
-
-model Student {
-  id               String        @id @default(cuid())
-  tenantId         String
-  userId           String        @unique
-  enrollmentNo     String
-  programmeId      String?
-  batchId          String?
-  sectionId        String?
-  specialisationId String?
-  currentSemester  Int           @default(1)
-  status           StudentStatus @default(ACTIVE)
-  admissionDate    DateTime
-  graduationDate   DateTime?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-
-  user           User             @relation(fields: [userId], references: [id])
-  batch          Batch?           @relation(fields: [batchId], references: [id])
-  section        Section?         @relation(fields: [sectionId], references: [id])
-  specialisation Specialisation?  @relation(fields: [specialisationId], references: [id])
-  personal       StudentPersonal?
-  documents      StudentDocument[]
-  parents        StudentParent[]
-  attendance     Attendance[]
-  submissions    AssignmentSubmission[]
-  examResults    ExamResult[]
-  feeDemands     FeeDemand[]
-  payments       Payment[]
-  certificates   Certificate[]
-
-  @@unique([tenantId, enrollmentNo])
-  @@index([tenantId])
-  @@index([batchId])
-  @@index([sectionId])
-}
-
-model StudentPersonal {
-  id            String     @id @default(cuid())
-  studentId     String     @unique
-  dateOfBirth   DateTime?
-  gender        Gender?
-  bloodGroup    BloodGroup?
-  nationality   String?
-  religion      String?
-  category      String?
-  motherTongue  String?
-  permanentAddr Json?
-  localAddr     Json?
-  emergencyContact Json?
-  disability    Boolean    @default(false)
-  disabilityDesc String?
-  updatedAt     DateTime   @updatedAt
-
-  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
-}
-
-model StudentDocument {
-  id           String       @id @default(cuid())
-  studentId    String
-  type         DocumentType
-  fileName     String
-  fileUrl      String
-  fileSize     Int?
-  mimeType     String?
-  isVerified   Boolean      @default(false)
-  verifiedBy   String?
-  verifiedAt   DateTime?
-  uploadedAt   DateTime     @default(now())
-
-  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
-
-  @@index([studentId])
-}
-
-model Parent {
-  id           String   @id @default(cuid())
-  tenantId     String
-  firstName    String
-  lastName     String
-  email        String?
-  phone        String
-  occupation   String?
-  annualIncome Decimal? @db.Decimal(12, 2)
-  relation     String
-  createdAt    DateTime @default(now())
-
-  students StudentParent[]
-
-  @@index([tenantId])
-}
-
-model StudentParent {
-  studentId  String
-  parentId   String
-  isPrimary  Boolean @default(false)
-
-  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  parent  Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
-
-  @@id([studentId, parentId])
-}
-
-// ─────────────────────────────────────────────
-// FACULTY / STAFF
-// ─────────────────────────────────────────────
-
-model FacultyMember {
-  id             String         @id @default(cuid())
-  tenantId       String
-  userId         String         @unique
-  employeeId     String
-  departmentId   String?
-  designation    String?
-  qualification  String?
-  specialization String?
-  experience     Int?
-  status         EmployeeStatus @default(ACTIVE)
-  joinDate       DateTime
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-  user             User                      @relation(fields: [userId], references: [id])
-  department       Department?               @relation(fields: [departmentId], references: [id])
-  courseAssignments FacultyCourseAssignment[]
-  timetables       Timetable[]
-  attendance       Attendance[]
-
-  @@unique([tenantId, employeeId])
-  @@index([tenantId])
-  @@index([departmentId])
-}
-
-model FacultyCourseAssignment {
-  id          String   @id @default(cuid())
-  tenantId    String
-  facultyId   String
-  courseId    String
-  sectionId   String?
-  semesterId  String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-
-  faculty  FacultyMember @relation(fields: [facultyId], references: [id])
-  course   Course        @relation(fields: [courseId], references: [id])
-
-  @@unique([facultyId, courseId, sectionId, semesterId])
-  @@index([tenantId])
-}
-
-model Employee {
-  id           String         @id @default(cuid())
-  tenantId     String
-  userId       String         @unique
-  employeeId   String
-  departmentId String?
-  designation  String?
-  type         EmployeeType   @default(NON_TEACHING)
-  status       EmployeeStatus @default(ACTIVE)
-  joinDate     DateTime
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@unique([tenantId, employeeId])
-  @@index([tenantId])
-}
-
-// ─────────────────────────────────────────────
-// TIMETABLE & ATTENDANCE
-// ─────────────────────────────────────────────
-
-model Timetable {
-  id          String      @id @default(cuid())
-  tenantId    String
-  semesterId  String
-  sectionId   String
-  courseId    String
-  facultyId   String
-  day         DayOfWeek
-  startTime   String
-  endTime     String
-  roomNo      String?
-  sessionType SessionType @default(LECTURE)
-  isActive    Boolean     @default(true)
-  createdAt   DateTime    @default(now())
-
-  semester Semester      @relation(fields: [semesterId], references: [id])
-  section  Section       @relation(fields: [sectionId], references: [id])
-  course   Course        @relation(fields: [courseId], references: [id])
-  faculty  FacultyMember @relation(fields: [facultyId], references: [id])
-
-  @@index([tenantId])
-  @@index([sectionId])
-  @@index([facultyId])
-}
-
-model Attendance {
-  id            String           @id @default(cuid())
-  tenantId      String
-  studentId     String
-  facultyId     String?
-  sectionId     String?
-  courseId      String?
-  date          DateTime         @db.Date
-  status        AttendanceStatus @default(PRESENT)
-  sessionType   SessionType      @default(LECTURE)
-  remarks       String?
-  markedAt      DateTime         @default(now())
-  markedBy      String?
-
-  student Student        @relation(fields: [studentId], references: [id])
-  section Section?       @relation(fields: [sectionId], references: [id])
-  faculty FacultyMember? @relation(fields: [facultyId], references: [id])
-
-  @@unique([studentId, courseId, date, sessionType])
-  @@index([tenantId])
-  @@index([studentId])
-  @@index([date])
-}
-
-// ─────────────────────────────────────────────
-// ASSESSMENTS
-// ─────────────────────────────────────────────
-
-model Assignment {
-  id           String           @id @default(cuid())
-  tenantId     String
-  courseId     String
-  sectionId    String?
-  createdBy    String
-  title        String
-  description  String?
-  type         AssignmentType   @default(HOMEWORK)
-  status       AssignmentStatus @default(DRAFT)
-  maxMarks     Int              @default(100)
-  dueDate      DateTime?
-  publishedAt  DateTime?
-  attachments  Json?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-
-  course      Course                 @relation(fields: [courseId], references: [id])
-  submissions AssignmentSubmission[]
-
-  @@index([tenantId])
-  @@index([courseId])
-}
-
-model AssignmentSubmission {
-  id           String           @id @default(cuid())
-  assignmentId String
-  studentId    String
-  status       SubmissionStatus @default(PENDING)
-  submittedAt  DateTime?
-  attachments  Json?
-  marks        Int?
-  feedback     String?
-  gradedAt     DateTime?
-  gradedBy     String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-
-  assignment Assignment @relation(fields: [assignmentId], references: [id])
-  student    Student    @relation(fields: [studentId], references: [id])
-
-  @@unique([assignmentId, studentId])
-  @@index([studentId])
-}
-
-model Examination {
-  id          String          @id @default(cuid())
-  tenantId    String
-  semesterId  String
-  courseId    String
-  title       String
-  type        ExaminationType @default(INTERNAL)
-  status      ExamStatus      @default(SCHEDULED)
-  date        DateTime?
-  startTime   String?
-  endTime     String?
-  venue       String?
-  maxMarks    Int             @default(100)
-  passMark    Int?
-  duration    Int?
-  instructions String?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-
-  semester Semester     @relation(fields: [semesterId], references: [id])
-  course   Course       @relation(fields: [courseId], references: [id])
-  results  ExamResult[]
-
-  @@index([tenantId])
-  @@index([semesterId])
-  @@index([courseId])
-}
-
-model ExamResult {
-  id            String    @id @default(cuid())
-  examinationId String
-  studentId     String
-  marksObtained Decimal?  @db.Decimal(6, 2)
-  grade         String?
-  gradePoint    Decimal?  @db.Decimal(4, 2)
-  isPassed      Boolean?
-  isAbsent      Boolean   @default(false)
-  remarks       String?
-  publishedAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  examination Examination @relation(fields: [examinationId], references: [id])
-  student     Student     @relation(fields: [studentId], references: [id])
-
-  @@unique([examinationId, studentId])
-  @@index([studentId])
-}
-
-// ─────────────────────────────────────────────
-// FINANCE
-// ─────────────────────────────────────────────
-
-model FeeStructure {
-  id             String   @id @default(cuid())
-  tenantId       String
-  programmeId    String?
-  batchId        String?
-  academicYearId String?
-  name           String
-  description    String?
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  components FeeComponent[]
-  demands    FeeDemand[]
-
-  @@index([tenantId])
-}
-
-model FeeComponent {
-  id             String   @id @default(cuid())
-  feeStructureId String
-  name           String
-  type           FeeType  @default(TUITION)
-  amount         Decimal  @db.Decimal(10, 2)
-  isOptional     Boolean  @default(false)
-  isTaxable      Boolean  @default(false)
-  taxPercent     Decimal? @db.Decimal(5, 2)
-  createdAt      DateTime @default(now())
-
-  feeStructure FeeStructure @relation(fields: [feeStructureId], references: [id], onDelete: Cascade)
-
-  @@index([feeStructureId])
-}
-
-model FeeDemand {
-  id             String    @id @default(cuid())
-  tenantId       String
-  studentId      String
-  semesterId     String?
-  feeStructureId String?
-  dueDate        DateTime
-  totalAmount    Decimal   @db.Decimal(10, 2)
-  paidAmount     Decimal   @default(0) @db.Decimal(10, 2)
-  waivedAmount   Decimal   @default(0) @db.Decimal(10, 2)
-  status         FeeStatus @default(PENDING)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  student      Student       @relation(fields: [studentId], references: [id])
-  semester     Semester?     @relation(fields: [semesterId], references: [id])
-  feeStructure FeeStructure? @relation(fields: [feeStructureId], references: [id])
-  payments     Payment[]
-
-  @@index([tenantId])
-  @@index([studentId])
-}
-
-model Payment {
-  id            String        @id @default(cuid())
-  tenantId      String
-  studentId     String
-  feeDemandId   String?
-  receiptNo     String        @unique
-  amount        Decimal       @db.Decimal(10, 2)
-  method        PaymentMethod @default(ONLINE)
-  status        PaymentStatus @default(PENDING)
-  transactionId String?
-  gatewayRef    String?
-  gatewayMeta   Json?
-  paidAt        DateTime?
-  remarks       String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-
-  student   Student    @relation(fields: [studentId], references: [id])
-  feeDemand FeeDemand? @relation(fields: [feeDemandId], references: [id])
-
-  @@index([tenantId])
-  @@index([studentId])
-}
-
-// ─────────────────────────────────────────────
-// CERTIFICATES
-// ─────────────────────────────────────────────
-
-model CertificateTemplate {
-  id         String          @id @default(cuid())
-  tenantId   String
-  name       String
-  type       CertificateType @default(CUSTOM)
-  htmlTemplate String
-  cssStyles  String?
-  variables  Json?
-  isActive   Boolean         @default(true)
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
-
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  certificates Certificate[]
-
-  @@index([tenantId])
-}
-
-model Certificate {
-  id           String          @id @default(cuid())
-  tenantId     String
-  templateId   String
-  studentId    String
-  certificateNo String         @unique
-  type         CertificateType
-  data         Json?
-  issuedAt     DateTime        @default(now())
-  expiresAt    DateTime?
-  pdfUrl       String?
-  qrCode       String?
-  isRevoked    Boolean         @default(false)
-  revokedAt    DateTime?
-  revokedBy    String?
-  createdAt    DateTime        @default(now())
-
-  template CertificateTemplate @relation(fields: [templateId], references: [id])
-  student  Student              @relation(fields: [studentId], references: [id])
-
-  @@index([tenantId])
-  @@index([studentId])
-  @@index([certificateNo])
-}
-
-// ─────────────────────────────────────────────
-// COMMUNICATIONS
-// ─────────────────────────────────────────────
-
-model NotificationTemplate {
-  id        String           @id @default(cuid())
-  tenantId  String?
-  name      String
-  type      NotificationType
-  subject   String?
-  body      String
-  variables Json?
-  isActive  Boolean          @default(true)
-  createdAt DateTime         @default(now())
-
-  notifications Notification[]
-
-  @@index([tenantId])
-}
-
-model Notification {
-  id         String           @id @default(cuid())
-  tenantId   String
-  templateId String?
-  userId     String?
-  type       NotificationType
-  subject    String?
-  body       String
-  data       Json?
-  sentAt     DateTime?
-  readAt     DateTime?
-  status     String           @default("PENDING")
-  error      String?
-  createdAt  DateTime         @default(now())
-
-  tenant   Tenant                @relation(fields: [tenantId], references: [id])
-  template NotificationTemplate? @relation(fields: [templateId], references: [id])
-
-  @@index([tenantId])
-  @@index([userId])
-}
-
-// ─────────────────────────────────────────────
-// SYSTEM
-// ─────────────────────────────────────────────
-
-model AuditLog {
-  id         String   @id @default(cuid())
-  tenantId   String
-  userId     String?
-  action     String
-  resource   String
-  resourceId String?
-  before     Json?
-  after      Json?
-  ipAddress  String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
-
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-
-  @@index([tenantId])
-  @@index([userId])
-  @@index([resource, resourceId])
-  @@index([createdAt])
-}
-
-model IdSequence {
-  id            String        @id @default(cuid())
-  tenantId      String
-  entityType    String
-  prefix        String?
-  suffix        String?
-  format        String        @default("{PREFIX}{YEAR}{SEQ}")
-  padding       Int           @default(4)
-  lastSequence  Int           @default(0)
-  resetCycle    SequenceReset @default(YEARLY)
-  lastResetYear Int?
-  lastResetMonth Int?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  @@unique([tenantId, entityType])
-  @@index([tenantId])
+enum TranscriptStatus {
+  GENERATED
+  VERIFIED
+  ISSUED
 }

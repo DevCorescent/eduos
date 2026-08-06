@@ -22,16 +22,47 @@ import { hashPassword } from "../lib/auth/password";
 
 const DEMO_SLUG = "demo";
 
-/** The four documented logins. Passwords are hashed with bcrypt, never stored raw. */
+/**
+ * The documented logins. Passwords are hashed with bcrypt, never stored raw.
+ *
+ * Phase 16 adds two. Both are needed rather than decorative: the evaluation
+ * configuration endpoints are gated on CONTROLLER_OF_EXAMINATION for approval
+ * actions and admit DEPARTMENT_HOD for reads, and requireRole resolves roles
+ * LIVE against UserRole on every request. Without a user holding each role,
+ * those code paths were unreachable — every manage endpoint answered 403 to
+ * everyone except UNIVERSITY_ADMIN, and no read could be exercised as an HOD.
+ */
 const ACCOUNTS = [
   { email: "superadmin@eduos.local", password: "SuperAdmin@123", role: "SUPER_ADMIN", firstName: "Super", lastName: "Admin" },
   { email: "admin@demo.edu", password: "Admin@123", role: "UNIVERSITY_ADMIN", firstName: "Uni", lastName: "Admin" },
+  { email: "coe@demo.edu", password: "Coe@123", role: "CONTROLLER_OF_EXAMINATION", firstName: "Demo", lastName: "Controller" },
+  { email: "hod@demo.edu", password: "Hod@123", role: "DEPARTMENT_HOD", firstName: "Demo", lastName: "Hod" },
   { email: "faculty@demo.edu", password: "Faculty@123", role: "FACULTY", firstName: "Demo", lastName: "Faculty" },
   { email: "student@demo.edu", password: "Student@123", role: "STUDENT", firstName: "Demo", lastName: "Student" },
 ] as const;
 
-/** Every role the RBAC guards check, so a 403 is always a decision and never a missing row. */
-const ALL_ROLES = ["SUPER_ADMIN", "UNIVERSITY_ADMIN", "FACULTY", "STUDENT", "PARENT"] as const;
+/**
+ * Every role the RBAC guards check, so a 403 is always a decision and never a
+ * missing row.
+ *
+ * CONTROLLER_OF_EXAMINATION and DEPARTMENT_HOD are the Phase 16 additions. The
+ * spelling matches constants/roles.ts exactly — requireRole compares by
+ * Role.name, so a mismatch here would be an unreachable permission rather than
+ * a visible error.
+ *
+ * The pre-existing HOD constant in constants/roles.ts is deliberately NOT
+ * seeded: it predates this phase, drives frontend portal routing only, and
+ * seeding both spellings would create two rows that mean the same thing.
+ */
+const ALL_ROLES = [
+  "SUPER_ADMIN",
+  "UNIVERSITY_ADMIN",
+  "CONTROLLER_OF_EXAMINATION",
+  "DEPARTMENT_HOD",
+  "FACULTY",
+  "STUDENT",
+  "PARENT",
+] as const;
 
 async function seedDemoTenant() {
   const tenant = await prisma.tenant.upsert({
@@ -191,6 +222,151 @@ async function seedDemoTenant() {
       programmeId: programme.id, batchId: batch.id, sectionId: section.id,
       currentSemester: 1, status: "ACTIVE",
       admissionDate: new Date("2025-07-01T00:00:00.000Z"),
+    },
+  });
+
+  // ---- Phase 16 evaluation configuration ---------------------------------
+  // A course registration must cite an ACTIVE evaluation scheme, and an active
+  // scheme needs a grade scale and a coherent component tree beneath it. The
+  // whole chain is therefore seeded here — which also means the Phase 16
+  // endpoints have something to read, rather than answering 404 on a fresh
+  // database.
+  //
+  // These writes bypass the services, so the invariants those services enforce
+  // are satisfied by construction below: the bands tile [0.00, 100.00] with no
+  // gap, and the two root components' weightages total exactly 100.
+  const gradeScale = await prisma.gradeScale.upsert({
+    where: { tenantId_code_version: { tenantId: tenant.id, code: "UG-10-POINT", version: 1 } },
+    update: { status: "ACTIVE" },
+    create: {
+      tenantId: tenant.id, code: "UG-10-POINT", name: "Undergraduate 10 Point",
+      version: 1, status: "ACTIVE", method: "ABSOLUTE", maxGradePoint: 10,
+      activatedAt: new Date("2025-07-01T00:00:00.000Z"),
+    },
+  });
+
+  // Inclusive on both ends, tiling [0.00, 100.00] in 0.01 steps with no gap and
+  // no overlap — the rule the activation validator enforces. F is the lowest
+  // band and the only one that is not a pass, so its ceiling IS this
+  // regulation's overall pass mark; no passing criterion restates it.
+  const GRADE_BANDS = [
+    { grade: "O", label: "Outstanding", min: 90, max: 100, point: 10, isPass: true, sequence: 1 },
+    { grade: "A", label: "Excellent", min: 80, max: 89.99, point: 9, isPass: true, sequence: 2 },
+    { grade: "B", label: "Very Good", min: 70, max: 79.99, point: 8, isPass: true, sequence: 3 },
+    { grade: "C", label: "Good", min: 60, max: 69.99, point: 7, isPass: true, sequence: 4 },
+    { grade: "D", label: "Average", min: 50, max: 59.99, point: 6, isPass: true, sequence: 5 },
+    { grade: "E", label: "Pass", min: 40, max: 49.99, point: 5, isPass: true, sequence: 6 },
+    { grade: "F", label: "Fail", min: 0, max: 39.99, point: 0, isPass: false, sequence: 7 },
+  ] as const;
+
+  for (const band of GRADE_BANDS) {
+    await prisma.gradeBand.upsert({
+      where: { gradeScaleId_grade: { gradeScaleId: gradeScale.id, grade: band.grade } },
+      update: {},
+      create: {
+        tenantId: tenant.id, gradeScaleId: gradeScale.id, grade: band.grade, label: band.label,
+        minPercent: band.min, maxPercent: band.max, gradePoint: band.point,
+        isPass: band.isPass, countsForGpa: true, sequence: band.sequence,
+      },
+    });
+  }
+
+  const evaluationScheme = await prisma.evaluationScheme.upsert({
+    where: { tenantId_code_version: { tenantId: tenant.id, code: "BTECH-R2025", version: 1 } },
+    update: { status: "ACTIVE", gradeScaleId: gradeScale.id },
+    create: {
+      tenantId: tenant.id, code: "BTECH-R2025", name: "B.Tech Regulation 2025",
+      description: "Internal 30 / Theory 70, minimum 21 in theory.",
+      version: 1, status: "ACTIVE", gradeScaleId: gradeScale.id,
+      attemptPolicy: "LATEST_ATTEMPT", activatedAt: new Date("2025-07-01T00:00:00.000Z"),
+    },
+  });
+
+  // Two leaves whose weightages total exactly 100 — the "University A" shape.
+  // Both are leaves, so each declares an aggregation and no rollup.
+  const COMPONENTS = [
+    { code: "INTERNAL", name: "Internal Assessment", type: "INTERNAL", max: 30, weight: 30, sequence: 1 },
+    { code: "THEORY", name: "University Theory", type: "THEORY", max: 70, weight: 70, sequence: 2 },
+  ] as const;
+
+  for (const component of COMPONENTS) {
+    await prisma.evaluationComponent.upsert({
+      where: { schemeId_code: { schemeId: evaluationScheme.id, code: component.code } },
+      update: {},
+      create: {
+        tenantId: tenant.id, schemeId: evaluationScheme.id, code: component.code,
+        name: component.name, type: component.type, sourceType: "MANUAL_ENTRY",
+        maxMarks: component.max, weightage: component.weight,
+        aggregation: "SUM", sequence: component.sequence, isMandatory: true,
+      },
+    });
+  }
+
+  const theory = await prisma.evaluationComponent.findUniqueOrThrow({
+    where: { schemeId_code: { schemeId: evaluationScheme.id, code: "THEORY" } },
+    select: { id: true },
+  });
+
+  // "Minimum Theory = 21" — a threshold the course total cannot express, which
+  // is exactly what a passing criterion is for.
+  await prisma.passingCriterion.upsert({
+    where: { schemeId_code: { schemeId: evaluationScheme.id, code: "MIN-THEORY" } },
+    update: {},
+    create: {
+      tenantId: tenant.id, schemeId: evaluationScheme.id, componentId: theory.id,
+      code: "MIN-THEORY", name: "Minimum theory marks",
+      metric: "COMPONENT_SCORE", threshold: 21, unit: "MARKS", failureOutcome: "FAIL",
+    },
+  });
+
+  // ---- course registration -----------------------------------------------
+  // The academic contract every downstream engine reads. Credits and the
+  // programme are SNAPSHOTS: Course.credits is editable and Student.programmeId
+  // is overwritten on transfer, so both are unrecoverable later.
+  await prisma.courseRegistration.upsert({
+    where: {
+      studentId_courseId_attemptNumber: {
+        studentId: student.id, courseId: course.id, attemptNumber: 1,
+      },
+    },
+    update: { status: "CONFIRMED" },
+    create: {
+      tenantId: tenant.id, studentId: student.id, courseId: course.id,
+      semesterId: semester.id, sectionId: section.id, programmeId: programme.id,
+      evaluationSchemeId: evaluationScheme.id, credits: course.credits,
+      registrationType: "REGULAR", attemptNumber: 1, status: "CONFIRMED",
+    },
+  });
+
+  // ---- assessment event --------------------------------------------------
+  // One OPEN sitting of the INTERNAL component, so mark entry has a target on a
+  // fresh database. OPEN is the only status that accepts marks — that single
+  // predicate is what locking means — so seeding it in any other state would
+  // leave the marks endpoints with nothing to write against.
+  const internalComponent = await prisma.evaluationComponent.findUniqueOrThrow({
+    where: { schemeId_code: { schemeId: evaluationScheme.id, code: "INTERNAL" } },
+    select: { id: true, maxMarks: true },
+  });
+
+  await prisma.assessmentEvent.upsert({
+    where: {
+      evaluationComponentId_courseId_semesterId_sectionId_sequenceNumber: {
+        evaluationComponentId: internalComponent.id,
+        courseId: course.id,
+        semesterId: semester.id,
+        sectionId: section.id,
+        sequenceNumber: 1,
+      },
+    },
+    update: { status: "OPEN" },
+    create: {
+      tenantId: tenant.id, evaluationComponentId: internalComponent.id,
+      courseId: course.id, semesterId: semester.id, sectionId: section.id,
+      title: "Internal Assessment — Sitting 1",
+      // Defaulted from the component: this paper is marked out of the same
+      // total the component contributes on, which is the ordinary case.
+      maxMarks: internalComponent.maxMarks, sequenceNumber: 1,
+      status: "OPEN",
     },
   });
 
