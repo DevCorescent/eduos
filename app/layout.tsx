@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono } from "next/font/google";
 import { ToastProvider } from "@/providers/ToastProvider";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const interSans = Inter({
+  variable: "--font-geist-sans",  // token name kept: globals.css maps it
   subsets: ["latin"],
 });
 
@@ -31,7 +31,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${interSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       {/* ToastProvider is the one client boundary in the root layout. It wraps
           `children` rather than replacing the tree, so every page below stays a

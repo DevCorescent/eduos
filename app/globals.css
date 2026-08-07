@@ -22,61 +22,88 @@
 
 :root {
   /* --- Backgrounds ------------------------------------------------------ */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f9fafc;
-  --bg-secondary-end: #f1f4f9;
-  /* Panels sit on this rather than solid white, so the blur behind them has
-     something to pick up. Fully opaque glass is just a white box. */
-  --bg-glass: rgba(255, 255, 255, 0.7);
-  --border-color: #e8eaf0;
+  /* SURFACES ARE COOL; THE PALETTE IS WARM. The two are different jobs, and
+     conflating them is the easy mistake here: DESIGN.md's prose calls a warm
+     cream the "primary canvas", but the swatch sheet labels that same #F8EDE3
+     as the PRIMARY colour — a container for banners and chips — while the
+     sheet's own card surfaces are light cool neutrals. The reference dashboard
+     shows exactly that: a sage sidebar and a cream banner sitting ON a light
+     neutral page, not a cream page.
+     So the frontmatter's surface ramp is used verbatim below, and the warm
+     cream, sage and coral live in the accent tokens further down. */
+  --bg-primary: #ffffff;        /* surface-container-lowest — cards, panels */
+  --bg-secondary: #f1f4fa;      /* surface-container-low — the page canvas */
+  --bg-secondary-end: #e5e8ee;  /* surface-container-high — gradient end */
+  /* 62% so the canvas reads through. Fully opaque glass is just a box, and
+     above ~75% the blur has nothing left to pick up. */
+  --bg-glass: rgba(255, 255, 255, 0.62);
+  --border-color: #dfe3e8;
 
   /* --- Primary brand ---------------------------------------------------- */
-  --color-primary-base: #4f46e5;
-  --color-primary-hover-base: #4338ca;
-  --color-primary-active-base: #3730a3;
-  --gradient-primary: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-  /* Tinted background for a selected nav item or a subtle primary chip. */
-  --color-primary-tint: #eef2ff;
-  --color-primary-tint-fg: #4338ca;
+  --color-primary-base: #645d56;
+  --color-primary-hover-base: #4c463f;
+  --color-primary-active-base: #3a352f;
+  --gradient-primary: linear-gradient(135deg, #6f675f 0%, #536256 100%);
+  --color-primary-tint: #f8ede3;
+  /* on-primary-fixed-variant, NOT the frontmatter's on-primary-container
+     (#726b63). That pairing is roughly 2.6:1 on this tint and fails WCAG AA;
+     #4c463f clears 7:1 on the same background. */
+  --color-primary-tint-fg: #4c463f;
 
   /* --- Accent ----------------------------------------------------------- */
-  --color-accent-base: #06b6d4;
-  --gradient-accent: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
-  --color-cta: #f59e0b;
+  --color-accent-base: #536256;                 /* sage — navigation, charts */
+  --gradient-accent: linear-gradient(135deg, #536256 0%, #6f675f 100%);
+  --color-cta: #785745;                         /* tertiary — coral, on-colour */
 
   /* --- Text ------------------------------------------------------------- */
-  /* Never pure black — #0F172A reads as black at body sizes but is softer
-     against a white background at large heading sizes. */
-  --text-heading: #0f172a;
-  --text-body: #334155;
-  --text-muted: #94a3b8;
+  --text-heading: #181c20;
+  --text-body: #4c463f;
+  --text-muted: #5f6368;   /* swatch Neutral — cool, matching the surfaces */
 
   /* --- Status ----------------------------------------------------------- */
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
+  /* Drawn from the palette's own families rather than stock red/green/amber,
+     so a badge belongs to the page instead of sitting on top of it. Success is
+     the sage secondary, warning the coral tertiary. */
+  --color-success: #536256;
+  --color-warning: #785745;
+  --color-error: #ba1a1a;
+  --color-info: #4a6d8c;
 
-  /* Tints for banners and badges: the solid status colour is for icons,
-     borders and fills, never for a large background behind body text. */
-  --color-success-tint: #ecfdf5;
-  --color-success-tint-fg: #047857;
-  --color-warning-tint: #fffbeb;
-  --color-warning-tint-fg: #b45309;
-  --color-error-tint: #fef2f2;
-  --color-error-tint-fg: #b91c1c;
-  --color-info-tint: #eff6ff;
-  --color-info-tint-fg: #1d4ed8;
+  --color-success-tint: #d1e2d3;
+  --color-success-tint-fg: #2f3d33;
+  --color-warning-tint: #f5c9b2;
+  --color-warning-tint-fg: #5e402f;
+  --color-error-tint: #ffdad6;
+  --color-error-tint-fg: #93000a;
+  --color-info-tint: #e3ecf3;
+  --color-info-tint-fg: #2c4a63;
 
-  /* --- Shadows ---------------------------------------------------------- */
-  /* Tinted with the brand indigo rather than neutral black, which is what
-     stops stacked cards looking grey and dirty. */
-  --shadow-soft: 0 4px 20px rgba(79, 70, 229, 0.08);
-  --shadow-hover: 0 8px 30px rgba(79, 70, 229, 0.15);
-  --shadow-glow: 0 0 0 1px rgba(79, 70, 229, 0.1), 0 8px 30px rgba(79, 70, 229, 0.25);
+  /* --- Elevation: glass + clay ------------------------------------------ */
+  /* Two systems, used for different jobs. Glass separates a panel from what is
+     behind it; clay makes a control feel pressable. A component picks one. */
+  --blur-glass: 20px;   /* level 1 — sidebars, cards */
+  --blur-active: 40px;  /* level 2 — modals, popovers */
+  /* The 1px inner highlight is what reads as the thickness of the glass edge.
+     Without it a translucent panel looks like a flat wash. */
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+
+  /* Warm-tinted, never neutral black: grey shadow over cream reads as dirt. */
+  --shadow-soft: 0 4px 20px rgba(95, 99, 104, 0.08);
+  --shadow-hover: 0 8px 30px rgba(95, 99, 104, 0.14);
+  --shadow-glow: 0 0 0 1px rgba(95, 99, 104, 0.10), 0 8px 30px rgba(95, 99, 104, 0.22);
+  /* Claymorphic extrusion — light from the top-left, shade to the bottom-right,
+     plus the outer diffusion that lifts it off the canvas. */
+  --shadow-clay:
+    inset 2px 2px 4px rgba(255, 255, 255, 0.75),
+    inset -2px -2px 4px rgba(95, 99, 104, 0.12),
+    0 4px 16px rgba(95, 99, 104, 0.10);
+  /* Inputs invert it: pressed into the surface rather than raised from it. */
+  --shadow-inset:
+    inset 2px 2px 5px rgba(95, 99, 104, 0.12),
+    inset -1px -1px 2px rgba(255, 255, 255, 0.85);
 
   /* --- Hero ------------------------------------------------------------- */
-  --gradient-hero: linear-gradient(135deg, #eef2ff 0%, #f0f9ff 50%, #ffffff 100%);
+  --gradient-hero: linear-gradient(135deg, #f8ede3 0%, #f5c9b2 60%, #ffffff 100%);
   --gradient-surface: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-secondary-end) 100%);
 
   /* --- Motion ----------------------------------------------------------- */
@@ -141,7 +168,7 @@
   /* Dimmer behind a modal or an off-canvas panel. Indigo-tinted and light,
      because a hard black scrim under a white theme reads as a different
      product. */
-  --overlay: rgba(15, 23, 42, 0.32);
+  --overlay: rgba(45, 49, 53, 0.32);
 }
 
 @theme inline {
@@ -206,14 +233,21 @@
   --shadow-soft: var(--shadow-soft);
   --shadow-hover: var(--shadow-hover);
   --shadow-glow: var(--shadow-glow);
+  --shadow-clay: var(--shadow-clay);
+  --shadow-inset: var(--shadow-inset);
+  --blur-glass: var(--blur-glass);
+  --blur-active: var(--blur-active);
 
   /* Softer corners across the board. Overriding the scale rather than editing
      every component means `rounded-md` and `rounded-lg` already in the codebase
      pick up the premium radius with no change at the call site. */
-  --radius-sm: 0.5rem;   /* 8px  — badges, chips */
-  --radius-md: 0.75rem;  /* 12px — buttons, inputs */
-  --radius-lg: 1rem;     /* 16px — cards, modals */
-  --radius-xl: 1.25rem;  /* 20px — hero panels */
+  /* DESIGN.md's scale — "never use sharp corners". Overriding the scale rather
+     than editing call sites means every existing `rounded-lg` picks up the new
+     softness with no change to the ~60 files that use it. */
+  --radius-sm: 0.5rem;   /* 8px  — chips, small controls */
+  --radius-md: 1rem;     /* 16px — inputs, list rows */
+  --radius-lg: 1.5rem;   /* 24px — cards */
+  --radius-xl: 2rem;     /* 32px — primary containers, modals */
 }
 
 /* ============================================================================
@@ -221,7 +255,7 @@
    ========================================================================= */
 
 body {
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   color: var(--text-body);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
   /* Fine-stemmed type on a bright background benefits from this; without it
