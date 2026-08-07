@@ -8,7 +8,7 @@
 -- keys. Audited: no DROP TABLE, no DROP COLUMN, no ALTER COLUMN, no DROP
 -- CONSTRAINT, no data movement.
 
-Loaded Prisma config from prisma.config.ts.
+
 
 -- CreateEnum
 CREATE TYPE "MarkStatus" AS ENUM ('RECORDED', 'ABSENT', 'WITHHELD');

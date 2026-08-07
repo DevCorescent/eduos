@@ -7,6 +7,8 @@
 -- Audited: no DROP TABLE, no DROP COLUMN, no ALTER COLUMN, no DROP
 -- CONSTRAINT, no data movement.
 
+
+
 -- CreateEnum
 CREATE TYPE "AssessmentEventStatus" AS ENUM ('DRAFT', 'OPEN', 'LOCKED', 'PUBLISHED');
 
@@ -54,4 +56,12 @@ ALTER TABLE "AssessmentEvent" ADD CONSTRAINT "AssessmentEvent_sectionId_fkey" FO
 
 -- AddForeignKey
 ALTER TABLE "AssessmentEvent" ADD CONSTRAINT "AssessmentEvent_conductedById_fkey" FOREIGN KEY ("conductedById") REFERENCES "FacultyMember"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+
+
+
+
+
+
+
 

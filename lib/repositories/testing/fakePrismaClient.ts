@@ -258,4 +258,25 @@ export class FakePrismaClient {
   get openElectiveAllocation() {
     return this.delegate("openElectiveAllocation");
   }
+
+  // --- Phase 20 feedback delegates ------------------------------------------
+  //
+  // Added additively for the Faculty Feedback System. Every getter above is
+  // untouched, so all prior suites behave exactly as before.
+
+  get feedbackForm() {
+    return this.delegate("feedbackForm");
+  }
+
+  get feedbackQuestion() {
+    return this.delegate("feedbackQuestion");
+  }
+
+  get feedbackSubmission() {
+    return this.delegate("feedbackSubmission");
+  }
+
+  get feedbackAnswer() {
+    return this.delegate("feedbackAnswer");
+  }
 }
