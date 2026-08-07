@@ -119,12 +119,8 @@ export class StudentProfileService {
     query: DashboardQuery,
     now: Date
   ): Promise<StudentDashboardDto> {
-    console.log("[SERVICE] getDashboard() START tenantId:", tenantId, "userId:", userId);
-    const __totalStart = Date.now();
     const studentId = await this.resolveOwnStudent(tenantId, userId);
 
-    console.log("[SERVICE] getDashboard() — repository Promise.all() START (6 reads)");
-    const __repoStart = Date.now();
     const [profile, parents, documents, achievements, counts, notifications] = await Promise.all([
       this.repository.findProfile(tenantId, studentId),
       this.repository.findParents(studentId),
@@ -133,10 +129,8 @@ export class StudentProfileService {
       this.repository.findProfileCounts(tenantId, studentId, now),
       this.repository.findRecentNotifications(tenantId, userId, query.notifications),
     ]);
-    console.log("[SERVICE] getDashboard() — repository Promise.all() END in", Date.now() - __repoStart, "ms");
 
     if (profile === null) {
-      console.log("[SERVICE] getDashboard() — profile is null, throwing PROFILE_NOT_FOUND (404) after", Date.now() - __totalStart, "ms");
       throw new AppError(STUDENT_PROFILE_MESSAGE.PROFILE_NOT_FOUND, 404, ERROR_CODE.NOT_FOUND);
     }
 
@@ -146,18 +140,13 @@ export class StudentProfileService {
     // this Promise.all — and therefore this whole endpoint — never resolves,
     // which matches "keeps loading" exactly. The per-section timings logged
     // inside each compose* method show WHICH of the three never returns.
-    console.log("[SERVICE] getDashboard() — subsystem Promise.all() START (academic, attendance, finance)");
-    const __subsystemStart = Date.now();
     const [academic, attendance, finance] = await Promise.all([
       this.composeAcademic(tenantId, studentId),
       this.composeAttendance(tenantId, studentId),
       this.composeFinance(tenantId, userId),
     ]);
-    console.log("[SERVICE] getDashboard() — subsystem Promise.all() END in", Date.now() - __subsystemStart, "ms");
 
     const completion = this.scoreProfile(profile, parents, documents, achievements);
-
-    console.log("[SERVICE] getDashboard() END — total", Date.now() - __totalStart, "ms");
 
     return {
       academic: {
@@ -183,11 +172,8 @@ export class StudentProfileService {
   }
 
   private async composeAcademic(tenantId: string, studentId: string) {
-    const __start = Date.now();
-    console.log("[SERVICE] composeAcademic() START — calling ResultService.getStudentResult()");
     try {
       const result = await this.results.getStudentResult(tenantId, studentId, { scope: "ANY" });
-      console.log("[SERVICE] composeAcademic() — ResultService.getStudentResult() resolved in", Date.now() - __start, "ms");
       const latest = result.semesters[result.semesters.length - 1];
 
       return {
@@ -196,36 +182,25 @@ export class StudentProfileService {
         earnedCredits: result.credits.earned,
         backlogCount: latest?.backlogCount ?? null,
       };
-    } catch (error) {
-      console.log("[SERVICE] composeAcademic() — ResultService.getStudentResult() REJECTED in", Date.now() - __start, "ms, error:", error);
+    } catch {
       return { sgpa: null, cgpa: null, earnedCredits: null, backlogCount: null };
-    } finally {
-      console.log("[SERVICE] composeAcademic() END — total", Date.now() - __start, "ms");
     }
   }
 
   private async composeAttendance(tenantId: string, studentId: string) {
-    const __start = Date.now();
-    console.log("[SERVICE] composeAttendance() START — calling AttendanceAnalyticsService.getAnalytics()");
     try {
       const analytics = await this.attendance.getAnalytics(tenantId, studentId);
-      console.log("[SERVICE] composeAttendance() — AttendanceAnalyticsService.getAnalytics() resolved in", Date.now() - __start, "ms");
 
       return {
         overallPercent: analytics.overallPercentage.toFixed(MARK_SCALE),
         hasWarning: analytics.alerts.lowAttendance,
       };
-    } catch (error) {
-      console.log("[SERVICE] composeAttendance() — AttendanceAnalyticsService.getAnalytics() REJECTED in", Date.now() - __start, "ms, error:", error);
+    } catch {
       return { overallPercent: null, hasWarning: false };
-    } finally {
-      console.log("[SERVICE] composeAttendance() END — total", Date.now() - __start, "ms");
     }
   }
 
   private async composeFinance(tenantId: string, userId: string) {
-    const __start = Date.now();
-    console.log("[SERVICE] composeFinance() START — calling StudentFinanceService.getPendingFees()");
     try {
       const pending = await this.finance.getPendingFees(tenantId, userId, {
         page: 1,
@@ -233,7 +208,6 @@ export class StudentProfileService {
         sortBy: "dueDate",
         sortOrder: "asc",
       });
-      console.log("[SERVICE] composeFinance() — StudentFinanceService.getPendingFees() resolved in", Date.now() - __start, "ms");
 
       const complete = pending.demands.length >= pending.pagination.total;
 
@@ -241,11 +215,8 @@ export class StudentProfileService {
         pendingFeeCount: pending.pagination.total,
         outstandingAmount: complete ? sumOutstanding(pending.demands) : null,
       };
-    } catch (error) {
-      console.log("[SERVICE] composeFinance() — StudentFinanceService.getPendingFees() REJECTED in", Date.now() - __start, "ms, error:", error);
+    } catch {
       return { pendingFeeCount: null, outstandingAmount: null };
-    } finally {
-      console.log("[SERVICE] composeFinance() END — total", Date.now() - __start, "ms");
     }
   }
 
@@ -302,10 +273,7 @@ export class StudentProfileService {
   }
 
   private async resolveOwnStudent(tenantId: string, userId: string): Promise<string> {
-    const __start = Date.now();
-    console.log("[SERVICE] resolveOwnStudent() START tenantId:", tenantId, "userId:", userId);
     const own = await this.repository.findStudentByUserId(tenantId, userId);
-    console.log("[SERVICE] resolveOwnStudent() END in", Date.now() - __start, "ms ->", own);
 
     if (own === null) {
       throw new AppError(STUDENT_PROFILE_MESSAGE.FORBIDDEN, 403, ERROR_CODE.FORBIDDEN);

@@ -1,10 +1,4 @@
-/* eslint-disable react-hooks/purity, react-hooks/refs -- TEMPORARY DIAGNOSTIC
-   INSTRUMENTATION. console.log and Date.now() are impure, and the React
-   Compiler is right to refuse them during render. They are here to trace a
-   reported "dashboard never loads" and are meant to be removed with the rest of
-   the tracing once the cause is settled. Nothing below changes behaviour. */
 import type { Metadata } from "next";
-import { traceRender } from "@/lib/utils/trace";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, Award, ClipboardCheck, FileText, Receipt } from "lucide-react";
@@ -49,7 +43,6 @@ function isOverdue(dueDate: string | null): boolean {
 }
 
 export default async function StudentDashboardPage() {
-  const __done = traceRender("STUDENT DASHBOARD");
   // Started together. getMyDashboard is self-scoped — it resolves the caller
   // from the session and takes no id — so making it wait for the profile call
   // that produces `student.id` put a round trip on the critical path for a
@@ -116,7 +109,6 @@ export default async function StudentDashboardPage() {
       ? Number(summary.finance.outstandingAmount)
       : null;
 
-  __done();
   return (
     <>
       <PageHeader

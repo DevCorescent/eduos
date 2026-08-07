@@ -111,7 +111,6 @@ export function LoginForm() {
     //
     // isSubmitting is deliberately left true — navigation is in flight, and
     // re-enabling the button here would invite a second submit.
-    console.log("[ROUTER] LoginForm router.replace(", destination, ")");
     router.replace(destination);
     router.refresh();
   }

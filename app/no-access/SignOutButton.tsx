@@ -23,7 +23,6 @@ export function SignOutButton() {
       onClick={async () => {
         setIsPending(true);
         await logout();
-        console.log("[ROUTER] SignOutButton router.replace(", "/login", ")");
         router.replace("/login");
         router.refresh();
       }}
