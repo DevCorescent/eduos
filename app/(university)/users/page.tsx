@@ -65,7 +65,9 @@ export default async function UsersPage({ searchParams }: { searchParams: Search
       label: "Role",
       options: roleOptions,
       placeholder: "Select a role",
-      helperText: "A user with no role can sign in but reach nothing.",
+      // Required — createUserAction refuses an invite without one, because a
+      // user with no role authenticates and then reaches nothing.
+      helperText: "Required. Decides which portal this user lands in.",
     },
     { kind: "switch", name: "isActive", label: "Active" },
   ];

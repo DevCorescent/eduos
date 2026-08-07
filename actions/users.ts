@@ -58,14 +58,26 @@ export async function createUserAction(values: FormValues): Promise<ActionResult
     return { success: false, error: "Use at least 8 characters.", field: "password" };
   }
 
+  // Required, not optional, and checked BEFORE the account is created.
+  //
+  // A user with no role authenticates successfully and then reaches nothing:
+  // the JWT carries roles: [], every guard refuses it, and they land on
+  // /no-access with no way to tell that from a broken system. Four such
+  // accounts already exist in the demo tenant and each one presented as
+  // "login works but the dashboard is dead".
+  //
+  // Validated before createUser so a rejected invite leaves no half-made
+  // account behind — the previous order would have created the user and only
+  // then discovered there was no role to give them.
+  const roleId = optionalStr(values, "roleId");
+  if (!roleId) {
+    return { success: false, error: "Choose a role for this user.", field: "roleId" };
+  }
+
   const created = await createUser(input);
   if (!created.success) return withConflictField(created, "email");
 
-  // Assigning the role in the same step is the point of an invite: a user with
-  // no role can sign in and reach nothing, so leaving it to a second screen
-  // would make every invite a two-step job that is easy to leave half-done.
-  const roleId = optionalStr(values, "roleId");
-  if (roleId) {
+  {
     const assigned = await assignRole(created.data.id, roleId);
     if (!assigned.success) {
       // The account exists — reporting a flat failure would suggest otherwise
