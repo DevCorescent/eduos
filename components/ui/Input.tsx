@@ -122,7 +122,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             aria-invalid={hasError}
             aria-describedby={hasError ? errorId : helperText ? helperId : undefined}
             className={cn(
-              "w-full rounded-md border bg-surface px-3 text-foreground placeholder:text-muted-foreground",
+              // Recessed, not raised. DESIGN.md: inputs have "a recessed appearance
+  // created with subtle inner shadows, making them look like they are pressed
+  // into the soft surface" — the exact inverse of the button's extrusion, and
+  // what tells a user at a glance which surfaces accept typing.
+  "w-full rounded-md border bg-surface px-4 text-foreground placeholder:text-muted-foreground",
+  "clay-inset",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               "disabled:opacity-50 disabled:pointer-events-none",
               hasError

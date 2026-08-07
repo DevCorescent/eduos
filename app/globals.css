@@ -38,6 +38,10 @@
      above ~75% the blur has nothing left to pick up. */
   --bg-glass: rgba(255, 255, 255, 0.62);
   --border-color: #dfe3e8;
+  /* DESIGN.md's `outline` — a stronger edge than --border-color, for controls
+     that are defined BY their border (the outlined button) rather than merely
+     separated by one. */
+  --outline-color: #7d766e;
 
   /* --- Primary brand ---------------------------------------------------- */
   --color-primary-base: #645d56;
@@ -122,6 +126,7 @@
   --surface-hover: var(--bg-secondary);
   --surface-active: var(--bg-secondary-end);
   --border: var(--border-color);
+  --outline: var(--outline-color);
 
   --muted: var(--bg-secondary);
   --muted-foreground: var(--text-muted);
@@ -182,6 +187,7 @@
   --color-surface-hover: var(--surface-hover);
   --color-surface-active: var(--surface-active);
   --color-border: var(--border);
+  --color-outline: var(--outline);
   --color-overlay: var(--overlay);
 
   --color-muted: var(--muted);
@@ -296,18 +302,23 @@ h6 {
    backgrounds are gradients rather than flat white. */
 .glass {
   background-color: var(--bg-glass);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* DESIGN.md level 1 — 20px. The old 12px read as a light tint rather than
+     glass; the difference between the two is the whole effect. */
+  backdrop-filter: blur(var(--blur-glass));
+  -webkit-backdrop-filter: blur(var(--blur-glass));
   border: 1px solid var(--border-color);
-  box-shadow: var(--shadow-soft);
+  /* The inner highlight is listed FIRST so it draws over the fill: it is the
+     1px of light along the top edge that reads as the thickness of the glass.
+     Without it a translucent panel looks like a flat wash of colour. */
+  box-shadow: var(--glass-edge), var(--shadow-soft);
 }
 
 /* Same frosting without the border or shadow, for elements that supply their
    own edge — a sticky top bar with only a bottom border, for instance. */
 .glass-plain {
   background-color: var(--bg-glass);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(var(--blur-glass));
+  -webkit-backdrop-filter: blur(var(--blur-glass));
 }
 
 .gradient-primary {
@@ -341,18 +352,47 @@ h6 {
 .btn-gradient {
   background-image: var(--gradient-primary);
   color: #ffffff;
-  box-shadow: var(--shadow-soft);
+  /* Clay, not a flat drop shadow: an inner highlight along the top edge and an
+     inner shade along the bottom are what make the surface read as extruded.
+     The outer shadow alone would just float a flat rectangle. */
+  box-shadow: var(--shadow-clay);
   transition: var(--transition-base);
 }
 
 .btn-gradient:hover:not(:disabled) {
-  box-shadow: var(--shadow-glow);
+  box-shadow: var(--shadow-glow), inset 2px 2px 4px rgba(255, 255, 255, 0.35);
   transform: translateY(-1px);
 }
 
+/* Press inverts the lighting — the highlight moves under the finger, which is
+   the whole trick behind a surface that feels physically pushed. */
 .btn-gradient:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: var(--shadow-soft);
+  box-shadow: var(--shadow-inset);
+}
+
+/* Frosted panel. Two properties do the work: the blur, and the 1px inner
+   highlight that reads as the thickness of the glass edge. */
+.glass-panel {
+  background-color: var(--bg-glass);
+  backdrop-filter: blur(var(--blur-glass));
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+  box-shadow: var(--glass-edge), var(--shadow-soft);
+}
+
+/* Level 2 — modals and popovers sit above level 1 and blur harder, so the
+   panel behind them stops competing for attention. */
+.glass-raised {
+  background-color: var(--bg-glass);
+  backdrop-filter: blur(var(--blur-active));
+  -webkit-backdrop-filter: blur(var(--blur-active));
+  box-shadow: var(--glass-edge), var(--shadow-hover);
+}
+
+/* Recessed control — pressed INTO the surface rather than raised from it.
+   Used by inputs, which is why the lighting is the inverse of .btn-gradient. */
+.clay-inset {
+  box-shadow: var(--shadow-inset);
 }
 
 /* Card lift on hover, for cards that are themselves links. */
