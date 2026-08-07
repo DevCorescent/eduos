@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Layers } from "lucide-react";
+import { ArrowLeft, ArrowRight, Layers } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
@@ -11,6 +11,7 @@ import type { FormField } from "@/components/shared/EntityFormModal";
 import { Card } from "@/components/ui/Card";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { getProgramme, listDepartments, listSpecialisations } from "@/services/setup";
+import { getCurriculumForProgramme } from "@/services/academics";
 import { createSpecialisationAction } from "@/actions/setup";
 import { DURATION_UNIT_LABELS, PROGRAMME_TYPE_LABELS } from "@/constants/labels";
 import { formatDate } from "@/utils/format";
@@ -34,11 +35,13 @@ const SPECIALISATION_FIELDS: FormField[] = [
 export default async function ProgrammeDetailPage({ params }: { params: Params }) {
   const { id } = await params;
 
-  const [programmeResult, specialisationsResult, departmentsResult] = await Promise.all([
-    getProgramme(id),
-    listSpecialisations(id, { page: 1, limit: 100 }),
-    listDepartments({ page: 1, limit: 100 }),
-  ]);
+  const [programmeResult, specialisationsResult, departmentsResult, curriculumResult] =
+    await Promise.all([
+      getProgramme(id),
+      listSpecialisations(id, { page: 1, limit: 100 }),
+      listDepartments({ page: 1, limit: 100 }),
+      getCurriculumForProgramme(id),
+    ]);
 
   if (!programmeResult.success) {
     // A missing programme is a 404, not an error page. Conflating the two would
@@ -51,6 +54,10 @@ export default async function ProgrammeDetailPage({ params }: { params: Params }
   const department = departmentsResult.success
     ? departmentsResult.data.items.find((d) => d.id === programme.departmentId)
     : undefined;
+
+  // A programme may have no curriculum yet — the service returns null rather
+  // than failing, so an absent structure reads as "not built yet", not an error.
+  const curriculum = curriculumResult.success ? curriculumResult.data : null;
 
   const columns: TableColumn<Specialisation>[] = [
     {
@@ -117,6 +124,22 @@ export default async function ProgrammeDetailPage({ params }: { params: Params }
             />
             <Field label="Total credits" value={programme.totalCredits ?? "—"} />
             <Field label="Department" value={department?.name ?? "—"} />
+            <Field
+              label="Curriculum"
+              value={
+                curriculum ? (
+                  <Link
+                    href={`/curriculum/${curriculum.id}`}
+                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    {curriculum.name}
+                    <ArrowRight className="size-3.5" aria-hidden="true" />
+                  </Link>
+                ) : (
+                  "Not built yet"
+                )
+              }
+            />
             <Field label="Eligibility" value={programme.eligibility ?? "—"} />
             <Field label="Created" value={formatDate(programme.createdAt)} />
           </dl>

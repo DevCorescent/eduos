@@ -125,7 +125,13 @@ export function PortalShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
           user={user}
-          menuItems={[{ label: "Sign out", onClick: handleLogout, destructive: true }]}
+          // Settings lives here rather than in the sidebar so every portal gets
+          // it: the four nav trees differ, but "my own account" belongs to
+          // whoever is signed in, whatever they are signed in as.
+          menuItems={[
+            { label: "Settings", href: "/settings" },
+            { label: "Sign out", onClick: handleLogout, destructive: true },
+          ]}
           center={<PortalBreadcrumb root={{ label: homeLabel, href: homeHref }} />}
           leading={
             <button
