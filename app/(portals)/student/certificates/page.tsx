@@ -8,19 +8,31 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card } from "@/components/ui/Card";
 import { Table, type TableColumn } from "@/components/ui/Table";
-import { getCurrentStudent } from "@/services/portal";
-import { listStudentCertificates } from "@/services/finance";
+import { getPortalSession } from "@/services/session";
+import { getMyProfile } from "@/services/studentProfile";
 import { CERTIFICATE_TYPE_LABELS } from "@/constants/labels";
 import { formatDate } from "@/utils/format";
-import type { CertificateRow } from "@/types";
+import type { CertificateDto } from "@/lib/dto/studentProfile.dto";
 
 export const metadata: Metadata = { title: "My Certificates" };
 
+/**
+ * The student's own certificates.
+ *
+ * Sourced from GET /api/student/profile and NOT from
+ * /api/students/[id]/certificates: that route is requireRole
+ * ("UNIVERSITY_ADMIN") and answers a student with 403. The profile endpoint
+ * returns the same certificates to the person they belong to, which is the only
+ * path a portal may take.
+ *
+ * Revoked certificates are listed rather than filtered out. A student needs to
+ * know that a document they may already have sent somewhere no longer stands.
+ */
 export default async function StudentCertificatesPage() {
-  const student = await getCurrentStudent();
-  if (!student) redirect("/login");
+  const session = await getPortalSession();
+  if (!session) redirect("/login");
 
-  const result = await listStudentCertificates(student.id);
+  const result = await getMyProfile();
 
   const header = (
     <PageHeader
@@ -38,25 +50,24 @@ export default async function StudentCertificatesPage() {
     );
   }
 
-  const certificates = result.data;
+  const certificates = result.data.certificates;
 
-  const columns: TableColumn<CertificateRow>[] = [
+  const columns: TableColumn<CertificateDto>[] = [
     {
-      key: "templateName",
+      key: "type",
       header: "Certificate",
       render: (row) => (
         <div className="min-w-0">
-          <span className="font-medium text-foreground">{row.templateName}</span>
+          {/* The profile endpoint returns no template name — the type is what
+              identifies a certificate to the person holding it. */}
+          <span className="font-medium text-foreground">
+            {CERTIFICATE_TYPE_LABELS[row.type]}
+          </span>
           <p className="truncate font-mono text-xs text-muted-foreground">
             {row.certificateNo}
           </p>
         </div>
       ),
-    },
-    {
-      key: "type",
-      header: "Type",
-      render: (row) => CERTIFICATE_TYPE_LABELS[row.type],
     },
     {
       key: "issuedAt",
@@ -79,8 +90,10 @@ export default async function StudentCertificatesPage() {
       header: "Status",
       render: (row) => (
         <StatusBadge
-          label={row.isRevoked ? "Revoked" : "Valid"}
-          variant={row.isRevoked ? "danger" : "success"}
+          // Three states, not two: an expired certificate is neither revoked
+          // nor currently valid, and `isActive` is the API's own answer.
+          label={row.isRevoked ? "Revoked" : row.isActive ? "Valid" : "Expired"}
+          variant={row.isRevoked ? "danger" : row.isActive ? "success" : "neutral"}
         />
       ),
     },

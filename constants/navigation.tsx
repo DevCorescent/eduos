@@ -23,14 +23,19 @@ import {
   ClipboardCheck,
   CreditCard,
   FileText,
+  Flag,
   GraduationCap,
   LayoutDashboard,
   Library,
+  MessageSquare,
   Receipt,
   School,
+  ScrollText,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   UserCog,
+  UserRound,
   Users,
   Wallet,
 } from "lucide-react";
@@ -66,6 +71,7 @@ export const PLATFORM_NAV: NavGroup[] = [
       { label: "Dashboard", href: "/platform/dashboard", icon: <LayoutDashboard className={iconClass} /> },
       { label: "Tenants", href: "/platform/tenants", icon: <Building2 className={iconClass} /> },
       { label: "Subscriptions", href: "/platform/subscriptions", icon: <CreditCard className={iconClass} /> },
+      { label: "Feature Flags", href: "/platform/feature-flags", icon: <Flag className={iconClass} /> },
     ],
   },
 ];
@@ -104,8 +110,40 @@ export const UNIVERSITY_NAV: NavGroup[] = [
     label: "Academics",
     items: [
       { label: "Courses", href: "/curriculum/courses", icon: <BookOpen className={iconClass} /> },
+      { label: "Open Electives", href: "/electives", icon: <Library className={iconClass} /> },
       { label: "Timetable", href: "/timetable", icon: <CalendarDays className={iconClass} /> },
       { label: "Attendance", href: "/attendance/report", icon: <ClipboardCheck className={iconClass} /> },
+    ],
+  },
+  {
+    label: "Evaluation",
+    items: [
+      { label: "Overview", href: "/evaluation", icon: <SlidersHorizontal className={iconClass} /> },
+      {
+        label: "Schemes",
+        href: "/evaluation/schemes",
+        icon: <SlidersHorizontal className={iconClass} />,
+      },
+      {
+        label: "Registrations",
+        href: "/evaluation/course-registrations",
+        icon: <ClipboardCheck className={iconClass} />,
+      },
+      {
+        label: "Assessments",
+        href: "/evaluation/assessment-events",
+        icon: <CalendarDays className={iconClass} />,
+      },
+      {
+        label: "Semester Results",
+        href: "/evaluation/results/semester",
+        icon: <GraduationCap className={iconClass} />,
+      },
+      {
+        label: "Transcript",
+        href: "/evaluation/transcript",
+        icon: <ScrollText className={iconClass} />,
+      },
     ],
   },
   {
@@ -118,6 +156,20 @@ export const UNIVERSITY_NAV: NavGroup[] = [
         href: "/users",
         icon: <ShieldCheck className={iconClass} />,
         roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CAMPUS_ADMIN],
+      },
+      {
+        label: "Administrators",
+        href: "/users/admins",
+        icon: <ShieldCheck className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CAMPUS_ADMIN],
+      },
+      {
+        // A head of department reads this about their own department; the
+        // report itself is scoped by the API, not by hiding the link.
+        label: "Faculty Feedback",
+        href: "/feedback",
+        icon: <MessageSquare className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.HOD, ROLES.DEPARTMENT_HOD],
       },
       {
         label: "Finance",
@@ -146,6 +198,7 @@ export const FACULTY_NAV: NavGroup[] = [
       { label: "Attendance", href: "/faculty/attendance/mark", icon: <ClipboardCheck className={iconClass} /> },
       { label: "Assignments", href: "/faculty/assignments", icon: <FileText className={iconClass} /> },
       { label: "Exams", href: "/faculty/exams", icon: <BookOpen className={iconClass} /> },
+      { label: "My Feedback", href: "/faculty/feedback", icon: <MessageSquare className={iconClass} /> },
     ],
   },
 ];
@@ -156,9 +209,12 @@ export const STUDENT_NAV: NavGroup[] = [
   {
     items: [
       { label: "Dashboard", href: "/student/dashboard", icon: <LayoutDashboard className={iconClass} /> },
+      { label: "My Profile", href: "/student/profile", icon: <UserRound className={iconClass} /> },
       { label: "My Attendance", href: "/student/attendance", icon: <ClipboardCheck className={iconClass} /> },
       { label: "Assignments", href: "/student/assignments", icon: <FileText className={iconClass} /> },
       { label: "Results", href: "/student/results", icon: <GraduationCap className={iconClass} /> },
+      { label: "Transcript", href: "/student/transcript", icon: <ScrollText className={iconClass} /> },
+      { label: "Open Electives", href: "/student/electives", icon: <Library className={iconClass} /> },
       { label: "Fees", href: "/student/fees", icon: <Receipt className={iconClass} /> },
       { label: "Certificates", href: "/student/certificates", icon: <Award className={iconClass} /> },
     ],
@@ -238,6 +294,23 @@ export const NAV_LABELS: Record<string, string> = {
   "fee-demands": "Fee Demands",
   student: "Student",
   settings: "Settings",
+
+  // Added alongside the evaluation, elective and feedback screens. Every one is
+  // a real URL segment, so an absent entry here leaves a raw slug in the trail.
+  evaluation: "Evaluation",
+  schemes: "Evaluation Schemes",
+  "course-registrations": "Course Registrations",
+  "assessment-events": "Assessment Events",
+  semester: "Semester Results",
+  internal: "Internal Marks",
+  external: "External Marks",
+  transcript: "Transcript",
+  analytics: "Analytics",
+  electives: "Open Electives",
+  feedback: "Faculty Feedback",
+  profile: "Profile",
+  admins: "Administrators",
+  "feature-flags": "Feature Flags",
 };
 
 /** Every role permitted into the university portal, re-exported for layouts. */
