@@ -1,4 +1,10 @@
+/* eslint-disable react-hooks/purity, react-hooks/refs -- TEMPORARY DIAGNOSTIC
+   INSTRUMENTATION. console.log and Date.now() are impure, and the React
+   Compiler is right to refuse them during render. They are here to trace a
+   reported "dashboard never loads" and are meant to be removed with the rest of
+   the tracing once the cause is settled. Nothing below changes behaviour. */
 import type { Metadata } from "next";
+import { traceRender } from "@/lib/utils/trace";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AlertTriangle, Award, ClipboardCheck, FileText, Receipt } from "lucide-react";
@@ -11,8 +17,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { getCurrentStudent } from "@/services/portal";
 import { getAttendanceReport } from "@/services/academics";
 import { listStudentAssignments } from "@/services/assignments";
-import { listStudentFeeDemands } from "@/services/finance";
-import { getStudentTranscript } from "@/services/students";
+import { getMyDashboard } from "@/services/studentProfile";
 import { STUDENT_STATUS_LABELS, STUDENT_STATUS_VARIANTS } from "@/constants/labels";
 import { formatCurrency, formatDate, formatNumber, formatPercent } from "@/utils/format";
 import { cn } from "@/lib/utils";
@@ -21,6 +26,15 @@ export const metadata: Metadata = { title: "My Dashboard" };
 
 /** The examination eligibility threshold. See the attendance report. */
 const REQUIRED_PERCENT = 75;
+
+/**
+ * How many assignments the "Due soon" panel asks for.
+ *
+ * Bounded because resolving whether a row has been submitted costs one request
+ * per row — GET /api/assignments returns no submission — so an unbounded list
+ * turns one panel into a hundred round trips.
+ */
+const DUE_SOON_LIMIT = 5;
 
 /**
  * Whether a deadline has passed.
@@ -35,30 +49,58 @@ function isOverdue(dueDate: string | null): boolean {
 }
 
 export default async function StudentDashboardPage() {
-  const student = await getCurrentStudent();
+  const __done = traceRender("STUDENT DASHBOARD");
+  // Started together. getMyDashboard is self-scoped — it resolves the caller
+  // from the session and takes no id — so making it wait for the profile call
+  // that produces `student.id` put a round trip on the critical path for a
+  // value it never uses.
+  const [student, dashboardResult] = await Promise.all([
+    getCurrentStudent(),
+    getMyDashboard(),
+  ]);
+
   if (!student) redirect("/login");
 
-  const [attendanceResult, assignmentsResult, feesResult, transcriptResult] =
-    await Promise.all([
-      getAttendanceReport(student.id),
-      listStudentAssignments(student.id, { page: 1, limit: 100 }),
-      listStudentFeeDemands(student.id),
-      getStudentTranscript(student.id),
-    ]);
+  // GET /api/student/dashboard carries the attendance percentage, the fee
+  // position and the academic standing in ONE response, computed server-side.
+  //
+  // This page used to compose those figures itself from four separate calls —
+  // /api/attendance/report, /api/fee-demands, /api/students/[id]/transcript and
+  // the assignment list. Two of those four are requireRole("UNIVERSITY_ADMIN")
+  // routes that answered a signed-in student with 403, so the fee and result
+  // cards rendered empty no matter what the database held; and each call paid
+  // the whole authentication chain again over its own HTTP hop, which is what
+  // made this page take eighteen seconds to render.
+  //
+  // The per-course attendance breakdown is still read separately, because the
+  // dashboard endpoint reports one overall percentage and the "you are short in
+  // these courses" alert needs to name them.
+  const [attendanceResult, assignmentsResult] = await Promise.all([
+    getAttendanceReport(student.id),
+    // Bounded on purpose: each row costs one request to resolve whether it has
+    // been submitted, and a dashboard panel headed "Due soon" needs a handful,
+    // not the whole term.
+    listStudentAssignments(student.id, { page: 1, limit: DUE_SOON_LIMIT }),
+  ]);
 
+  const summary = dashboardResult.success ? dashboardResult.data : null;
   const attendance = attendanceResult.success ? attendanceResult.data : [];
   const assignments = assignmentsResult.success ? assignmentsResult.data.items : [];
-  const fees = feesResult.success ? feesResult.data : [];
-  const results = transcriptResult.success ? transcriptResult.data : [];
 
-  // Weighted by class count, not an average of per-course percentages — a
+  // Prefer the server's own figure; fall back to the per-course rows only when
+  // the dashboard call failed. Weighted by class count either way — a
   // 30-session course must not carry the same weight as a 3-session one.
   const totalClasses = attendance.reduce((sum, a) => sum + a.totalClasses, 0);
   const attended = attendance.reduce(
     (sum, a) => sum + Math.round((a.percentage / 100) * a.totalClasses),
     0
   );
-  const overallAttendance = totalClasses === 0 ? 0 : (attended / totalClasses) * 100;
+  const overallAttendance =
+    summary?.attendance.overallPercent !== null && summary?.attendance.overallPercent !== undefined
+      ? Number(summary.attendance.overallPercent)
+      : totalClasses === 0
+        ? 0
+        : (attended / totalClasses) * 100;
   const shortCourses = attendance.filter((a) => a.percentage < REQUIRED_PERCENT);
 
   // Open work only: a closed assignment cannot be handed in, so listing it as
@@ -67,16 +109,14 @@ export default async function StudentDashboardPage() {
     (a) => a.status === "PUBLISHED" && !a.submission
   );
 
-  const outstanding = fees
-    .filter((f) => f.status !== "PAID" && f.status !== "WAIVED")
-    .reduce(
-      (sum, f) =>
-        sum + (Number(f.totalAmount) - Number(f.paidAmount) - Number(f.waivedAmount)),
-      0
-    );
+  // Null means the figure could not be read, which the card renders as "—".
+  // Zero would say "you owe nothing", which is a different statement.
+  const outstanding =
+    summary?.finance.outstandingAmount != null
+      ? Number(summary.finance.outstandingAmount)
+      : null;
 
-  const passed = results.filter((r) => r.isPassed === true).length;
-
+  __done();
   return (
     <>
       <PageHeader
@@ -122,14 +162,35 @@ export default async function StudentDashboardPage() {
         />
         <StatCard
           label="Outstanding Fees"
-          value={outstanding > 0 ? formatCurrency(outstanding) : "Clear"}
+          value={
+            outstanding === null
+              ? "—"
+              : outstanding > 0
+                ? formatCurrency(outstanding)
+                : "Clear"
+          }
           icon={<Receipt className="size-5" />}
+          caption={
+            summary?.finance.pendingFeeCount != null
+              ? `${formatNumber(summary.finance.pendingFeeCount)} demand(s)`
+              : undefined
+          }
         />
         <StatCard
-          label="Results Published"
-          value={formatNumber(results.length)}
+          // Standing, not a count of published results: the dashboard endpoint
+          // reports CGPA and backlogs directly, and the transcript route this
+          // card used to count is admin-only — a student got 403 and the card
+          // always read zero.
+          label="CGPA"
+          value={summary?.academic.cgpa ?? "—"}
           icon={<Award className="size-5" />}
-          caption={results.length > 0 ? `${passed} passed` : undefined}
+          caption={
+            summary?.academic.backlogCount != null && summary.academic.backlogCount > 0
+              ? `${formatNumber(summary.academic.backlogCount)} backlog(s)`
+              : summary?.academic.earnedCredits != null
+                ? `${summary.academic.earnedCredits} credits earned`
+                : undefined
+          }
         />
       </div>
 
@@ -235,7 +296,7 @@ export default async function StudentDashboardPage() {
         </Card>
       </div>
 
-      {outstanding > 0 && (
+      {outstanding !== null && outstanding > 0 && (
         <Card className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -245,9 +306,7 @@ export default async function StudentDashboardPage() {
                   {formatCurrency(outstanding)} outstanding
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Across{" "}
-                  {fees.filter((f) => f.status !== "PAID" && f.status !== "WAIVED").length}{" "}
-                  demand(s)
+                  Across {formatNumber(summary?.finance.pendingFeeCount ?? 0)} demand(s)
                 </p>
               </div>
             </div>

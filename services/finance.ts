@@ -96,10 +96,22 @@ export async function listFeeDemands(
 export async function listStudentFeeDemands(
   studentId: string
 ): Promise<ApiResponse<FeeDemand[]>> {
-  const result = await apiList<FeeDemand>("/api/fee-demands", "feeDemands", {
-    studentId,
-    limit: 100,
-  });
+  // The nested route, NOT /api/fee-demands?studentId=. Two reasons, and either
+  // alone is decisive:
+  //
+  //   1. The collection route is requireRole("UNIVERSITY_ADMIN", "FACULTY"),
+  //      so a student reading their own fees received 403 from it.
+  //   2. It defines no ?studentId filter — feeDemandQuerySchema does, but the
+  //      collection route's own schema drops unknown keys — so the parameter
+  //      was being ignored and the response was the whole tenant's ledger.
+  //
+  // The nested route admits STUDENT for their own record and scopes by the
+  // path segment, which is what this function has always meant.
+  const result = await apiList<FeeDemand>(
+    `/api/students/${studentId}/fee-demands`,
+    "feeDemands",
+    { limit: 100 }
+  );
   return result.success ? { success: true, data: result.data.items } : result;
 }
 

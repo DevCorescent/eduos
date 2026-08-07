@@ -17,7 +17,9 @@ import type {
   Semester,
 } from "@/types";
 import { apiList, apiRequest } from "./client";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { courseIndex, semesterIndex } from "./reference";
+import { mapWithConcurrency } from "./concurrency";
 
 /** An examination joined to its course and semester, with a result count. */
 export interface ExaminationRow extends Examination {
@@ -39,15 +41,35 @@ export interface ExaminationRow extends Examination {
 async function toRow(
   examination: Examination,
   courses: Map<string, Course>,
-  semesters: Map<string, Semester>
+  semesters: Map<string, Semester>,
+  resolveCounts = true
 ): Promise<ExaminationRow> {
   const course = courses.get(examination.courseId);
   const semester = semesters.get(examination.semesterId);
 
+  // Skipped when the caller does not read the counts. There is no aggregate on
+  // GET /api/examinations, so each count costs one request for that paper —
+  // a page of a hundred exams was a hundred requests, and the faculty dashboard
+  // paid all of them to render six fields, none of which is a count.
+  //
+  // Defaulted to true so every existing caller keeps the behaviour it has;
+  // opting out is explicit and belongs to callers that have checked they read
+  // neither resultCount nor publishedCount.
+  if (!resolveCounts) {
+    return {
+      ...examination,
+      courseCode: course?.code ?? "—",
+      courseName: course?.name ?? "—",
+      semesterName: semester?.name ?? "—",
+      resultCount: 0,
+      publishedCount: 0,
+    };
+  }
+
   const results = await apiList<ExamResult>(
     `/api/examinations/${examination.id}/results`,
     "results",
-    { limit: 200 }
+    { limit: MAX_LIST_LIMIT }
   );
   const rows = results.success ? results.data.items : [];
 
@@ -68,9 +90,20 @@ async function toRow(
  * own columns: Examination carries no facultyId, so "my exams" can only mean
  * "exams for courses I am assigned to".
  */
+export interface ExaminationListOptions {
+  /**
+   * Whether to resolve resultCount and publishedCount for each paper.
+   *
+   * One request per row when true. Pass false only from a caller that reads
+   * neither — see toRow.
+   */
+  resolveCounts?: boolean;
+}
+
 export async function listFacultyExaminations(
   facultyId: string,
-  params?: ListParams
+  params?: ListParams,
+  options: ExaminationListOptions = {}
 ): Promise<ApiResponse<PaginatedResult<ExaminationRow>>> {
   const result = await apiList<Examination>("/api/examinations", "examinations", {
     ...params,
@@ -79,8 +112,11 @@ export async function listFacultyExaminations(
   if (!result.success) return result;
 
   const [courses, semesters] = await Promise.all([courseIndex(), semesterIndex()]);
-  const items = await Promise.all(
-    result.data.items.map((exam) => toRow(exam, courses, semesters))
+
+  // Bounded rather than all-at-once: see services/concurrency.ts for why a
+  // hundred simultaneous per-row reads exhausted the connection pool.
+  const items = await mapWithConcurrency(result.data.items, (exam) =>
+    toRow(exam, courses, semesters, options.resolveCounts ?? true)
   );
 
   return { success: true, data: { ...result.data, items } };
@@ -98,7 +134,7 @@ export async function listExaminationResults(
   const result = await apiList<ExamResult>(
     `/api/examinations/${examinationId}/results`,
     "results",
-    { limit: 200 }
+    { limit: MAX_LIST_LIMIT }
   );
   if (!result.success) return result;
 

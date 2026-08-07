@@ -138,6 +138,16 @@ export async function apiRequest<T>(
 ): Promise<ApiResponse<T>> {
   const { method = "GET", body, params, cache = "no-store", tags } = options;
 
+  // [FETCH] instrumentation. Every server-rendered screen reaches its data
+  // through this one function, so this log IS the request waterfall for a page:
+  // one line per outbound hop, in the order they were issued, with the duration
+  // of each. Reading them together shows which hops ran in parallel and which
+  // waited on a previous one.
+  const __start = Date.now();
+  const __where = typeof window === "undefined" ? "server" : "browser";
+  const __label = `${method} ${path}`;
+  console.log(`[FETCH] START  ${__label}  from=${__where}  params=${JSON.stringify(params ?? {})}`);
+
   try {
     // On the server, carry the caller's session and tenant host across manually.
     // In the browser both are supplied by the platform and this resolves to nulls.
@@ -159,6 +169,10 @@ export async function apiRequest<T>(
       credentials: "include",
     });
 
+    console.log(
+      `[FETCH] HTTP   ${__label}  status=${response.status}  in ${Date.now() - __start}ms`
+    );
+
     // A 401/403 body is still the standard envelope, so it is parsed below
     // rather than short-circuited — the caller decides whether to redirect.
     let payload: unknown;
@@ -177,13 +191,20 @@ export async function apiRequest<T>(
     // Trust the envelope when the route produced one — it carries a more
     // specific message than any status mapping could.
     if (payload && typeof payload === "object" && "success" in payload) {
-      return payload as ApiResponse<T>;
+      const envelope = payload as ApiResponse<T>;
+      console.log(
+        `[FETCH] END    ${__label}  success=${envelope.success}  total=${Date.now() - __start}ms` +
+          (envelope.success ? "" : `  error=${envelope.error} code=${envelope.code}`)
+      );
+      return envelope;
     }
 
+    console.log(`[FETCH] END    ${__label}  UNEXPECTED BODY  total=${Date.now() - __start}ms`);
     return fail("Unexpected response from the server.", "SERVER_ERROR");
   } catch {
     // fetch() rejects only on a transport-level failure: offline, DNS, CORS,
     // abort. There is no response and therefore no status to map.
+    console.log(`[FETCH] END    ${__label}  TRANSPORT FAILURE  total=${Date.now() - __start}ms`);
     return fail(
       "Could not reach the server. Check your connection and try again.",
       "NETWORK_ERROR"
@@ -213,6 +234,12 @@ export async function apiList<T>(
   const response = await apiRequest<ListEnvelope<string, T>>(path, { params });
 
   if (!response.success) return response;
+
+  console.log(`[FETCH] LIST   ${path}  key="${key}"  rows=${
+    Array.isArray((response.data as Record<string, unknown>)[key])
+      ? ((response.data as Record<string, unknown>)[key] as unknown[]).length
+      : "NOT-AN-ARRAY"
+  }`);
 
   const envelope = response.data;
   const items = envelope[key];

@@ -12,6 +12,7 @@ import { prisma } from "@/lib/db/prisma";
 import { requireAuth } from "@/lib/middleware/requireAuth";
 import type { JwtPayload } from "@/lib/auth/jwt";
 import { fail, type ApiResponse } from "@/types";
+import { requestScoped } from "@/lib/middleware/requestCache";
 
 /**
  * Result of a role check.
@@ -78,10 +79,16 @@ export async function requireRole(...roles: string[]): Promise<RoleGuardResult> 
 
   const { session } = auth;
 
-  const assignments = await prisma.userRole.findMany({
-    where: { userId: session.sub },
-    select: { role: { select: { name: true } } },
-  });
+  // The query does not depend on `roles` — it reads everything the user holds
+  // and the comparison happens below — so a route that asks this guard twice
+  // for two different role sets can share one read. GET /api/assignments does
+  // exactly that, testing for staff first and then for STUDENT.
+  const assignments = await requestScoped(`auth:roles:${session.sub}`, () =>
+    prisma.userRole.findMany({
+      where: { userId: session.sub },
+      select: { role: { select: { name: true } } },
+    })
+  );
 
   const assignedRoleNames = assignments.map((assignment) => assignment.role.name);
   const hasPermittedRole = assignedRoleNames.some((name) => roles.includes(name));

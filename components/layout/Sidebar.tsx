@@ -1,3 +1,8 @@
+/* eslint-disable react-hooks/purity, react-hooks/refs -- TEMPORARY DIAGNOSTIC
+   INSTRUMENTATION. console.log and Date.now() are impure, and the React
+   Compiler is right to refuse them during render. They are here to trace a
+   reported "dashboard never loads" and are meant to be removed with the rest of
+   the tracing once the cause is settled. Nothing below changes behaviour. */
 // components/layout/Sidebar.tsx
 
 "use client";
@@ -6,6 +11,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { useRenderTrace } from "@/hooks/useRenderTrace";
 
 export interface SidebarNavItem {
   label: string;
@@ -80,6 +86,7 @@ export function Sidebar({
   isMobileOpen = false,
   onMobileClose,
 }: SidebarProps) {
+  useRenderTrace("Sidebar", { isMobileOpen });
   // Collapsing is a desktop-only affordance: the mobile panel is always full
   // width, so an icon rail there would be a second, conflicting mode. Every
   // consequence of this flag is therefore written as an `lg:` variant.

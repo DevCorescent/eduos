@@ -19,6 +19,7 @@ import { prisma } from "@/lib/db/prisma";
 import { getSession, getAccessToken } from "@/lib/auth/session";
 import type { JwtPayload } from "@/lib/auth/jwt";
 import { fail, type ApiResponse } from "@/types";
+import { requestScoped } from "@/lib/middleware/requestCache";
 
 /**
  * Result of an authentication check.
@@ -86,13 +87,19 @@ export async function requireAuth(): Promise<AuthGuardResult> {
     return { authenticated: false, response: unauthorized() };
   }
 
-  const storedSession = await prisma.session.findUnique({
-    where: { token },
-    select: {
-      expiresAt: true,
-      user: { select: { isActive: true } },
-    },
-  });
+  // Read once per request. requireRole and requireTenant both call this guard,
+  // and a route that uses both was issuing this identical query two or three
+  // times. The token is part of the key, so two different credentials in one
+  // request could not share an entry even if that were possible.
+  const storedSession = await requestScoped(`auth:session:${token}`, () =>
+    prisma.session.findUnique({
+      where: { token },
+      select: {
+        expiresAt: true,
+        user: { select: { isActive: true } },
+      },
+    })
+  );
 
   // A missing row means the session was ended by /api/auth/logout or superseded
   // by /api/auth/refresh. Either way the token is no longer live.

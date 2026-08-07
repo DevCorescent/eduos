@@ -18,7 +18,9 @@ import type {
   PaginatedResult,
 } from "@/types";
 import { apiList, apiRequest } from "./client";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { courseIndex } from "./reference";
+import { mapWithConcurrency } from "./concurrency";
 
 /**
  * Attach the course, and the caller's own submission, to an assignment.
@@ -68,13 +70,16 @@ export async function listStudentAssignments(
   studentId: string,
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<AssignmentRow>>> {
-  const result = await apiList<Assignment>("/api/assignments", "assignments", {
-    ...params,
-    studentId,
-  });
+  // Issued together: the course catalogue does not depend on which assignments
+  // come back, so awaiting it after the list put a whole round trip on the
+  // critical path for nothing. It is also the call most likely to fail — the
+  // catalogue is admin-only — and failing in parallel costs nothing.
+  const [result, courses] = await Promise.all([
+    apiList<Assignment>("/api/assignments", "assignments", { ...params, studentId }),
+    courseIndex(),
+  ]);
   if (!result.success) return result;
 
-  const courses = await courseIndex();
   const items = await Promise.all(
     result.data.items.map((assignment) => toRow(assignment, courses, true))
   );
@@ -93,19 +98,17 @@ export async function listFacultyAssignments(
   createdBy: string,
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<FacultyAssignmentSummary>>> {
-  const result = await apiList<Assignment>("/api/assignments", "assignments", {
-    ...params,
-    createdBy,
-  });
+  // Issued together, for the reason given in listStudentAssignments.
+  const [result, courses] = await Promise.all([
+    apiList<Assignment>("/api/assignments", "assignments", { ...params, createdBy }),
+    courseIndex(),
+  ]);
   if (!result.success) return result;
-
-  const courses = await courseIndex();
 
   // The grading queue counts come from each assignment's own submission list —
   // GET /api/assignments returns no aggregate. One request per row, bounded by
   // the page limit, and the counts are what the screen exists to show.
-  const items = await Promise.all(
-    result.data.items.map(async (assignment) => {
+  const items = await mapWithConcurrency(result.data.items, async (assignment) => {
       const row = await toRow(assignment, courses);
       const submissions = await apiList<AssignmentSubmission>(
         `/api/assignments/${assignment.id}/submissions`,
@@ -122,8 +125,7 @@ export async function listFacultyAssignments(
         gradedCount: graded,
         pendingCount: rows.length - graded,
       };
-    })
-  );
+  });
 
   return { success: true, data: { ...result.data, items } };
 }
@@ -140,7 +142,7 @@ export async function listSubmissions(
   const result = await apiList<AssignmentSubmission>(
     `/api/assignments/${assignmentId}/submissions`,
     "submissions",
-    { limit: 200 }
+    { limit: MAX_LIST_LIMIT }
   );
   if (!result.success) return result;
 

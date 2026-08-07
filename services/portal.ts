@@ -13,13 +13,11 @@
 //   A STUDENT has a self-scoped endpoint — GET /api/student/profile resolves
 //   the caller's own Student row from the session and needs no id. One request.
 //
-//   A FACULTY member has none. The only route that maps a User to a
-//   FacultyMember is GET /api/faculty, and its guard is requireRole
-//   ("UNIVERSITY_ADMIN") — a lecturer calling it receives 403. So the lookup
-//   below succeeds for an administrator browsing the faculty portal and returns
-//   null for the lecturer whose portal it is. That is a backend gap, recorded
-//   here rather than papered over; closing it means a self-scoped faculty
-//   endpoint, and this file is the only caller that would change.
+//   A FACULTY member now has one too: GET /api/faculty/me. It was added because
+//   the only other route mapping a User to a FacultyMember is GET /api/faculty,
+//   whose guard is requireRole("UNIVERSITY_ADMIN") — so a lecturer scanning it
+//   received 403 and every screen in their own portal dead-ended before issuing
+//   a second request. Both halves of this module are now one self-scoped call.
 // ============================================================================
 
 import "server-only";
@@ -27,19 +25,8 @@ import "server-only";
 import type { StudentProfileDto } from "@/lib/dto/studentProfile.dto";
 import type { FacultyMember, StudentStatus, User } from "@/types";
 import { getPortalSession } from "./session";
-import { apiList, apiRequest } from "./client";
-
-/** The `limit` cap every collection endpoint enforces. */
-const MAX_PAGE_SIZE = 100;
-
-/**
- * How many pages of faculty the lookup below will walk before giving up.
- *
- * Bounded because the scan exists only as a fallback for a missing self-scoped
- * endpoint, and an unbounded loop over a large tenant would stall a page render
- * rather than fail it.
- */
-const MAX_FACULTY_PAGES = 10;
+import { apiRequest } from "./client";
+import { displayNameFromEmail } from "@/utils/user";
 
 /**
  * The signed-in person as the portals consume them.
@@ -106,54 +93,42 @@ export async function getCurrentStudent(): Promise<PortalStudent | null> {
 /**
  * The signed-in lecturer, or null.
  *
- * Walks GET /api/faculty looking for the row whose userId matches the session.
- * See the module header for why there is no direct lookup, and why this returns
- * null for a caller holding only the FACULTY role.
+ * One request to GET /api/faculty/me, the self-scoped route. It takes no id —
+ * the caller is resolved from the session — so this cannot ask about anybody
+ * else, and it is open to FACULTY, which the staff directory is not.
+ *
+ * RETURNS null when there is no session, when the caller holds no FacultyMember
+ * row, or when the lookup fails. The portal layouts render their "couldn't
+ * identify you" state on that rather than guessing at a record.
  */
 export async function getCurrentFaculty(): Promise<PortalFaculty | null> {
   const session = await getPortalSession();
   if (!session) return null;
 
-  for (let page = 1; page <= MAX_FACULTY_PAGES; page++) {
-    const result = await apiList<FacultyMember>("/api/faculty", "faculty", {
-      page,
-      limit: MAX_PAGE_SIZE,
-    });
+  const member = await apiRequest<FacultyMember>("/api/faculty/me");
+  if (!member.success) return null;
 
-    // A 403 here is the expected outcome for a lecturer, not an anomaly. It is
-    // reported as "not identified" rather than retried on the next page.
-    if (!result.success) return null;
+  // The display name is derived from the session, NOT read from
+  // GET /api/users/[id]. That route is requireRole("UNIVERSITY_ADMIN"), so a
+  // lecturer asking for their own User row was answered 403 every single time —
+  // a guaranteed-useless round trip that still cost a connection and roughly a
+  // second, and whose failure branch produced this same fallback anyway.
+  //
+  // displayNameFromEmail is the project's existing answer to "name this person
+  // from a session alone": topbarUserFromSession already labels the very same
+  // user with it, so the greeting here and the chrome above it now agree
+  // instead of disagreeing whenever the read failed.
+  const name = displayNameFromEmail(session.email);
 
-    const match = result.data.items.find((member) => member.userId === session.sub);
-    if (match) {
-      const user = await apiRequest<User>(`/api/users/${match.userId}`);
-
-      return {
-        ...match,
-        user: user.success
-          ? {
-              id: user.data.id,
-              firstName: user.data.firstName,
-              lastName: user.data.lastName,
-              email: user.data.email,
-              avatarUrl: user.data.avatarUrl,
-            }
-          : {
-              id: match.userId,
-              firstName: "",
-              lastName: "",
-              email: session.email,
-              avatarUrl: null,
-            },
-        fullName: user.success
-          ? (user.data.displayName ??
-            `${user.data.firstName} ${user.data.lastName}`.trim())
-          : session.email,
-      };
-    }
-
-    if (page >= result.data.pagination.totalPages) break;
-  }
-
-  return null;
+  return {
+    ...member.data,
+    user: {
+      id: member.data.userId,
+      firstName: name,
+      lastName: "",
+      email: session.email,
+      avatarUrl: null,
+    },
+    fullName: name,
+  };
 }

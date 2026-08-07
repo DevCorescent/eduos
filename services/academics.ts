@@ -21,6 +21,7 @@ import type {
   TimetableSlot,
 } from "@/types";
 import { apiList, apiRequest } from "./client";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { currentSemester } from "./reference";
 
 // --- Curriculum -------------------------------------------------------------
@@ -166,7 +167,7 @@ export async function getSessionAttendance(
     sectionId,
     courseId,
     date,
-    limit: 200,
+    limit: MAX_LIST_LIMIT,
   });
   return result.success ? { success: true, data: result.data.items } : result;
 }

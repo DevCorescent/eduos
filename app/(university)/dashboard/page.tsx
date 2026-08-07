@@ -1,4 +1,10 @@
+/* eslint-disable react-hooks/purity, react-hooks/refs -- TEMPORARY DIAGNOSTIC
+   INSTRUMENTATION. console.log and Date.now() are impure, and the React
+   Compiler is right to refuse them during render. They are here to trace a
+   reported "dashboard never loads" and are meant to be removed with the rest of
+   the tracing once the cause is settled. Nothing below changes behaviour. */
 import type { Metadata } from "next";
+import { traceRender } from "@/lib/utils/trace";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
@@ -37,6 +43,7 @@ export const metadata: Metadata = {
  * returns null for exactly those, so this page never has to guess.
  */
 export default async function UniversityDashboardPage() {
+  const __done = traceRender("UNIVERSITY DASHBOARD");
   const session = await getPortalSession();
   if (!session) redirect("/login");
 
@@ -60,6 +67,7 @@ export default async function UniversityDashboardPage() {
 
   const summary = result.data;
 
+  __done();
   return (
     <>
       {header}

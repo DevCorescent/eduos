@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { prisma } from "../db/prisma";
 import { getSession } from "@/lib/auth/session";
+import { requestScoped } from "@/lib/middleware/requestCache";
 
 /**
  * Resolve the tenant for the current request.
@@ -62,15 +63,17 @@ if (!session) {
     return null;
 }
 
-const tenant = await prisma.tenant.findUnique({
-    where: {
-        id: session.tenantId,
-    },
-    select: {
-        id: true,
-        status: true,
-    },
-});
+const tenant = await requestScoped(`tenant:byId:${session.tenantId}`, () =>
+    prisma.tenant.findUnique({
+        where: {
+            id: session.tenantId,
+        },
+        select: {
+            id: true,
+            status: true,
+        },
+    })
+);
 
 if (!tenant) {
     return null;
@@ -110,15 +113,17 @@ return tenant.id;
     return null;
   }
 
-  const tenant = await prisma.tenant.findUnique({
-    where: {
-      slug,
-    },
-    select: {
-      id: true,
-      status: true,
-    },
-  });
+  const tenant = await requestScoped(`tenant:bySlug:${slug}`, () =>
+    prisma.tenant.findUnique({
+      where: {
+        slug,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    })
+  );
 
   if (!tenant) {
     return null;

@@ -1,3 +1,8 @@
+/* eslint-disable react-hooks/purity, react-hooks/refs -- TEMPORARY DIAGNOSTIC
+   INSTRUMENTATION. console.log and Date.now() are impure, and the React
+   Compiler is right to refuse them during render. They are here to trace a
+   reported "dashboard never loads" and are meant to be removed with the rest of
+   the tracing once the cause is settled. Nothing below changes behaviour. */
 // components/layout/PortalShell.tsx
 
 "use client";
@@ -11,6 +16,7 @@ import { Sidebar, type SidebarSection } from "./Sidebar";
 import { Topbar, type TopbarUser } from "./Topbar";
 import { PortalBreadcrumb } from "./PortalBreadcrumb";
 import { useToast } from "@/providers/ToastProvider";
+import { useRenderTrace } from "@/hooks/useRenderTrace";
 import { logout } from "@/services/auth";
 
 export interface PortalShellProps {
@@ -62,6 +68,7 @@ export function PortalShell({
   homeLabel = "Dashboard",
   children,
 }: PortalShellProps) {
+  useRenderTrace("PortalShell", { portalName, homeHref });
   const router = useRouter();
   const { toast } = useToast();
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
@@ -87,6 +94,7 @@ export function PortalShell({
     // back button after signing out. refresh() then discards the cached Server
     // Component payload, which still holds the previous session's rendered data.
     router.replace("/login");
+    console.log("[ROUTER] PortalShell router.refresh()");
     router.refresh();
   }, [router, toast]);
 

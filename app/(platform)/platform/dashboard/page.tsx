@@ -1,4 +1,10 @@
+/* eslint-disable react-hooks/purity, react-hooks/refs -- TEMPORARY DIAGNOSTIC
+   INSTRUMENTATION. console.log and Date.now() are impure, and the React
+   Compiler is right to refuse them during render. They are here to trace a
+   reported "dashboard never loads" and are meant to be removed with the rest of
+   the tracing once the cause is settled. Nothing below changes behaviour. */
 import type { Metadata } from "next";
+import { traceRender } from "@/lib/utils/trace";
 import Link from "next/link";
 import { Building2, CheckCircle2, Clock, IndianRupee } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -34,6 +40,7 @@ const RECENT_LIMIT = 8;
  * this file.
  */
 export default async function PlatformDashboardPage() {
+  const __done = traceRender("SUPERADMIN DASHBOARD");
   // limit is capped at 100 by the backend's own validation, so this is the
   // widest single page the contract permits.
   const result = await listTenants({ page: 1, limit: 100 });
@@ -60,6 +67,7 @@ export default async function PlatformDashboardPage() {
 
   const recent = tenants.slice(0, RECENT_LIMIT);
 
+  __done();
   return (
     <>
       <PageHeader

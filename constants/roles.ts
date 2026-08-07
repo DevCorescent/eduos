@@ -47,12 +47,42 @@ export const ROLES = {
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
 
-/** Roles permitted into the university admin portal. */
+/**
+ * Roles permitted into the university admin portal.
+ *
+ * Matches the backend's own vocabulary, which is the only definition that
+ * matters: lib/constants/evaluationScheme.ts, assessmentEvent.ts and result.ts
+ * all grant CONTROLLER_OF_EXAMINATION and DEPARTMENT_HOD against the routes
+ * this portal calls, and FRONTEND.md names the same four.
+ *
+ * Both were previously absent. The effect was not merely a hidden portal: a
+ * user holding only DEPARTMENT_HOD was refused by the university layout, sent
+ * to homeRouteForRoles, which matched nothing and returned /dashboard — the
+ * route that had just refused them. That is an infinite redirect, and it is the
+ * reason such an account appeared to "load forever" with no error.
+ *
+ * HOD is retained alongside DEPARTMENT_HOD. The two are the same office spelled
+ * two ways, a duplication this file already records as debt; dropping either
+ * would lock out whichever spelling a tenant happens to have seeded.
+ */
 export const UNIVERSITY_ROLES: readonly string[] = [
   ROLES.UNIVERSITY_ADMIN,
   ROLES.CAMPUS_ADMIN,
   ROLES.HOD,
+  ROLES.DEPARTMENT_HOD,
+  ROLES.CONTROLLER_OF_EXAMINATION,
 ];
+
+/**
+ * Where a signed-in user goes when no portal accepts their roles.
+ *
+ * Deliberately NOT a portal route. Every portal layout redirects a caller it
+ * refuses to homeRouteForRoles(), so if that function can return a portal the
+ * caller cannot enter, the two bounce off each other forever. Returning a route
+ * that is outside every portal layout — and therefore refuses nobody —
+ * terminates the exchange no matter which roles are involved.
+ */
+export const NO_PORTAL_ROUTE = "/no-access";
 
 /** True when `roles` contains at least one of `allowed`. */
 export function hasAnyRole(roles: readonly string[], allowed: readonly string[]): boolean {
@@ -76,7 +106,11 @@ export function homeRouteForRoles(roles: readonly string[]): string {
   if (hasAnyRole(roles, UNIVERSITY_ROLES)) return "/dashboard";
   if (roles.includes(ROLES.FACULTY)) return "/faculty/dashboard";
   if (roles.includes(ROLES.STUDENT)) return "/student/dashboard";
-  return "/dashboard";
+
+  // Terminal, not /dashboard. See NO_PORTAL_ROUTE: returning a portal route
+  // here is what created the redirect loop, because the portal that rejected
+  // the user is the portal this function used to send them back to.
+  return NO_PORTAL_ROUTE;
 }
 
 /** Human-readable role name for badges and profile cards. */

@@ -13,11 +13,24 @@
 //   scan per collection per request, shared by every caller in that render
 //   through React's cache().
 //
-// DEGRADES RATHER THAN FAILS
-//   GET /api/courses is requireRole("UNIVERSITY_ADMIN"), so a student or a
-//   lecturer receives 403 from it. That is not an error for the caller — it
-//   means the name is unavailable to this user — so a failed scan yields an
-//   empty index and the row renders an em dash. The page still loads.
+// DEGRADES RATHER THAN FAILS, AND DOES NOT ASK WHEN THE ANSWER IS CERTAIN
+//   Every collection behind these indexes is requireRole("UNIVERSITY_ADMIN") —
+//   courses, academic years, semesters, batches, sections. A student or a
+//   lecturer receives 403 from all of them. That is not an error for the
+//   caller: it means the name is unavailable to this user, so the index comes
+//   back empty and the row renders an em dash. The page still loads.
+//
+//   What changed is that the request is no longer ISSUED when it cannot
+//   succeed. Asking anyway cost a round trip and a database connection per
+//   index, per page, to be told 403 — on the student dashboard that was a
+//   guaranteed-wasted second, and it competed for the pool with the requests
+//   that were going to succeed.
+//
+//   THIS IS NOT AUTHORIZATION. It decides whether to make a call, never
+//   whether a caller may see data. Every route still runs requireRole against
+//   the live database on every request; a caller who reached one of these
+//   endpoints another way is refused exactly as before. Removing the check
+//   below would cost latency and change no permission.
 // ============================================================================
 
 import "server-only";
@@ -25,6 +38,8 @@ import "server-only";
 import { cache } from "react";
 import type { AcademicYear, Batch, Course, Section, Semester } from "@/types";
 import { apiList } from "./client";
+import { getPortalSession } from "./session";
+import { ROLES, UNIVERSITY_ROLES, hasAnyRole } from "@/constants/roles";
 
 /** The `limit` cap every collection endpoint enforces. */
 const SCAN_PAGE_SIZE = 100;
@@ -32,8 +47,29 @@ const SCAN_PAGE_SIZE = 100;
 /** Pages a scan will walk before returning what it has. */
 const SCAN_PAGE_CAP = 10;
 
+/**
+ * Whether this caller may read the administrative reference collections.
+ *
+ * Cached for the request, so one session read serves every index below. Mirrors
+ * the role sets the routes themselves enforce — SUPER_ADMIN is included because
+ * the university portal admits them, exactly as constants/roles.ts describes.
+ */
+const canReadReference = cache(async (): Promise<boolean> => {
+  const session = await getPortalSession();
+  if (!session) return false;
+
+  return (
+    hasAnyRole(session.roles, UNIVERSITY_ROLES) ||
+    session.roles.includes(ROLES.SUPER_ADMIN)
+  );
+});
+
 /** Read a whole collection, tolerating a partial or forbidden read. */
 async function scan<T>(path: string, key: string): Promise<T[]> {
+  // Skipped rather than attempted-and-refused. See the module header: this is
+  // a latency decision, not a permission one.
+  if (!(await canReadReference())) return [];
+
   const rows: T[] = [];
 
   for (let page = 1; page <= SCAN_PAGE_CAP; page++) {
