@@ -19,6 +19,11 @@ import { isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { assignmentIdParamSchema } from "@/lib/validations/assignment";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 student event "Assignment Published". Emitted after commit.
+import {
+  findStudentUserIdsForCourse,
+  notificationEmitter,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /**
  * Columns returned for an assignment.
@@ -203,6 +208,24 @@ export async function POST(
         publishedAt: new Date(),
       },
       select: ASSIGNMENT_SELECT,
+    });
+
+        // PHASE 27 student event "Assignment Published".
+    //
+    // After the publish has committed, throwing nothing. Addressed to the
+    // students registered for the course, narrowed to the section when the
+    // assignment names one — an assignment set for Section A must not notify
+    // Section B.
+    await notificationEmitter.assignmentPublished({
+      tenantId: tenant.id,
+      recipientUserIds: await findStudentUserIdsForCourse(
+        tenant.id,
+        assignment.courseId,
+        assignment.sectionId ?? null
+      ),
+      assignmentTitle: assignment.title,
+      assignmentId: assignment.id,
+      dueDate: assignment.dueDate ? assignment.dueDate.toISOString().slice(0, 10) : null,
     });
 
     return NextResponse.json(ok(assignment, "Assignment published"));

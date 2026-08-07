@@ -18,6 +18,12 @@ import { paginationQuerySchema } from "@/lib/validations/pagination";
 import { createTimetableSchema } from "@/lib/validations/timetable";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 event "Timetable Updated". Emitted after commit.
+import {
+  findFacultyUserIdsForUnit,
+  findStudentUserIdsForCourse,
+  notificationEmitter,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /**
  * Columns returned for a timetable entry. Declared once so both handlers answer
@@ -275,6 +281,30 @@ export async function POST(request: NextRequest) {
       },
       select: TIMETABLE_SELECT,
     });
+
+        // PHASE 27 event "Timetable Updated" — listed under BOTH the student and
+    // faculty audiences, so both are notified from one call.
+    //
+    // After the slot exists, throwing nothing.
+    {
+      const students = await findStudentUserIdsForCourse(
+        tenant.id,
+        timetable.courseId,
+        timetable.sectionId
+      );
+      const faculty = await findFacultyUserIdsForUnit(
+        tenant.id,
+        timetable.courseId,
+        timetable.sectionId
+      );
+
+      await notificationEmitter.timetableUpdated({
+        tenantId: tenant.id,
+        recipientUserIds: [...new Set([...students, ...faculty])],
+        courseLabel: timetable.courseId,
+        sectionLabel: timetable.sectionId,
+      });
+    }
 
     return NextResponse.json(ok(timetable, "Timetable entry created"), { status: 201 });
   } catch (err) {

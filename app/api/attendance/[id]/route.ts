@@ -20,6 +20,11 @@ import { isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { attendanceIdParamSchema } from "@/lib/validations/attendance";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 22 — attendance lock enforcement. The DELETE handler consults the lock
+// before removing a record; a finalised register must refuse a deletion for the
+// same reason it refuses a new mark. Nothing else in this file changed.
+import { AppError } from "@/lib/errors/AppError";
+import { attendanceLockController } from "@/lib/controllers/attendanceLock.controller";
 
 /**
  * Columns returned for an attendance record.
@@ -218,14 +223,36 @@ export async function DELETE(
 
     // Ownership is proven before anything is removed. A foreign or unknown id
     // stops here and no write is issued at all.
+    //
+    // PHASE 22 — courseId, sectionId and date are now also selected. They were
+    // not needed to decide ownership and are not used for it; they are the
+    // teaching unit and the day the lock check below is decided on. Widening a
+    // `select: { id: true }` by three indexed columns on a row already being
+    // fetched costs nothing extra.
     const existing = await prisma.attendance.findFirst({
       where: { id: attendanceId, tenantId: tenant.id },
-      select: { id: true },
+      select: { id: true, courseId: true, sectionId: true, date: true },
     });
 
     if (!existing) {
       return attendanceNotFound();
     }
+
+    // PHASE 22 — attendance lock enforcement.
+    //
+    // A deletion is a modification of the register, so a finalised unit must
+    // refuse it for the same reason it refuses a new mark. Placed after the
+    // ownership check so a foreign id is still a 404 rather than being told
+    // that some other tenant's record is locked.
+    //
+    // Throws AppError(409); the catch block maps it.
+    await attendanceLockController.assertWritable(tenant.id, [
+      {
+        courseId: existing.courseId,
+        sectionId: existing.sectionId,
+        date: existing.date,
+      },
+    ]);
 
     // Scoped by tenantId as well as id, so the write cannot reach another
     // tenant's row even if the id were guessed. Single statement, so the delete
@@ -236,6 +263,13 @@ export async function DELETE(
 
     return NextResponse.json(ok(null, "Attendance record deleted"));
   } catch (err) {
+    // PHASE 22 — the attendance-lock refusal. Checked FIRST so a deliberate
+    // service-layer rejection is never reinterpreted by the Prisma branch
+    // below, matching the precedence handleRouteError uses project-wide.
+    if (err instanceof AppError) {
+      return NextResponse.json(fail(err.message, err.code), { status: err.statusCode });
+    }
+
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       // The record was deleted between the lookup and the delete. Reported as the
       // same 404 the lookup would have produced, so a losing racer and an unknown

@@ -10,6 +10,18 @@
 // BACKEND: Prisma
 // PURPOSE: List the authenticated tenant's attendance and mark attendance in
 //          bulk.
+//
+// PHASE 22 ADDITION — ATTENDANCE LOCK ENFORCEMENT
+//   The POST handler now asks attendanceLockController.assertWritable() before
+//   it inserts. That is the ONLY change to this file: no existing check was
+//   removed or reordered, no response shape changed, and the GET handler is
+//   untouched.
+//
+//   It is here rather than in the Phase 22 module because a lock that does not
+//   stop a write is not a lock — the README's premise is that a finalised
+//   register cannot be modified, and this is the statement that would otherwise
+//   modify it. The call throws AppError(409) when a held lock covers a record's
+//   date, which the catch block below maps to the standard envelope.
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -22,6 +34,16 @@ import { paginationQuerySchema } from "@/lib/validations/pagination";
 import { createAttendanceSchema } from "@/lib/validations/attendance";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+import { AppError } from "@/lib/errors/AppError";
+import { attendanceLockController } from "@/lib/controllers/attendanceLock.controller";
+// PHASE 27 student events "Attendance Updated" and "Attendance Below 75%".
+// Emitted after the batch has been written — see the foot of POST.
+import {
+  findAttendanceRatios,
+  findStudentUserIds,
+  notificationEmitter,
+} from "@/lib/controllers/notificationEmitter.controller";
+import { MINIMUM_PERCENTAGE } from "@/lib/services/attendanceAnalytics.service";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -309,6 +331,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(fail("Course not found", "NOT_FOUND"), { status: 404 });
     }
 
+    // PHASE 22 — attendance lock enforcement.
+    //
+    // Placed AFTER the reference checks and BEFORE the duplicate check, which
+    // is the only correct position: refusing a locked write for a course that
+    // does not exist would report the wrong problem, and refusing it after the
+    // duplicate scan would do that work for a batch that can never be written.
+    //
+    // Throws AppError(409) naming the course that refused; the catch block maps
+    // it. Costs at most two reads for the whole batch regardless of its size,
+    // and none at all when no record names both a course and a section.
+    //
+    // Records naming no course or no section are NOT protected — they belong to
+    // no teaching unit a lock can name. That is the pre-existing nullable-column
+    // shape recorded as TD-003, not a gap introduced here.
+    await attendanceLockController.assertWritable(
+      tenant.id,
+      records.map((record) => ({
+        courseId: record.courseId ?? null,
+        sectionId: record.sectionId ?? null,
+        date: record.date,
+      }))
+    );
+
     // @@unique([studentId, courseId, date, sessionType]) is the constraint the
     // batch can collide with — against a row already stored, or against another
     // record in the same batch.
@@ -380,8 +425,83 @@ export async function POST(request: NextRequest) {
       })),
     });
 
+    // PHASE 27 student events "Attendance Updated" and "Attendance Below 75%".
+    //
+    // AFTER the batch has been written, outside any transaction, throwing
+    // nothing — a register that was marked but could not notify is still
+    // marked, and a faculty member's bulk entry must not fail over a bell.
+    //
+    // Both events are emitted from ONE pair of reads for the whole batch, not
+    // one per record: the recipients resolve in a single statement and the
+    // attendance ratios in a single grouped statement. A hundred-row register
+    // therefore costs two extra reads, not two hundred.
+    //
+    // The 75% line is imported from Phase 15's analytics service rather than
+    // restated, so this warning and the attendance dashboard can never disagree
+    // about whether a student is at risk.
+    {
+      const studentIds = [...new Set(records.map((record) => record.studentId))];
+      const recipients = await findStudentUserIds(tenant.id, studentIds);
+
+      const firstCourseId = courseIds[0];
+      const courseLabel = firstCourseId ?? "your course";
+      const markedDate = records[0]?.date.toISOString().slice(0, 10) ?? "";
+
+      await notificationEmitter.attendanceMarked({
+        tenantId: tenant.id,
+        recipientUserIds: recipients,
+        courseLabel,
+        date: markedDate,
+      });
+
+      // The low-attendance warning is course-scoped, so it is raised only when
+      // the batch names exactly one course. A mixed batch has no single
+      // percentage to warn about, and picking one arbitrarily would tell a
+      // student they are short in a course this register never touched.
+      if (courseIds.length === 1 && firstCourseId) {
+        const ratios = await findAttendanceRatios(tenant.id, firstCourseId, studentIds);
+        const userIdByStudent = new Map(
+          (
+            await prisma.student.findMany({
+              where: { tenantId: tenant.id, id: { in: studentIds } },
+              select: { id: true, userId: true },
+            })
+          ).map((row) => [row.id, row.userId])
+        );
+
+        for (const [studentId, totals] of ratios) {
+          if (totals.held === 0) continue;
+
+          const percentage = Math.round((totals.attended / totals.held) * 1000) / 10;
+          if (percentage >= MINIMUM_PERCENTAGE) continue;
+
+          const userId = userIdByStudent.get(studentId);
+          if (!userId) continue;
+
+          await notificationEmitter.lowAttendanceWarning({
+            tenantId: tenant.id,
+            studentUserId: userId,
+            courseLabel,
+            percentage,
+            threshold: MINIMUM_PERCENTAGE,
+          });
+        }
+      }
+    }
+
     return NextResponse.json(ok({ count: created.count }, "Attendance marked"), { status: 201 });
   } catch (err) {
+    // PHASE 22 — the attendance-lock refusal, and the only new branch here.
+    //
+    // Checked FIRST so a deliberate service-layer rejection is never
+    // reinterpreted by the Prisma branches below, matching the precedence
+    // handleRouteError uses project-wide. This route predates that helper and
+    // builds its envelope inline, so the branch is stated inline too rather
+    // than rewriting a Phase 9 handler onto a different error path.
+    if (err instanceof AppError) {
+      return NextResponse.json(fail(err.message, err.code), { status: err.statusCode });
+    }
+
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       // A concurrent request took one of the keys between the pre-check and the
       // insert. The batch is one statement, so nothing was written.

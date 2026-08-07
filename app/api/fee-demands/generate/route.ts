@@ -19,6 +19,11 @@ import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { generateFeeDemandSchema } from "@/lib/validations/fee-demand";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 student event "Fee Demand Generated". Emitted after commit.
+import {
+  findStudentUserIds,
+  notificationEmitter,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -211,6 +216,20 @@ export async function POST(request: NextRequest) {
         dueDate,
         totalAmount,
       })),
+    });
+
+        // PHASE 27 student event "Fee Demand Generated".
+    //
+    // After the batch has been written, throwing nothing. Addressed to the
+    // students billed — one notification each, resolved in ONE statement rather
+    // than one per demand.
+    await notificationEmitter.feeDemandGenerated({
+      tenantId: tenant.id,
+      recipientUserIds: await findStudentUserIds(
+        tenant.id,
+        students.map((student) => student.id)
+      ),
+      count: created.count,
     });
 
     return NextResponse.json(ok({ count: created.count }, "Fee demands generated"), { status: 201 });
