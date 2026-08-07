@@ -180,6 +180,7 @@ export default async function CertificateTemplatesPage({
         header={<h2 className="text-sm font-semibold text-heading">Templates</h2>}
       >
         <Table
+          minWidthClassName="min-w-[64rem]"
           columns={templateColumns}
           data={templatesResult.data.items}
           rowKey={(template) => template.id}
@@ -219,6 +220,7 @@ export default async function CertificateTemplatesPage({
             />
           ) : (
             <Table
+              minWidthClassName="min-w-[64rem]"
               columns={issuedColumns}
               data={issuedResult.data.items}
               rowKey={(row) => row.id}

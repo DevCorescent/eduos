@@ -14,6 +14,7 @@ import { getTenantFromRequest } from "@/lib/services/tenant";
 import type { JwtPayload } from "@/lib/auth/jwt";
 import type { Tenant } from "@/app/generated/prisma/client";
 import { fail, type ApiResponse } from "@/types";
+import { requestScoped } from "@/lib/middleware/requestCache";
 
 /**
  * Result of a tenant check.
@@ -106,7 +107,14 @@ export async function requireTenant(): Promise<TenantGuardResult> {
     return { resolved: false, response: forbidden("Forbidden") };
   }
 
-  const tenant = await prisma.tenant.findUnique({ where: { id: resolvedTenantId } });
+  // Read once per request. getTenantFromRequest above has already touched this
+  // row to resolve and status-check it, and every other guard in the same
+  // request would repeat the read; the DATABASE note below records that the row
+  // is visited twice by design, and this is what stops that costing two round
+  // trips.
+  const tenant = await requestScoped(`tenant:full:${resolvedTenantId}`, () =>
+    prisma.tenant.findUnique({ where: { id: resolvedTenantId } })
+  );
 
   // Defensive: the row can disappear between the service's lookup and this one.
   if (!tenant) {

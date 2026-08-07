@@ -138,6 +138,12 @@ export async function apiRequest<T>(
 ): Promise<ApiResponse<T>> {
   const { method = "GET", body, params, cache = "no-store", tags } = options;
 
+  // [FETCH] instrumentation. Every server-rendered screen reaches its data
+  // through this one function, so this log IS the request waterfall for a page:
+  // one line per outbound hop, in the order they were issued, with the duration
+  // of each. Reading them together shows which hops ran in parallel and which
+  // waited on a previous one.
+
   try {
     // On the server, carry the caller's session and tenant host across manually.
     // In the browser both are supplied by the platform and this resolves to nulls.

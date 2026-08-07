@@ -4,7 +4,7 @@ import { GraduationCap } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
+import { EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
@@ -17,7 +17,8 @@ import { Table, type TableColumn } from "@/components/ui/Table";
 import { listStudents } from "@/services/students";
 import { listBatches } from "@/services/calendar";
 import { listProgrammes } from "@/services/setup";
-import { enrolStudentAction, updateStudentAction } from "@/actions/students";
+import { updateStudentAction } from "@/actions/students";
+import { EnrolStudentWizard } from "./EnrolStudentWizard";
 import { STUDENT_STATUS_LABELS, STUDENT_STATUS_VARIANTS } from "@/constants/labels";
 import { STUDENT_STATUS_VALUES, type StudentWithUser } from "@/types";
 import { formatDate } from "@/utils/format";
@@ -56,48 +57,6 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
     ? batches.filter((b) => b.programmeId === programmeId)
     : batches;
 
-  // Enrolment is two writes — a User then a Student — so the form asks for both
-  // the person and their academic placement. See services/students.ts.
-  const enrolFields: FormField[] = [
-    { kind: "text", name: "firstName", label: "First name", required: true, placeholder: "Rahul" },
-    { kind: "text", name: "lastName", label: "Last name", required: true, placeholder: "Verma" },
-    { kind: "email", name: "email", label: "Email", required: true, placeholder: "rahul.verma@student.university.edu" },
-    {
-      kind: "text",
-      name: "password",
-      label: "Temporary password",
-      required: true,
-      helperText: "At least 8 characters. The student changes it after signing in.",
-    },
-    { kind: "text", name: "phone", label: "Phone", placeholder: "+91 98765 43210" },
-    {
-      kind: "text",
-      name: "enrollmentNo",
-      label: "Enrolment number",
-      required: true,
-      placeholder: "BTCSE/2026/0001",
-      helperText: "Unique within this university.",
-    },
-    {
-      kind: "select",
-      name: "programmeId",
-      label: "Programme",
-      options: programmes
-        .filter((p) => p.isActive)
-        .map((p) => ({ value: p.id, label: `${p.name} (${p.code})` })),
-      placeholder: "Select a programme",
-    },
-    {
-      kind: "select",
-      name: "batchId",
-      label: "Batch",
-      options: batches.map((b) => ({ value: b.id, label: b.name })),
-      placeholder: "Select a batch",
-    },
-    { kind: "number", name: "currentSemester", label: "Current semester", min: 1, max: 12 },
-    { kind: "date", name: "admissionDate", label: "Admission date", required: true },
-  ];
-
   const editFields: FormField[] = [
     { kind: "text", name: "enrollmentNo", label: "Enrolment number", required: true },
     {
@@ -132,24 +91,17 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
       title="Students"
       subtitle="The enrolment register for this university."
       action={
-        <EntityCreateButton
-          entityLabel="Student"
-          label="Enrol student"
-          fields={enrolFields}
-          initialValues={{
-            firstName: "",
-            lastName: "",
-            email: "",
-            password: "",
-            phone: "",
-            enrollmentNo: "",
-            programmeId: programmeId ?? "",
-            batchId: batchId ?? "",
-            currentSemester: 1,
-            admissionDate: "",
-          }}
-          action={enrolStudentAction}
-          modalSize="lg"
+        // A three-step wizard rather than the generic create dialog: enrolment
+        // spans a person and their academic placement, and performs two writes
+        // (a User, then a Student). The reviewer sees what will be created
+        // before either happens. Nothing is submitted until the final step.
+        <EnrolStudentWizard
+          programmes={programmes
+            .filter((p) => p.isActive)
+            .map((p) => ({ value: p.id, label: `${p.name} (${p.code})` }))}
+          batches={batches.map((b) => ({ value: b.id, label: b.name }))}
+          defaultProgrammeId={programmeId}
+          defaultBatchId={batchId}
         />
       }
     />
@@ -292,6 +244,7 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={items}
           rowKey={(student) => student.id}

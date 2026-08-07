@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ErrorState } from "@/components/shared/ErrorState";
-import { listFeeStructures, currentSemester } from "@/services/finance";
+import { listFeeStructures } from "@/services/finance";
 import { listAcademicYears, listBatches, listSemesters } from "@/services/calendar";
 import { listProgrammes } from "@/services/setup";
 import { GenerateDemandsForm } from "./GenerateDemandsForm";
@@ -27,6 +27,12 @@ export default async function GenerateDemandsPage() {
   const semestersResult = currentYear
     ? await listSemesters(currentYear.id, { page: 1, limit: 100 })
     : null;
+
+  // Preselect the term being billed. Empty when no semester is flagged current:
+  // the form then asks rather than guessing which term a demand belongs to.
+  const defaultSemesterId = semestersResult?.success
+    ? (semestersResult.data.items.find((semester) => semester.isCurrent)?.id ?? "")
+    : "";
 
   const header = (
     <>
@@ -83,7 +89,7 @@ export default async function GenerateDemandsPage() {
         structures={structuresResult.data.items
           .filter((s) => s.isActive)
           .map((s) => ({ value: s.id, label: s.name }))}
-        defaultSemesterId={currentSemester().id}
+        defaultSemesterId={defaultSemesterId}
       />
     </>
   );

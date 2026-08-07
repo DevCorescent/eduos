@@ -10,7 +10,8 @@ import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { Table, type TableColumn } from "@/components/ui/Table";
-import { attendanceDemoSectionId, getAttendanceReport } from "@/services/academics";
+import { getAttendanceReport } from "@/services/academics";
+import { allSections } from "@/services/reference";
 import { listStudents } from "@/services/students";
 import { formatNumber, formatPercent } from "@/utils/format";
 import { cn } from "@/lib/utils";
@@ -18,7 +19,7 @@ import type { AttendanceSummary } from "@/types";
 
 export const metadata: Metadata = { title: "Attendance Report" };
 
-type SearchParams = Promise<{ studentId?: string }>;
+type SearchParams = Promise<{ sectionId?: string; studentId?: string }>;
 
 /**
  * The eligibility threshold.
@@ -41,14 +42,17 @@ export default async function AttendanceReportPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { studentId } = await searchParams;
+  const { sectionId: requestedSection, studentId } = await searchParams;
 
-  // Scoped to the section attendance fixtures exist for. A student picker over
-  // the whole register would mostly offer people with no attendance at all,
-  // which reads as a broken report rather than an un-generated one.
-  const sectionId = attendanceDemoSectionId();
-  const studentsResult = await listStudents({ page: 1, limit: 100, sectionId });
-  const students = studentsResult.success ? studentsResult.data.items : [];
+  // Scoped to one section rather than the whole register: a picker over every
+  // student in the university is unusable, and the report is read section by
+  // section in practice.
+  const sections = await allSections();
+  const sectionId = requestedSection ?? sections[0]?.id;
+  const studentsResult = sectionId
+    ? await listStudents({ page: 1, limit: 100, sectionId })
+    : null;
+  const students = studentsResult?.success ? studentsResult.data.items : [];
 
   const selectedId = studentId ?? students[0]?.id;
   const reportResult = selectedId ? await getAttendanceReport(selectedId) : null;
@@ -64,6 +68,17 @@ export default async function AttendanceReportPage({
   const toolbar = (
     <ListToolbar
       filters={
+        <>
+        <ListFilter
+          paramKey="sectionId"
+          label="Section"
+          hideLabel
+          allLabel="Select a section"
+          options={sections.map((section) => ({
+            value: section.id,
+            label: `${section.batchName} — ${section.name}`,
+          }))}
+        />
         <ListFilter
           paramKey="studentId"
           label="Student"
@@ -74,6 +89,7 @@ export default async function AttendanceReportPage({
             label: `${s.fullName} — ${s.enrollmentNo}`,
           }))}
         />
+        </>
       }
     />
   );

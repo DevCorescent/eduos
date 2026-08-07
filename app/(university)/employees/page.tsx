@@ -314,6 +314,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={items}
           rowKey={(employee) => employee.id}

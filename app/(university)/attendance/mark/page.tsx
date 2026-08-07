@@ -6,35 +6,51 @@ import { ErrorState } from "@/components/shared/ErrorState";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
-import {
-  attendanceDemoSectionId,
-  getSectionTimetable,
-  getSessionAttendance,
-} from "@/services/academics";
+import { getSectionTimetable, getSessionAttendance } from "@/services/academics";
+import { allSections } from "@/services/reference";
 import { listStudents } from "@/services/students";
 import { MarkAttendanceForm } from "./MarkAttendanceForm";
 
 export const metadata: Metadata = { title: "Mark Attendance" };
 
-type SearchParams = Promise<{ courseId?: string; date?: string }>;
+type SearchParams = Promise<{ sectionId?: string; courseId?: string; date?: string }>;
 
-/**
- * The date the register defaults to.
- *
- * Anchored to the fixture epoch rather than today, so the screen opens on a day
- * that actually has generated attendance. With real data this would be today.
- */
-const DEFAULT_DATE = "2026-06-24";
+/** Today, as the YYYY-MM-DD the attendance API expects. */
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export default async function MarkAttendancePage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
-  const { courseId, date } = await searchParams;
+  const { sectionId: requestedSection, courseId, date } = await searchParams;
 
-  const sectionId = attendanceDemoSectionId();
-  const selectedDate = date ?? DEFAULT_DATE;
+  // A register belongs to a section, so the section is the first thing chosen.
+  // Defaulting to the first one keeps the screen useful on arrival; the picker
+  // below is what makes every other section reachable.
+  const sections = await allSections();
+  const sectionId = requestedSection ?? sections[0]?.id;
+  const selectedDate = date ?? today();
+
+  if (!sectionId) {
+    return (
+      <>
+        <PageHeader
+          title="Mark Attendance"
+          subtitle="Take the register for one class session."
+        />
+        <Card>
+          <EmptyState
+            icon={<ClipboardCheck />}
+            title="No sections yet"
+            description="Create a batch and at least one section before taking a register."
+          />
+        </Card>
+      </>
+    );
+  }
 
   // Courses come from the section's own timetable, not the whole catalogue: a
   // register can only be taken for a class that is actually scheduled for this
@@ -95,6 +111,16 @@ export default async function MarkAttendancePage({
         filters={
           <>
             <ListFilter
+              paramKey="sectionId"
+              label="Section"
+              hideLabel
+              allLabel="Select a section"
+              options={sections.map((section) => ({
+                value: section.id,
+                label: `${section.batchName} — ${section.name}`,
+              }))}
+            />
+            <ListFilter
               paramKey="courseId"
               label="Course"
               hideLabel
@@ -106,15 +132,10 @@ export default async function MarkAttendancePage({
               label="Date"
               hideLabel
               allLabel={selectedDate}
-              // Dates come from the timetable's own week rather than a free
-              // date picker, so a register cannot be taken for a day the class
-              // does not run.
-              options={[
-                { value: "2026-06-24", label: "24 Jun 2026" },
-                { value: "2026-06-17", label: "17 Jun 2026" },
-                { value: "2026-06-10", label: "10 Jun 2026" },
-                { value: "2026-06-03", label: "3 Jun 2026" },
-              ]}
+              // The last fortnight, newest first. A register is corrected within
+              // days of the class, so a free date picker offers mostly dates
+              // nobody will pick and hides the ones they will.
+              options={recentDates()}
             />
           </>
         }
@@ -148,4 +169,24 @@ export default async function MarkAttendancePage({
       )}
     </>
   );
+}
+
+/**
+ * The last fourteen days, newest first.
+ *
+ * Bounded rather than open-ended for the reason given at the call site: a
+ * register is taken on the day or corrected shortly after.
+ */
+function recentDates(): Array<{ value: string; label: string }> {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  return Array.from({ length: 14 }, (_, offset) => {
+    const day = new Date();
+    day.setDate(day.getDate() - offset);
+    return { value: day.toISOString().slice(0, 10), label: formatter.format(day) };
+  });
 }

@@ -27,36 +27,10 @@ import type {
   TranscriptRow,
 } from "@/types";
 import { apiList, apiRequest } from "./client";
-import { USE_MOCKS } from "./config";
-import { createUser } from "./users";
-import { MOCK_TENANT_ID } from "@/mock/data/context";
-import { SEMESTER_BY_ID } from "@/mock/data/academics";
-import { COURSE_BY_ID } from "@/mock/data/courses";
-import {
-  EXAMINATION_BY_ID,
-  MOCK_STUDENT_DOCUMENTS,
-  MOCK_STUDENT_PARENTS,
-  PARENT_BY_ID,
-  PERSONAL_BY_STUDENT,
-  RESULTS_BY_STUDENT,
-} from "@/mock/data/student-details";
-import { studentStore } from "@/mock/studentStore";
-import { mockFail, mockList, mockOk } from "@/mock/utils";
 
 export async function listStudents(
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<StudentWithUser>>> {
-  if (USE_MOCKS) {
-    // Read from the store, not the raw fixture, so a student enrolled this
-    // session appears in the register immediately.
-    return mockList(studentStore.all(), params, {
-      // fullName is the flattened join; enrollmentNo is what staff actually
-      // search by day to day.
-      searchFields: ["fullName", "enrollmentNo"],
-      filterKeys: ["status", "programmeId", "batchId", "sectionId"],
-    });
-  }
-
   const result = await apiList<Student>("/api/students", "students", params);
   if (!result.success) return result;
 
@@ -83,13 +57,6 @@ export async function listStudents(
 }
 
 export async function getStudent(id: string): Promise<ApiResponse<StudentWithUser>> {
-  if (USE_MOCKS) {
-    const student = studentStore.find(id);
-    return student
-      ? mockOk(student)
-      : mockFail<StudentWithUser>("Student not found", "NOT_FOUND");
-  }
-
   const result = await apiRequest<Student>(`/api/students/${id}`);
   if (!result.success) return result;
 
@@ -150,64 +117,6 @@ export interface EnrolStudentInput {
 export async function enrolStudent(
   input: EnrolStudentInput
 ): Promise<ApiResponse<Student>> {
-  if (USE_MOCKS) {
-    if (
-      studentStore.all().some(
-        (s) => s.enrollmentNo.toLowerCase() === input.enrollmentNo.trim().toLowerCase()
-      )
-    ) {
-      return mockFail<Student>("Enrollment number already in use", "CONFLICT");
-    }
-
-    // The account first, exactly as the live flow must: a Student with no User
-    // cannot sign in, and the schema makes userId required and unique.
-    const account = await createUser({
-      email: input.email,
-      password: input.password,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      phone: input.phone,
-    });
-
-    if (!account.success) {
-      return account.code === "CONFLICT"
-        ? mockFail<Student>("Email already in use", "CONFLICT")
-        : mockFail<Student>(account.error, account.code);
-    }
-
-    const timestamp = new Date().toISOString();
-    const student: Student = {
-      id: studentStore.nextId(),
-      tenantId: MOCK_TENANT_ID,
-      userId: account.data.id,
-      enrollmentNo: input.enrollmentNo.trim(),
-      programmeId: input.programmeId || null,
-      batchId: input.batchId || null,
-      sectionId: input.sectionId || null,
-      specialisationId: input.specialisationId || null,
-      currentSemester: input.currentSemester ?? 1,
-      status: "ACTIVE",
-      admissionDate: new Date(input.admissionDate).toISOString(),
-      graduationDate: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-
-    studentStore.insert({
-      ...student,
-      user: {
-        id: account.data.id,
-        firstName: account.data.firstName,
-        lastName: account.data.lastName,
-        email: account.data.email,
-        avatarUrl: null,
-      },
-      fullName: `${account.data.firstName} ${account.data.lastName}`,
-    });
-
-    return mockOk(student, "Student enrolled");
-  }
-
   // Live: the same two steps, in the same order.
   const account = await apiRequest<{ id: string }>("/api/users", {
     method: "POST",
@@ -249,31 +158,6 @@ export async function updateStudent(
   id: string,
   input: UpdateStudentInput
 ): Promise<ApiResponse<Student>> {
-  if (USE_MOCKS) {
-    const duplicate = studentStore
-      .all()
-      .some(
-        (s) =>
-          s.id !== id &&
-          input.enrollmentNo &&
-          s.enrollmentNo.toLowerCase() === input.enrollmentNo.toLowerCase()
-      );
-    if (duplicate) return mockFail<Student>("Enrollment number already in use", "CONFLICT");
-
-    const updated = studentStore.update(id, {
-      ...input,
-      // A cleared select sends "", which must become null on a nullable column
-      // rather than an empty-string foreign key.
-      ...(input.programmeId !== undefined ? { programmeId: input.programmeId || null } : {}),
-      ...(input.batchId !== undefined ? { batchId: input.batchId || null } : {}),
-      ...(input.sectionId !== undefined ? { sectionId: input.sectionId || null } : {}),
-      updatedAt: new Date().toISOString(),
-    });
-
-    return updated
-      ? mockOk(updated as Student, "Student updated")
-      : mockFail<Student>("Student not found", "NOT_FOUND");
-  }
   return apiRequest<Student>(`/api/students/${id}`, { method: "PATCH", body: input });
 }
 
@@ -282,13 +166,6 @@ export async function updateStudent(
 export async function getStudentPersonal(
   studentId: string
 ): Promise<ApiResponse<StudentPersonal | null>> {
-  if (USE_MOCKS) {
-    // null, not a 404: the endpoint returns the record if it exists, and a
-    // student who has not completed their details is a normal state the
-    // Personal tab renders a prompt for.
-    return mockOk(PERSONAL_BY_STUDENT.get(studentId) ?? null);
-  }
-
   const result = await apiRequest<StudentPersonal>(`/api/students/${studentId}/personal`);
   if (!result.success && result.code === "NOT_FOUND") {
     return { success: true, data: null };
@@ -302,12 +179,6 @@ export async function listStudentDocuments(
   studentId: string,
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<StudentDocument>>> {
-  if (USE_MOCKS) {
-    const rows = MOCK_STUDENT_DOCUMENTS.filter((doc) => doc.studentId === studentId);
-    return mockList(rows, params, {
-      sort: (a, b) => Date.parse(b.uploadedAt) - Date.parse(a.uploadedAt),
-    });
-  }
   return apiList<StudentDocument>(
     `/api/students/${studentId}/documents`,
     "documents",
@@ -321,18 +192,6 @@ export async function listStudentParents(
   studentId: string,
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<StudentParentWithParent>>> {
-  if (USE_MOCKS) {
-    const rows = MOCK_STUDENT_PARENTS.filter((link) => link.studentId === studentId)
-      .map((link) => {
-        const parent = PARENT_BY_ID.get(link.parentId);
-        return parent ? { ...link, parent } : null;
-      })
-      .filter((row): row is StudentParentWithParent => row !== null)
-      // Primary contact first — it is the one anybody calling reads.
-      .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary));
-
-    return mockList(rows, params);
-  }
   return apiList<StudentParentWithParent>(
     `/api/students/${studentId}/parents`,
     "parents",
@@ -355,37 +214,6 @@ export async function listStudentParents(
 export async function getStudentTranscript(
   studentId: string
 ): Promise<ApiResponse<TranscriptRow[]>> {
-  if (USE_MOCKS) {
-    const rows = (RESULTS_BY_STUDENT.get(studentId) ?? [])
-      .filter((result) => result.publishedAt !== null)
-      .map((result): TranscriptRow | null => {
-        const exam = EXAMINATION_BY_ID.get(result.examinationId);
-        if (!exam) return null;
-
-        const course = COURSE_BY_ID.get(exam.courseId);
-        const semester = SEMESTER_BY_ID.get(exam.semesterId);
-
-        return {
-          ...result,
-          examinationTitle: exam.title,
-          examinationType: exam.type,
-          maxMarks: exam.maxMarks,
-          courseCode: course?.code ?? "—",
-          courseName: course?.name ?? "—",
-          semesterId: exam.semesterId,
-          semesterName: semester?.name ?? "—",
-        };
-      })
-      .filter((row): row is TranscriptRow => row !== null)
-      .sort(
-        (a, b) =>
-          a.semesterName.localeCompare(b.semesterName) ||
-          a.courseCode.localeCompare(b.courseCode)
-      );
-
-    return mockOk(rows);
-  }
-
   const result = await apiRequest<Transcript>(`/api/students/${studentId}/transcript`);
   if (!result.success) return result;
 

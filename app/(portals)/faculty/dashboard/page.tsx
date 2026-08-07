@@ -36,7 +36,10 @@ export default async function FacultyDashboardPage() {
     // Assignments are keyed by the author's *user* id — the column is
     // createdBy, not facultyId.
     listFacultyAssignments(faculty.userId, { page: 1, limit: 100 }),
-    listFacultyExaminations(faculty.id, { page: 1, limit: 100 }),
+    // resolveCounts: false — this page reads title, courseCode, date, maxMarks,
+    // status and id, and neither resultCount nor publishedCount. Resolving them
+    // cost one request PER PAPER to populate two fields nothing here renders.
+    listFacultyExaminations(faculty.id, { page: 1, limit: 100 }, { resolveCounts: false }),
   ]);
 
   const slots = timetableResult.success ? timetableResult.data : [];

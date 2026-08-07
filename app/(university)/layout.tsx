@@ -21,6 +21,7 @@ import { topbarUserFromSession } from "@/utils/user";
  */
 export default async function UniversityLayout({ children }: { children: ReactNode }) {
   const session = await getPortalSession();
+
   if (!session) redirect("/login");
 
   const isPermitted =

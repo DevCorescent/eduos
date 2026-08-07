@@ -320,6 +320,7 @@ function DocumentsPanel({
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[64rem]"
           columns={columns}
           data={documents}
           rowKey={(doc) => doc.id}

@@ -97,8 +97,12 @@ export default async function UniversityDashboardPage() {
           caption={`${formatNumber(summary.faculty.active)} active`}
         />
         <StatCard
-          label="Courses Running"
-          value={summary.coursesRunning === null ? "—" : formatNumber(summary.coursesRunning)}
+          // "Courses" and not "Courses Running": GET /api/courses counts the
+          // catalogue, and nothing in the schema marks a course as currently
+          // taught. Labelling the catalogue as running would be a claim the
+          // number does not support.
+          label="Courses"
+          value={summary.courses === null ? "—" : formatNumber(summary.courses)}
           icon={<BookOpen className="size-5" />}
         />
         <StatCard
@@ -205,7 +209,7 @@ function NeedsAttention({ summary }: { summary: DashboardSummary }) {
   );
 }
 
-function QuickLinks({ activeProgrammes }: { activeProgrammes: number }) {
+function QuickLinks({ activeProgrammes }: { activeProgrammes: number | null }) {
   const links = [
     { label: "Campuses", href: "/setup/campuses", icon: Building2 },
     { label: "Programmes", href: "/setup/programmes", icon: GraduationCap, badge: activeProgrammes },
@@ -226,7 +230,7 @@ function QuickLinks({ activeProgrammes }: { activeProgrammes: number }) {
             >
               <link.icon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
               <span className="flex-1">{link.label}</span>
-              {link.badge !== undefined && link.badge > 0 && (
+              {link.badge != null && link.badge > 0 && (
                 <span className="text-xs text-muted-foreground">{link.badge}</span>
               )}
             </Link>

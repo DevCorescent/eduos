@@ -198,6 +198,7 @@ export default async function StudentFeesPage() {
         header={<h2 className="text-sm font-semibold text-heading">Fee demands</h2>}
       >
         <Table
+          minWidthClassName="min-w-[64rem]"
           columns={demandColumns}
           data={demands}
           rowKey={(row) => row.id}
@@ -217,6 +218,7 @@ export default async function StudentFeesPage() {
         header={<h2 className="text-sm font-semibold text-heading">Payment history</h2>}
       >
         <Table
+          minWidthClassName="min-w-[64rem]"
           columns={paymentColumns}
           data={payments}
           rowKey={(row) => row.id}

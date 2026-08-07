@@ -97,11 +97,16 @@ export function Modal({ isOpen, onClose, title, description, size = "md", childr
           // frosting it too would let the page show through the content the
           // user is being asked to read.
           "relative w-full rounded-lg border border-border bg-surface shadow-hover",
+          // Bounded to the viewport and laid out as a column so the body can
+          // scroll between a pinned header and footer. Without this a long
+          // form — the student enrolment wizard, say — grows past the bottom
+          // of a phone and its submit button becomes unreachable.
+          "flex max-h-[calc(100dvh-2rem)] flex-col",
           "focus-visible:outline-none",
           sizeStyles[size]
         )}
       >
-        <div className="border-b border-border px-5 py-4">
+        <div className="shrink-0 border-b border-border px-5 py-4">
           <h2 id={titleId} className="text-base font-semibold text-heading">
             {title}
           </h2>
@@ -112,9 +117,11 @@ export function Modal({ isOpen, onClose, title, description, size = "md", childr
           )}
         </div>
 
-        <div className="px-5 py-4">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
 
-        {footer && <div className="border-t border-border px-5 py-4">{footer}</div>}
+        {footer && (
+          <div className="shrink-0 border-t border-border px-5 py-4">{footer}</div>
+        )}
       </div>
     </div>,
     document.body

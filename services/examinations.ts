@@ -2,24 +2,24 @@
 // MODULE : Services — Examinations
 // PURPOSE: Scheduled papers and their results, from the lecturer's side.
 //
-//          No backend route serves this yet (backend Phase 10). Written against
-//          the contract in types/entities.ts.
+//          GET /api/examinations returns scalar columns only — a courseId and a
+//          semesterId, no names and no result counts. Every screen wants all
+//          four, so the joins happen here rather than in a page.
 // ============================================================================
 
 import type {
   ApiResponse,
+  Course,
   ExamResult,
   Examination,
   ListParams,
   PaginatedResult,
+  Semester,
 } from "@/types";
 import { apiList, apiRequest } from "./client";
-import { USE_MOCKS } from "./config";
-import { SEMESTER_BY_ID } from "@/mock/data/academics";
-import { COURSE_BY_ID, MOCK_FACULTY_ASSIGNMENTS } from "@/mock/data/courses";
-import { MOCK_EXAM_RESULTS, MOCK_EXAMINATIONS } from "@/mock/data/student-details";
-import { studentStore } from "@/mock/studentStore";
-import { mockFail, mockList, mockOk } from "@/mock/utils";
+import { MAX_LIST_LIMIT } from "@/types/api";
+import { courseIndex, semesterIndex } from "./reference";
+import { mapWithConcurrency } from "./concurrency";
 
 /** An examination joined to its course and semester, with a result count. */
 export interface ExaminationRow extends Examination {
@@ -30,20 +30,56 @@ export interface ExaminationRow extends Examination {
   publishedCount: number;
 }
 
-function toRow(examination: Examination): ExaminationRow {
-  const course = COURSE_BY_ID.get(examination.courseId);
-  const semester = SEMESTER_BY_ID.get(examination.semesterId);
-  const results = MOCK_EXAM_RESULTS.filter((r) => r.examinationId === examination.id);
+/**
+ * Join an examination to its course, its semester and its result counts.
+ *
+ * The names come from the shared reference indexes; GET /api/examinations
+ * returns ids only. The counts come from the paper's own results endpoint —
+ * there is no aggregate on the list route — so this costs one request per row.
+ * `publishedCount` is what the results screen acts on: entered but not released.
+ */
+async function toRow(
+  examination: Examination,
+  courses: Map<string, Course>,
+  semesters: Map<string, Semester>,
+  resolveCounts = true
+): Promise<ExaminationRow> {
+  const course = courses.get(examination.courseId);
+  const semester = semesters.get(examination.semesterId);
+
+  // Skipped when the caller does not read the counts. There is no aggregate on
+  // GET /api/examinations, so each count costs one request for that paper —
+  // a page of a hundred exams was a hundred requests, and the faculty dashboard
+  // paid all of them to render six fields, none of which is a count.
+  //
+  // Defaulted to true so every existing caller keeps the behaviour it has;
+  // opting out is explicit and belongs to callers that have checked they read
+  // neither resultCount nor publishedCount.
+  if (!resolveCounts) {
+    return {
+      ...examination,
+      courseCode: course?.code ?? "—",
+      courseName: course?.name ?? "—",
+      semesterName: semester?.name ?? "—",
+      resultCount: 0,
+      publishedCount: 0,
+    };
+  }
+
+  const results = await apiList<ExamResult>(
+    `/api/examinations/${examination.id}/results`,
+    "results",
+    { limit: MAX_LIST_LIMIT }
+  );
+  const rows = results.success ? results.data.items : [];
 
   return {
     ...examination,
     courseCode: course?.code ?? "—",
     courseName: course?.name ?? "—",
     semesterName: semester?.name ?? "—",
-    resultCount: results.length,
-    // Entered but not yet released — the state the results screen exists to
-    // act on.
-    publishedCount: results.filter((r) => r.publishedAt !== null).length,
+    resultCount: results.success ? results.data.pagination.total : 0,
+    publishedCount: rows.filter((row) => row.publishedAt !== null).length,
   };
 }
 
@@ -54,51 +90,36 @@ function toRow(examination: Examination): ExaminationRow {
  * own columns: Examination carries no facultyId, so "my exams" can only mean
  * "exams for courses I am assigned to".
  */
+export interface ExaminationListOptions {
+  /**
+   * Whether to resolve resultCount and publishedCount for each paper.
+   *
+   * One request per row when true. Pass false only from a caller that reads
+   * neither — see toRow.
+   */
+  resolveCounts?: boolean;
+}
+
 export async function listFacultyExaminations(
   facultyId: string,
-  params?: ListParams
+  params?: ListParams,
+  options: ExaminationListOptions = {}
 ): Promise<ApiResponse<PaginatedResult<ExaminationRow>>> {
-  if (USE_MOCKS) {
-    const taughtCourseIds = new Set(
-      MOCK_FACULTY_ASSIGNMENTS.filter(
-        (assignment) => assignment.facultyId === facultyId && assignment.isActive
-      ).map((assignment) => assignment.courseId)
-    );
-
-    const rows = MOCK_EXAMINATIONS.filter((exam) =>
-      taughtCourseIds.has(exam.courseId)
-    ).map(toRow);
-
-    return mockList(rows, params, {
-      searchFields: ["title", "courseCode"],
-      filterKeys: ["status", "type"],
-      // Most recent first: a lecturer opens this to enter marks for a paper
-      // just sat, not to review one from two terms ago.
-      sort: (a, b) =>
-        Date.parse(b.date ?? b.createdAt) - Date.parse(a.date ?? a.createdAt),
-    });
-  }
-
   const result = await apiList<Examination>("/api/examinations", "examinations", {
     ...params,
     facultyId,
   });
   if (!result.success) return result;
 
-  return {
-    success: true,
-    data: {
-      ...result.data,
-      items: result.data.items.map((exam) => ({
-        ...exam,
-        courseCode: "—",
-        courseName: "—",
-        semesterName: "—",
-        resultCount: 0,
-        publishedCount: 0,
-      })),
-    },
-  };
+  const [courses, semesters] = await Promise.all([courseIndex(), semesterIndex()]);
+
+  // Bounded rather than all-at-once: see services/concurrency.ts for why a
+  // hundred simultaneous per-row reads exhausted the connection pool.
+  const items = await mapWithConcurrency(result.data.items, (exam) =>
+    toRow(exam, courses, semesters, options.resolveCounts ?? true)
+  );
+
+  return { success: true, data: { ...result.data, items } };
 }
 
 /** One examination's results, joined to the students who sat it. */
@@ -110,32 +131,10 @@ export interface ExamResultRow extends ExamResult {
 export async function listExaminationResults(
   examinationId: string
 ): Promise<ApiResponse<ExamResultRow[]>> {
-  if (USE_MOCKS) {
-    const rows = MOCK_EXAM_RESULTS.filter(
-      (result) => result.examinationId === examinationId
-    ).map((result): ExamResultRow => {
-      const student = studentStore.find(result.studentId);
-      return {
-        ...result,
-        studentName: student?.fullName ?? "—",
-        enrollmentNo: student?.enrollmentNo ?? "—",
-      };
-    });
-
-    // Unpublished first — those are what still need action.
-    return mockOk(
-      rows.sort(
-        (a, b) =>
-          Number(a.publishedAt !== null) - Number(b.publishedAt !== null) ||
-          a.enrollmentNo.localeCompare(b.enrollmentNo)
-      )
-    );
-  }
-
   const result = await apiList<ExamResult>(
     `/api/examinations/${examinationId}/results`,
     "results",
-    { limit: 200 }
+    { limit: MAX_LIST_LIMIT }
   );
   if (!result.success) return result;
 
@@ -150,13 +149,83 @@ export async function listExaminationResults(
 }
 
 export async function getExamination(id: string): Promise<ApiResponse<ExaminationRow>> {
-  if (USE_MOCKS) {
-    const examination = MOCK_EXAMINATIONS.find((exam) => exam.id === id);
-    return examination
-      ? mockOk(toRow(examination))
-      : mockFail<ExaminationRow>("Examination not found", "NOT_FOUND");
-  }
-
   const result = await apiRequest<Examination>(`/api/examinations/${id}`);
-  return result.success ? { success: true, data: toRow(result.data) } : result;
+  if (!result.success) return result;
+
+  const [courses, semesters] = await Promise.all([courseIndex(), semesterIndex()]);
+  return { success: true, data: await toRow(result.data, courses, semesters) };
+}
+
+// --- Marks entry ------------------------------------------------------------
+
+/** One student on a paper's roster, with their result if one has been entered. */
+export interface ExamRosterRow {
+  studentId: string;
+  studentName: string;
+  enrollmentNo: string;
+  /** Null until marks are entered for this student. */
+  result: ExamResult | null;
+}
+
+/**
+ * Everyone registered for a paper, marked or not.
+ *
+ * Distinct from listExaminationResults, which returns only rows that already
+ * exist. Marks entry needs the students who have *no* row yet — that is the
+ * entire point of the screen — so a paper that has never been marked would
+ * otherwise open on an empty table.
+ *
+ * LIVE-MODE GAP: there is no roster endpoint. `GET /api/examinations/[id]/results`
+ * returns entered results only, and no route exposes course registrations
+ * (that is backend Phase 16). Against the live API this therefore degrades to
+ * "students already marked", which makes the screen an edit surface rather than
+ * an entry surface. Wiring it up properly needs a registrations endpoint first.
+ */
+export async function listExaminationRoster(
+  examinationId: string
+): Promise<ApiResponse<ExamRosterRow[]>> {
+  const result = await listExaminationResults(examinationId);
+  if (!result.success) return result;
+
+  return {
+    success: true,
+    data: result.data.map((row) => ({
+      studentId: row.studentId,
+      studentName: row.studentName,
+      enrollmentNo: row.enrollmentNo,
+      result: row,
+    })),
+  };
+}
+
+/** One row of the marks sheet as the lecturer submits it. */
+export interface ExamResultInput {
+  studentId: string;
+  /** Ignored when isAbsent — an absent student has no mark. */
+  marksObtained: number | null;
+  isAbsent: boolean;
+  remarks: string | null;
+}
+
+/**
+ * Save a whole marks sheet in one write.
+ *
+ * Row-at-a-time saving would leave a half-marked paper behind on any failure,
+ * and the backend's POST takes the full `records` array, so the batch is the
+ * unit here too. Existing rows are updated rather than duplicated — the
+ * examination/student pair identifies a result.
+ *
+ * Grade and grade point are derived from the same band table the fixtures use,
+ * so a mark entered here reads back identically on the transcript. `isPassed`
+ * is derived from the paper's own passMark rather than taken from the client,
+ * matching what the route handler does server-side.
+ */
+export async function saveExaminationResults(
+  examinationId: string,
+  records: ExamResultInput[]
+): Promise<ApiResponse<null>> {
+  return apiRequest<null>(`/api/examinations/${examinationId}/results`, {
+    method: "POST",
+    body: { records },
+  });
 }

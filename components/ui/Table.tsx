@@ -26,6 +26,16 @@ export interface TableProps<T> {
   emptyState?: ReactNode;
   /** Fires when a row is clicked — rows become keyboard-focusable buttons when set. */
   onRowClick?: (row: T) => void;
+  /**
+   * The width below which the table scrolls sideways instead of compressing.
+   *
+   * Any Tailwind min-width class. The default suits four or five columns; pass
+   * a larger one for a wider table and `min-w-0` to opt out entirely for a
+   * two-column table that genuinely does fit a phone.
+   *
+   * @default "min-w-[44rem]"
+   */
+  minWidthClassName?: string;
 }
 
 const alignStyles = {
@@ -64,10 +74,17 @@ export function Table<T>({
   isLoading = false,
   emptyState,
   onRowClick,
+  minWidthClassName = "min-w-[44rem]",
 }: TableProps<T>) {
   return (
+    // The min-width is what makes the overflow real. `w-full` alone inside a
+    // scroll container never scrolls — the table simply shrinks to the
+    // container and the columns compress until a six-column row on a phone is
+    // three characters wide per cell. Giving the table a floor means the
+    // container overflows and scrolls, which is the behaviour a wide table
+    // needs on a narrow screen.
     <div className="w-full overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
+      <table className={cn("w-full border-collapse text-sm", minWidthClassName)}>
         <thead>
           <tr className="border-b border-border">
             {columns.map((col) => (

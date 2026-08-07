@@ -20,6 +20,7 @@ import { topbarUserFromSession } from "@/utils/user";
  */
 export default async function PlatformLayout({ children }: { children: ReactNode }) {
   const session = await getPortalSession();
+
   if (!session) redirect("/login");
 
   // Sent to their own portal rather than to /login: they are signed in

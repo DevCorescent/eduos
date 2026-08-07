@@ -147,6 +147,7 @@ export default async function FacultyAssignmentsPage({
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[48rem]"
           columns={columns}
           data={rows}
           rowKey={(row) => row.id}

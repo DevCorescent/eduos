@@ -92,3 +92,16 @@ export function emptyPage<T>(params?: PaginationParams): PaginatedResult<T> {
     },
   };
 }
+
+/**
+ * The largest `limit` any collection endpoint accepts.
+ *
+ * Mirrors MAX_PAGE_SIZE in lib/validations/pagination.ts, which every route's
+ * query schema enforces with `.max()`. Asking for more is not clamped — it is a
+ * 400 VALIDATION_ERROR, and the screen renders an error for a request that
+ * looked reasonable.
+ *
+ * Named here so a caller wanting "as much as one page allows" can say so
+ * instead of writing a number that silently becomes wrong if the ceiling moves.
+ */
+export const MAX_LIST_LIMIT = 100;
