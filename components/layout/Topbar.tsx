@@ -3,6 +3,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 
@@ -14,12 +15,19 @@ export interface TopbarUser {
   roleLabel?: string;
 }
 
-export interface TopbarMenuItem {
+/**
+ * One entry in the user menu.
+ *
+ * Either a navigation target or an action, never both. A destination renders as
+ * a real anchor so it can be middle-clicked, opened in a new tab and read as a
+ * link by assistive technology; a button that calls router.push() supports none
+ * of that.
+ */
+export type TopbarMenuItem = {
   label: string;
-  onClick: () => void;
   /** Renders separated from items above it with a divider, and in danger color. */
   destructive?: boolean;
-}
+} & ({ href: string; onClick?: never } | { href?: never; onClick: () => void });
 
 export interface TopbarProps {
   /**
@@ -142,24 +150,38 @@ export function Topbar({ title, user, menuItems, leading, center, actions }: Top
                 )}
               </div>
 
-              {menuItems.map((item, i) => (
-                <button
-                  key={item.label}
-                  role="menuitem"
-                  type="button"
-                  onClick={() => {
-                    setIsOpen(false);
-                    item.onClick();
-                  }}
-                  className={cn(
-                    "w-full px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:bg-muted",
-                    item.destructive ? "text-danger" : "text-foreground",
-                    item.destructive && i > 0 && "border-t border-border"
-                  )}
-                >
-                  {item.label}
-                </button>
-              ))}
+              {menuItems.map((item, i) => {
+                const itemClass = cn(
+                  "block w-full px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:bg-muted",
+                  item.destructive ? "text-danger" : "text-foreground",
+                  item.destructive && i > 0 && "border-t border-border"
+                );
+
+                return item.href ? (
+                  <Link
+                    key={item.label}
+                    role="menuitem"
+                    href={item.href}
+                    onClick={() => setIsOpen(false)}
+                    className={itemClass}
+                  >
+                    {item.label}
+                  </Link>
+                ) : (
+                  <button
+                    key={item.label}
+                    role="menuitem"
+                    type="button"
+                    onClick={() => {
+                      setIsOpen(false);
+                      item.onClick?.();
+                    }}
+                    className={itemClass}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

@@ -220,7 +220,14 @@ const GRADE_BANDS: { min: number; grade: string; point: string }[] = [
   { min: 0, grade: "F", point: "0.00" },
 ];
 
-function gradeFor(percentage: number) {
+/**
+ * The band a percentage falls into.
+ *
+ * Exported so marks saved through the UI are graded by the same table that
+ * graded the fixtures. A second copy of these bands anywhere would let a
+ * lecturer's entry disagree with the transcript that reads it back.
+ */
+export function gradeFor(percentage: number) {
   return GRADE_BANDS.find((band) => percentage >= band.min)!;
 }
 
@@ -278,6 +285,24 @@ export const MOCK_EXAMINATIONS: Examination[] = EXAMINED_SEMESTERS.flatMap(
 export const EXAMINATION_BY_ID = new Map(MOCK_EXAMINATIONS.map((exam) => [exam.id, exam]));
 
 /**
+ * Whether a student is registered for a paper.
+ *
+ * Only a slice of the register sits any given paper — a course is taken by one
+ * programme's students, not all 186. Exposed rather than inlined because the
+ * marks-entry screen needs the *same* cohort for a SCHEDULED paper that the
+ * fixtures below use for a COMPLETED one. Deriving it twice from the same seed
+ * keeps a paper's roster identical before and after marks exist; two separate
+ * predicates would let a lecturer enter marks for students who then vanish from
+ * the result list.
+ */
+export function isRegisteredForExamination(
+  examinationId: string,
+  studentId: string
+): boolean {
+  return seededInt(0, 9, `${examinationId}-${studentId}-sat`) > 6;
+}
+
+/**
  * Results for completed examinations only.
  *
  * A scheduled examination has no results yet — generating them would put marks
@@ -286,10 +311,8 @@ export const EXAMINATION_BY_ID = new Map(MOCK_EXAMINATIONS.map((exam) => [exam.i
 export const MOCK_EXAM_RESULTS: ExamResult[] = MOCK_EXAMINATIONS.filter(
   (exam) => exam.status === "COMPLETED"
 ).flatMap((exam, examIndex) =>
-  MOCK_STUDENTS.filter(
-    // Only a slice of the register sat any given paper — a course is taken by
-    // one programme's students, not all 186.
-    (student) => seededInt(0, 9, `${exam.id}-${student.id}-sat`) > 6
+  MOCK_STUDENTS.filter((student) =>
+    isRegisteredForExamination(exam.id, student.id)
   ).map((student, studentIndex): ExamResult => {
     const seed = `result-${exam.id}-${student.id}`;
     const isAbsent = seededInt(0, 39, `${seed}-absent`) === 0;
