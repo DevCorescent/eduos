@@ -4,24 +4,15 @@
 // MODULE : Actions — Academic Setup
 // PURPOSE: Server Actions for every create, update and delete on the setup tree.
 //
-//          These exist because the mutation has to run on the server, not
-//          because a form needs a handler. In mock mode the data lives in a
-//          process-local store (mock/stores.ts); a client component calling the
-//          service directly would mutate its *own* module instance in the
-//          browser, and the server would then re-render from an untouched
-//          store — the row would appear to save and vanish on refresh.
+//          These run on the server because the session is an httpOnly cookie:
+//          a mutation issued from the server keeps that credential out of
+//          client JavaScript entirely.
 //
-//          The same shape is correct against the live API: the session is an
-//          httpOnly cookie, so a mutation issued from the server keeps the
-//          credential out of client JavaScript entirely.
-//
-// KNOWN GAP: when USE_MOCKS is off, apiRequest runs here without the browser's
-//          cookie header — server-side fetch does not inherit it, and
-//          `credentials: "include"` is a browser-only concept. Integration will
-//          need the cookie forwarded from next/headers into the request. It is
-//          not wired now because nothing calls the live path yet, and guessing
-//          at the header shape ahead of a working backend is how it gets wired
-//          wrong.
+//          A server-side fetch inherits neither the browser's cookie jar nor
+//          the request's host, and `credentials: "include"` is a browser-only
+//          concept — so services/client.ts reads both from next/headers and
+//          attaches them by hand. Without the host the backend resolves no
+//          tenant and answers 404; without the cookie it answers 401.
 // ============================================================================
 
 import type { ApiResponse } from "@/types";

@@ -189,6 +189,7 @@ export default async function CourseRegistrationsPage({
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={items}
           rowKey={(registration) => registration.id}

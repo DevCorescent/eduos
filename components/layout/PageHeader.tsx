@@ -35,9 +35,16 @@ export function PageHeader({ title, subtitle, action, breadcrumb, className }: P
     <div className={cn("flex flex-col gap-4 pb-6", className)}>
       {breadcrumb}
 
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-heading">{title}</h1>
+      {/* Stacked below `sm`, side by side above it. A title and an action on
+          one row is right on a laptop and wrong on a phone, where a long title
+          and a button called "Onboard University" leave each other a third of
+          the width. `min-w-0` lets the heading shrink and wrap rather than
+          pushing the action off the edge at intermediate sizes. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-heading sm:text-2xl">
+            {title}
+          </h1>
           {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
         </div>
 

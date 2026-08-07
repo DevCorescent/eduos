@@ -209,6 +209,7 @@ export default async function DepartmentsPage({
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[48rem]"
           columns={columns}
           data={items}
           rowKey={(department) => department.id}

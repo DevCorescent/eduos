@@ -226,6 +226,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[48rem]"
           columns={columns}
           data={items}
           rowKey={(course) => course.id}

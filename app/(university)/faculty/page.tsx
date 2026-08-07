@@ -290,6 +290,7 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={items}
           rowKey={(faculty) => faculty.id}

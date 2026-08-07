@@ -183,6 +183,7 @@ export default async function FeeDemandsPage({ searchParams }: { searchParams: S
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={items}
           rowKey={(row) => row.id}

@@ -244,6 +244,7 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={items}
           rowKey={(student) => student.id}

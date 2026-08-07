@@ -237,6 +237,7 @@ export default async function SemesterResultsPage({
         className="mt-6"
       >
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={cohort.students}
           rowKey={(student) => student.studentId}

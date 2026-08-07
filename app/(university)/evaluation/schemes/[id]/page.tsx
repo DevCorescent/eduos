@@ -106,7 +106,7 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
           header={<h2 className="text-sm font-semibold text-heading">Settings</h2>}
           className="lg:col-span-1"
         >
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
             <Field label="Grade scale" value={scheme.gradeScale.name} />
             <Field
               label="Max grade point"

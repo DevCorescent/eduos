@@ -151,6 +151,7 @@ export default async function SubscriptionsPage({
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[48rem]"
           columns={columns}
           data={rows}
           rowKey={(row) => row.id}

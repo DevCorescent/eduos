@@ -300,6 +300,7 @@ function AssignmentsPanel({
       }
     >
       <Table
+        minWidthClassName="min-w-[48rem]"
         columns={columns}
         data={assignments}
         rowKey={(row) => row.id}

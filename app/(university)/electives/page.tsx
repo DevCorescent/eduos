@@ -216,6 +216,7 @@ export default async function OpenElectivesPage({
 
       <Card noPadding>
         <Table
+          minWidthClassName="min-w-[56rem]"
           columns={columns}
           data={items}
           rowKey={(offering) => offering.id}
