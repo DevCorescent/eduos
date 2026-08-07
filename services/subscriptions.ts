@@ -11,13 +11,6 @@
 
 import type { ApiResponse, ListParams, PaginatedResult, Subscription } from "@/types";
 import { apiList, apiRequest } from "./client";
-import { USE_MOCKS } from "./config";
-import {
-  MOCK_SUBSCRIPTIONS,
-  findMockSubscription,
-  findMockSubscriptionForTenant,
-} from "@/mock/data/subscriptions";
-import { mockFail, mockList, mockOk } from "@/mock/utils";
 
 /** Writable fields. Mirrors updateSubscriptionSchema's console-facing subset. */
 export interface UpdateSubscriptionInput {
@@ -34,15 +27,6 @@ export interface UpdateSubscriptionInput {
 export async function listSubscriptions(
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<Subscription>>> {
-  if (USE_MOCKS) {
-    return mockList(MOCK_SUBSCRIPTIONS, params, {
-      // No text field worth searching — a subscription's identifying detail is
-      // its tenant, which the row does not carry. The page resolves tenant
-      // names itself and filters on plan and status instead.
-      filterKeys: ["status", "plan", "tenantId"],
-    });
-  }
-
   return apiList<Subscription>("/api/platform/subscriptions", "subscriptions", params);
 }
 
@@ -58,10 +42,6 @@ export async function listSubscriptions(
 export async function getSubscriptionForTenant(
   tenantId: string
 ): Promise<ApiResponse<Subscription | null>> {
-  if (USE_MOCKS) {
-    return mockOk(findMockSubscriptionForTenant(tenantId) ?? null);
-  }
-
   const result = await apiList<Subscription>(
     "/api/platform/subscriptions",
     "subscriptions",
@@ -77,16 +57,6 @@ export async function updateSubscription(
   id: string,
   input: UpdateSubscriptionInput
 ): Promise<ApiResponse<Subscription>> {
-  if (USE_MOCKS) {
-    const subscription = findMockSubscription(id);
-    if (!subscription) return mockFail<Subscription>("Subscription not found", "NOT_FOUND");
-
-    return mockOk<Subscription>(
-      { ...subscription, ...input, updatedAt: new Date().toISOString() },
-      "Subscription updated"
-    );
-  }
-
   return apiRequest<Subscription>(`/api/platform/subscriptions/${id}`, {
     method: "PATCH",
     body: input,

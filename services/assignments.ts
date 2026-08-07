@@ -3,43 +3,52 @@
 // PURPOSE: Set work, from both sides: what a student owes, and what a lecturer
 //          has to mark.
 //
-//          No backend route serves this yet (backend Phase 9). Written against
-//          the contract in types/entities.ts.
+//          Both sides read GET /api/assignments, which returns scalar columns
+//          only — no course, no submissions, no counts. Everything a row needs
+//          beyond those columns is composed here, so no page issues a join.
 // ============================================================================
 
 import type {
   ApiResponse,
   Assignment,
+  Course,
   AssignmentRow,
   AssignmentSubmission,
   ListParams,
   PaginatedResult,
 } from "@/types";
 import { apiList, apiRequest } from "./client";
-import { USE_MOCKS } from "./config";
-import { COURSE_BY_ID } from "@/mock/data/courses";
-import {
-  ASSIGNMENT_BY_ID,
-  MOCK_ASSIGNMENTS,
-} from "@/mock/data/assignments";
-import { studentStore } from "@/mock/studentStore";
-import { submissionStore } from "@/mock/assignmentStores";
-import { mockFail, mockList, mockOk } from "@/mock/utils";
+import { courseIndex } from "./reference";
 
 /**
- * Attach the course, and this student's own submission, to an assignment.
+ * Attach the course, and the caller's own submission, to an assignment.
  *
- * Submissions are read from the store, not from the module-load index: grading
- * writes to the store, and reading a snapshot would show a just-marked
- * submission as still ungraded.
+ * The course comes from the shared index — GET /api/assignments returns a
+ * courseId and no name. `withSubmission` is opt-in because it costs one request
+ * per assignment: worth it on the student's own list, where the submission
+ * status IS the row, and pointless on a lecturer's list, where every row is
+ * their own.
+ *
+ * A submission read that fails leaves the field null. The API returns only the
+ * caller's own submissions for a STUDENT, so an empty result and a forbidden
+ * one mean the same thing here: nothing submitted that we may see.
  */
-function toRow(assignment: Assignment, studentId?: string): AssignmentRow {
-  const course = COURSE_BY_ID.get(assignment.courseId);
-  const submission = studentId
-    ? (submissionStore
-        .all()
-        .find((s) => s.assignmentId === assignment.id && s.studentId === studentId) ?? null)
-    : null;
+async function toRow(
+  assignment: Assignment,
+  courses: Map<string, Course>,
+  withSubmission = false
+): Promise<AssignmentRow> {
+  const course = courses.get(assignment.courseId);
+
+  let submission: AssignmentSubmission | null = null;
+  if (withSubmission) {
+    const result = await apiList<AssignmentSubmission>(
+      `/api/assignments/${assignment.id}/submissions`,
+      "submissions",
+      { limit: 1 }
+    );
+    submission = result.success ? (result.data.items[0] ?? null) : null;
+  }
 
   return {
     ...assignment,
@@ -59,40 +68,18 @@ export async function listStudentAssignments(
   studentId: string,
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<AssignmentRow>>> {
-  if (USE_MOCKS) {
-    const student = studentStore.find(studentId);
-
-    const rows = MOCK_ASSIGNMENTS.filter(
-      (assignment) =>
-        assignment.publishedAt !== null &&
-        // Section-scoped work only reaches the students in that section.
-        (assignment.sectionId === null || assignment.sectionId === student?.sectionId)
-    ).map((assignment) => toRow(assignment, studentId));
-
-    return mockList(rows, params, {
-      searchFields: ["title", "courseCode", "courseName"],
-      filterKeys: ["status", "courseId"],
-      // Soonest deadline first — the order a student actually works in. An
-      // assignment with no due date sorts last rather than crashing the compare.
-      sort: (a, b) =>
-        (a.dueDate ? Date.parse(a.dueDate) : Number.MAX_SAFE_INTEGER) -
-        (b.dueDate ? Date.parse(b.dueDate) : Number.MAX_SAFE_INTEGER),
-    });
-  }
-
   const result = await apiList<Assignment>("/api/assignments", "assignments", {
     ...params,
     studentId,
   });
   if (!result.success) return result;
 
-  return {
-    success: true,
-    data: {
-      ...result.data,
-      items: result.data.items.map((assignment) => toRow(assignment)),
-    },
-  };
+  const courses = await courseIndex();
+  const items = await Promise.all(
+    result.data.items.map((assignment) => toRow(assignment, courses, true))
+  );
+
+  return { success: true, data: { ...result.data, items } };
 }
 
 /** What one lecturer has set, with a submission count for the grading queue. */
@@ -106,51 +93,39 @@ export async function listFacultyAssignments(
   createdBy: string,
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<FacultyAssignmentSummary>>> {
-  if (USE_MOCKS) {
-    const rows: FacultyAssignmentSummary[] = MOCK_ASSIGNMENTS.filter(
-      (assignment) => assignment.createdBy === createdBy
-    ).map((assignment) => {
-      const submissions = submissionStore
-        .all()
-        .filter((s) => s.assignmentId === assignment.id);
-      const graded = submissions.filter((s) => s.status === "GRADED").length;
-
-      return {
-        ...toRow(assignment),
-        submissionCount: submissions.length,
-        gradedCount: graded,
-        // What is actually waiting for the lecturer, which is the number the
-        // grading queue is sorted and badged by.
-        pendingCount: submissions.length - graded,
-      };
-    });
-
-    return mockList(rows, params, {
-      searchFields: ["title", "courseCode"],
-      filterKeys: ["status", "courseId"],
-      // Most work waiting first.
-      sort: (a, b) => b.pendingCount - a.pendingCount,
-    });
-  }
-
   const result = await apiList<Assignment>("/api/assignments", "assignments", {
     ...params,
     createdBy,
   });
   if (!result.success) return result;
 
-  return {
-    success: true,
-    data: {
-      ...result.data,
-      items: result.data.items.map((assignment) => ({
-        ...toRow(assignment),
-        submissionCount: 0,
-        gradedCount: 0,
-        pendingCount: 0,
-      })),
-    },
-  };
+  const courses = await courseIndex();
+
+  // The grading queue counts come from each assignment's own submission list —
+  // GET /api/assignments returns no aggregate. One request per row, bounded by
+  // the page limit, and the counts are what the screen exists to show.
+  const items = await Promise.all(
+    result.data.items.map(async (assignment) => {
+      const row = await toRow(assignment, courses);
+      const submissions = await apiList<AssignmentSubmission>(
+        `/api/assignments/${assignment.id}/submissions`,
+        "submissions",
+        { limit: 100 }
+      );
+
+      const rows = submissions.success ? submissions.data.items : [];
+      const graded = rows.filter((submission) => submission.gradedAt !== null).length;
+
+      return {
+        ...row,
+        submissionCount: submissions.success ? submissions.data.pagination.total : 0,
+        gradedCount: graded,
+        pendingCount: rows.length - graded,
+      };
+    })
+  );
+
+  return { success: true, data: { ...result.data, items } };
 }
 
 /** Every submission for one assignment, for the grading screen. */
@@ -162,30 +137,6 @@ export interface SubmissionRow extends AssignmentSubmission {
 export async function listSubmissions(
   assignmentId: string
 ): Promise<ApiResponse<SubmissionRow[]>> {
-  if (USE_MOCKS) {
-    const rows = submissionStore
-      .all()
-      .filter((submission) => submission.assignmentId === assignmentId)
-      .map((submission): SubmissionRow => {
-        const student = studentStore.find(submission.studentId);
-        return {
-          ...submission,
-          studentName: student?.fullName ?? "—",
-          enrollmentNo: student?.enrollmentNo ?? "—",
-        };
-      });
-
-    // Ungraded first: the lecturer opened this screen to mark, not to re-read
-    // work already marked.
-    return mockOk(
-      rows.sort(
-        (a, b) =>
-          Number(a.status === "GRADED") - Number(b.status === "GRADED") ||
-          a.studentName.localeCompare(b.studentName)
-      )
-    );
-  }
-
   const result = await apiList<AssignmentSubmission>(
     `/api/assignments/${assignmentId}/submissions`,
     "submissions",
@@ -216,38 +167,6 @@ export async function gradeSubmission(
   marks: number,
   feedback?: string
 ): Promise<ApiResponse<AssignmentSubmission>> {
-  if (USE_MOCKS) {
-    const submission = submissionStore.find(submissionId);
-    if (!submission) {
-      return mockFail<AssignmentSubmission>("Submission not found", "NOT_FOUND");
-    }
-
-    const assignment = ASSIGNMENT_BY_ID.get(submission.assignmentId);
-    if (!assignment) {
-      return mockFail<AssignmentSubmission>("Assignment not found", "NOT_FOUND");
-    }
-
-    if (marks < 0 || marks > assignment.maxMarks) {
-      return mockFail<AssignmentSubmission>(
-        `Marks must be between 0 and ${assignment.maxMarks}.`,
-        "VALIDATION_ERROR"
-      );
-    }
-
-    const timestamp = new Date().toISOString();
-    const updated = submissionStore.update(submissionId, {
-      marks,
-      feedback: feedback?.trim() || null,
-      status: "GRADED",
-      gradedAt: timestamp,
-      updatedAt: timestamp,
-    });
-
-    return updated
-      ? mockOk(updated, "Submission graded")
-      : mockFail<AssignmentSubmission>("Submission not found", "NOT_FOUND");
-  }
-
   // A submission is addressed under its parent assignment — there is no
   // top-level /api/submissions route, so the previous URL 404'd and no mark was
   // ever saved. The route validates marks against the assignment's own maxMarks,
@@ -264,13 +183,8 @@ export async function gradeSubmission(
 }
 
 export async function getAssignment(id: string): Promise<ApiResponse<AssignmentRow>> {
-  if (USE_MOCKS) {
-    const assignment = ASSIGNMENT_BY_ID.get(id);
-    return assignment
-      ? mockOk(toRow(assignment))
-      : mockFail<AssignmentRow>("Assignment not found", "NOT_FOUND");
-  }
-
   const result = await apiRequest<Assignment>(`/api/assignments/${id}`);
-  return result.success ? { success: true, data: toRow(result.data) } : result;
+  if (!result.success) return result;
+
+  return { success: true, data: await toRow(result.data, await courseIndex(), true) };
 }

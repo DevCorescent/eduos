@@ -9,8 +9,6 @@ import { Button } from "@/components/ui/Button";
 import { Alert } from "@/components/ui/Alert";
 import { login } from "@/services/auth";
 import { homeRouteForRoles } from "@/constants/roles";
-import { USE_MOCKS } from "@/services/config";
-import { DemoAccountHint } from "./DemoAccountHint";
 
 interface LoginForm {
   tenantSlug: string;
@@ -176,8 +174,6 @@ export function LoginForm() {
           Forgot your password?
         </Link>
       </form>
-
-      {USE_MOCKS && <DemoAccountHint onPick={(account) => setForm(account)} />}
     </div>
   );
 }

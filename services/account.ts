@@ -21,26 +21,9 @@
 import "server-only";
 
 import type { ApiResponse, User } from "@/types";
+import { fail } from "@/types";
 import { apiRequest } from "./client";
-import { USE_MOCKS } from "./config";
 import { getPortalSession } from "./session";
-import { userStore } from "@/mock/rbacStores";
-import { defaultPreferences, preferenceStore } from "@/mock/accountStores";
-import { mockFail, mockOk } from "@/mock/utils";
-
-const now = () => new Date().toISOString();
-
-/**
- * The demo account Settings falls back to.
- *
- * Same gap, same remedy as services/portal.ts: the development session's `sub`
- * is a synthetic id, so the join against the fixtures finds nothing. Picking the
- * first seeded user keeps the screen reviewable; signing in against a real
- * backend resolves normally and never reaches this.
- */
-function demoUser(): User | undefined {
-  return userStore.all()[0];
-}
 
 /**
  * The signed-in user's own record, or null when nobody is signed in.
@@ -52,20 +35,6 @@ function demoUser(): User | undefined {
 export async function getCurrentUser(): Promise<User | null> {
   const session = await getPortalSession();
   if (!session) return null;
-
-  if (USE_MOCKS) {
-    const byId = userStore.find(session.sub);
-    if (byId) return byId;
-
-    // Then by email — a demo account chosen at /login has a synthetic id but a
-    // real fixture email, so this resolves the *right* person rather than the
-    // fallback.
-    const byEmail = userStore
-      .all()
-      .find((user) => user.email.toLowerCase() === session.email.toLowerCase());
-
-    return byEmail ?? demoUser() ?? null;
-  }
 
   const result = await apiRequest<User>(`/api/users/${session.sub}`);
   return result.success ? result.data : null;
@@ -90,34 +59,7 @@ export interface ProfileInput {
  */
 export async function updateProfile(input: ProfileInput): Promise<ApiResponse<User>> {
   const session = await getPortalSession();
-  if (!session) return mockFail<User>("Not signed in", "UNAUTHORIZED");
-
-  if (USE_MOCKS) {
-    const current = await getCurrentUser();
-    if (!current) return mockFail<User>("User not found", "NOT_FOUND");
-
-    const duplicate = userStore
-      .all()
-      .some(
-        (user) =>
-          user.id !== current.id &&
-          user.email.toLowerCase() === input.email.trim().toLowerCase()
-      );
-
-    if (duplicate) return mockFail<User>("Email already in use", "CONFLICT");
-
-    const updated = userStore.update(current.id, {
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      email: input.email.trim(),
-      phone: input.phone?.trim() || null,
-      updatedAt: now(),
-    });
-
-    return updated
-      ? mockOk(updated, "Profile updated")
-      : mockFail<User>("User not found", "NOT_FOUND");
-  }
+  if (!session) return fail("Not signed in", "UNAUTHORIZED");
 
   return apiRequest<User>(`/api/users/${session.sub}`, {
     method: "PATCH",
@@ -153,25 +95,6 @@ export interface ChangePasswordInput {
 export async function changePassword(
   input: ChangePasswordInput
 ): Promise<ApiResponse<null>> {
-  if (USE_MOCKS) {
-    // The fixtures carry no password hashes — User in types/entities.ts has no
-    // passwordHash field, by design, because no response should ever include
-    // one. So the old password cannot be verified here. Length is checked so
-    // the form's own rule is still exercised, and the rest is deferred to the
-    // real endpoint.
-    if (input.currentPassword.length === 0) {
-      return mockFail<null>("Enter your current password", "VALIDATION_ERROR");
-    }
-    if (input.newPassword.length < 8) {
-      return mockFail<null>("Use at least 8 characters", "VALIDATION_ERROR");
-    }
-    if (input.newPassword === input.currentPassword) {
-      return mockFail<null>("The new password must differ from the current one", "VALIDATION_ERROR");
-    }
-
-    return mockOk(null, "Password changed");
-  }
-
   return apiRequest<null>("/api/auth/change-password", {
     method: "POST",
     body: input,
@@ -201,32 +124,27 @@ export interface NotificationPreferences {
 /**
  * My notification preferences.
  *
- * NO BACKEND ROUTE OR TABLE EXISTS — there is no UserPreference model in
- * schema.prisma. Persisting this needs a migration first. Until then the mock
- * store answers, and the live branch is written against the contract a
- * per-user sub-resource would follow.
+ * NO BACKEND ROUTE OR TABLE EXISTS — schema.prisma declares no UserPreference
+ * model, and app/api exposes no per-user preferences sub-resource. The request
+ * below is written against the contract such a sub-resource would follow, so
+ * the endpoint is the only thing missing; until it lands the call returns
+ * NOT_FOUND and the Settings tab renders that.
+ *
+ * No default set is substituted on failure. Toggles shown as "your settings"
+ * that were never loaded from anywhere, and that a save would not persist,
+ * misrepresent the state of the account.
  */
 export async function getNotificationPreferences(): Promise<
   ApiResponse<NotificationPreferences>
 > {
   const session = await getPortalSession();
   if (!session) {
-    return mockFail<NotificationPreferences>("Not signed in", "UNAUTHORIZED");
-  }
-
-  if (USE_MOCKS) {
-    return mockOk(preferenceStore.get(session.sub));
+    return fail("Not signed in", "UNAUTHORIZED");
   }
 
   const result = await apiRequest<NotificationPreferences>(
     `/api/users/${session.sub}/preferences`
   );
-
-  // A user who has never saved preferences is not an error — the defaults are
-  // the answer. Only a genuine failure surfaces as one.
-  if (!result.success && result.code === "NOT_FOUND") {
-    return { success: true, data: defaultPreferences() };
-  }
 
   return result;
 }
@@ -236,11 +154,7 @@ export async function updateNotificationPreferences(
 ): Promise<ApiResponse<NotificationPreferences>> {
   const session = await getPortalSession();
   if (!session) {
-    return mockFail<NotificationPreferences>("Not signed in", "UNAUTHORIZED");
-  }
-
-  if (USE_MOCKS) {
-    return mockOk(preferenceStore.set(session.sub, input), "Preferences saved");
+    return fail("Not signed in", "UNAUTHORIZED");
   }
 
   return apiRequest<NotificationPreferences>(`/api/users/${session.sub}/preferences`, {
