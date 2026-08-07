@@ -106,6 +106,11 @@ export class FakePrismaClient {
       return { _max: { sequenceNumber: null } };
     }
 
+    if (operation === "groupBy") {
+      // An unconfigured groupBy reports no groups, matching findMany above.
+      return [];
+    }
+
     if (operation === "count") {
       // An unconfigured count reports an empty table, matching findMany above.
       return 0;
@@ -131,6 +136,7 @@ export class FakePrismaClient {
     return {
       findMany: async (args: Record<string, unknown>) => this.record(model, "findMany", args),
       count: async (args: Record<string, unknown>) => this.record(model, "count", args),
+      groupBy: async (args: Record<string, unknown>) => this.record(model, "groupBy", args),
       findFirst: async (args: Record<string, unknown>) => this.record(model, "findFirst", args),
       aggregate: async (args: Record<string, unknown>) => this.record(model, "aggregate", args),
       create: async (args: Record<string, unknown>) => this.record(model, "create", args),
@@ -205,5 +211,72 @@ export class FakePrismaClient {
 
   get feeStructure() {
     return this.delegate("feeStructure");
+  }
+
+  // --- Phase 18 profile delegates -------------------------------------------
+  //
+  // Added additively for the Student Profile Portal. Every getter above is
+  // untouched, so all prior suites behave exactly as before.
+
+  get achievement() {
+    return this.delegate("achievement");
+  }
+
+  get studentDocument() {
+    return this.delegate("studentDocument");
+  }
+
+  get studentParent() {
+    return this.delegate("studentParent");
+  }
+
+  get certificate() {
+    return this.delegate("certificate");
+  }
+
+  get notification() {
+    return this.delegate("notification");
+  }
+
+  // --- Phase 19 open-elective delegates -------------------------------------
+  //
+  // Added additively for Open Elective Management. Every getter above is
+  // untouched, so all prior suites behave exactly as before.
+
+  get openElectiveOffering() {
+    return this.delegate("openElectiveOffering");
+  }
+
+  get openElectiveEligibility() {
+    return this.delegate("openElectiveEligibility");
+  }
+
+  get openElectivePreference() {
+    return this.delegate("openElectivePreference");
+  }
+
+  get openElectiveAllocation() {
+    return this.delegate("openElectiveAllocation");
+  }
+
+  // --- Phase 20 feedback delegates ------------------------------------------
+  //
+  // Added additively for the Faculty Feedback System. Every getter above is
+  // untouched, so all prior suites behave exactly as before.
+
+  get feedbackForm() {
+    return this.delegate("feedbackForm");
+  }
+
+  get feedbackQuestion() {
+    return this.delegate("feedbackQuestion");
+  }
+
+  get feedbackSubmission() {
+    return this.delegate("feedbackSubmission");
+  }
+
+  get feedbackAnswer() {
+    return this.delegate("feedbackAnswer");
   }
 }

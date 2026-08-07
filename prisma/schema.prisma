@@ -138,6 +138,11 @@ model User {
   evaluationSchemesCreated   EvaluationScheme[] @relation("EvaluationSchemeCreatedBy")
   evaluationSchemesActivated EvaluationScheme[] @relation("EvaluationSchemeActivatedBy")
 
+  openElectiveOfferingsCreated OpenElectiveOffering[]
+
+  // Phase 20 — back-relation for FeedbackForm authorship attribution.
+  feedbackFormsCreated FeedbackForm[]
+
   @@unique([tenantId, email])
   @@index([tenantId])
   @@index([email])
@@ -259,6 +264,8 @@ model Department {
   faculty    FacultyMember[]
   programmes Programme[]
 
+  openElectiveOfferings OpenElectiveOffering[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([campusId])
@@ -285,6 +292,8 @@ model Programme {
   specialisations     Specialisation[]
   courseRegistrations CourseRegistration[]
 
+  openElectiveEligibilities OpenElectiveEligibility[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([departmentId])
@@ -301,6 +310,8 @@ model Specialisation {
   createdAt   DateTime  @default(now())
   programme   Programme @relation(fields: [programmeId], references: [id])
   students    Student[]
+
+  openElectiveEligibilities OpenElectiveEligibility[]
 
   @@unique([tenantId, code])
   @@index([programmeId])
@@ -339,6 +350,10 @@ model Semester {
   timetables          Timetable[]
   courseRegistrations CourseRegistration[]
   assessmentEvents    AssessmentEvent[]
+
+  openElectiveOfferings OpenElectiveOffering[]
+
+  feedbackSubmissions FeedbackSubmission[]
 
   @@unique([academicYearId, semesterNumber])
   @@index([tenantId])
@@ -437,6 +452,10 @@ model Course {
   courseRegistrations CourseRegistration[]
   assessmentEvents    AssessmentEvent[]
 
+  openElectiveOfferings OpenElectiveOffering[]
+
+  feedbackSubmissions FeedbackSubmission[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([departmentId])
@@ -471,6 +490,12 @@ model Student {
   parents             StudentParent[]
   personal            StudentPersonal?
   courseRegistrations CourseRegistration[]
+  achievements        Achievement[]
+
+  openElectivePreferences OpenElectivePreference[]
+  openElectiveAllocations OpenElectiveAllocation[]
+
+  feedbackSubmissions FeedbackSubmission[]
 
   @@unique([tenantId, enrollmentNo])
   @@index([tenantId])
@@ -540,6 +565,288 @@ model StudentParent {
   @@id([studentId, parentId])
 }
 
+/// A student-claimed accomplishment: a prize, a publication, a competition
+/// placing, a certification earned outside the institution.
+///
+/// DELIBERATELY NOT A Certificate. Certificate is INSTITUTION-ISSUED — it has a
+/// template, a certificateNo, a verification QR and a revocation flag, and the
+/// university stands behind it. An Achievement is STUDENT-CLAIMED: the
+/// institution records it without asserting it. Conflating the two would put
+/// unverified claims inside the certificate verification path, which is the one
+/// place in this system that must never carry anything the university has not
+/// itself issued.
+///
+/// TENANCY, AND WHY IT IS WEAKER HERE THAN IN PHASE 16
+/// Phase 16 proves tenant ownership STRUCTURALLY with a composite foreign key
+/// -- @relation(fields: [tenantId, studentId], references: [tenantId, id]) --
+/// which requires @@unique([tenantId, id]) on the parent. Student does not
+/// carry that key, and adding it would build a new unique index on the students
+/// table: a modification to an existing table, which this phase forbids.
+///
+/// So tenantId is carried alongside a plain studentId foreign key, exactly as
+/// FeeDemand, Payment and StudentDocument already do. Cross-tenant consistency
+/// is therefore enforced by the REPOSITORY -- every query filters on both
+/// columns -- rather than by the database. That is a real and stated weakening,
+/// not an oversight; it can be tightened later by adding @@unique([tenantId, id])
+/// to Student in a phase permitted to alter it.
+model Achievement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// The student who holds it. Cascades on delete, matching StudentDocument and
+  /// StudentPersonal: an achievement has no meaning without its student, and
+  /// leaving orphans behind would corrupt every count on the profile portal.
+  studentId String
+
+  title String
+
+  /// A broad, institution-neutral grouping. An enum rather than free text for
+  /// the same reason DocumentType and CertificateType are enums: a portal has
+  /// to group these, and free text would give one tenant "Sports", "sports" and
+  /// "Sport" as three categories. OTHER plus `description` carries the tail.
+  category AchievementCategory
+
+  description String
+
+  /// Who awarded or conferred it — a body outside this institution, which is
+  /// what distinguishes an achievement from a Certificate.
+  issuer String
+
+  /// When it was achieved. Distinct from createdAt, which is when it was
+  /// entered: a student records a 2023 prize in 2026, and a profile must show
+  /// the former.
+  achievedOn DateTime
+
+  /// A certificate the ISSUER provided. Optional — many achievements have none.
+  certificateUrl String?
+
+  /// Supporting evidence: a results page, a publication DOI, a news link.
+  evidenceUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  /// The portal read, exactly: one student's achievements within one tenant,
+  /// newest first. Composite because this is a NEW table and can be indexed for
+  /// the query it actually serves -- unlike FeeDemand and Payment, which carry
+  /// separate single-column indexes this phase may not alter.
+  @@index([tenantId, studentId, achievedOn])
+  /// Supports the cascade on student deletion. PostgreSQL does not index a
+  /// foreign key automatically, and without this a student deletion would
+  /// sequentially scan this table.
+  @@index([studentId])
+}
+
+/// One course offered as an open elective, in one semester, by one department.
+///
+/// THE MODEL PHASE 19 COULD NOT PROCEED WITHOUT.
+/// `Course.type = ELECTIVE` is a permanent property of a course, and
+/// `CurriculumSubject.isCompulsory = false` is programme curriculum design.
+/// Neither says "this course is available to other departments THIS semester
+/// with N seats", which is the entire subject of this phase.
+///
+/// SEATS ARE DERIVED, NEVER STORED.
+/// `totalSeats` is the CAPACITY the department declared. Seats REMAINING is
+/// `totalSeats - count(allocations where outcome = ALLOCATED)`, computed on
+/// read. A stored remaining-count is a cache that drifts the moment two
+/// allocations race, and a drifted seat count either oversubscribes a room or
+/// refuses a student who should have been admitted.
+model OpenElectiveOffering {
+  id       String @id @default(cuid())
+  tenantId String
+
+  courseId   String
+  semesterId String
+
+  /// The department that OWNS this offering. Not derived from Course.departmentId
+  /// because a course may be co-owned or transferred, and the offering's owner
+  /// is who answers for its seats in the semester it was offered.
+  offeringDepartmentId String
+
+  /// The regulation that will grade it.
+  ///
+  /// Carried HERE because CourseRegistration.evaluationSchemeId is NOT NULL and
+  /// an open elective is taken outside the student's own programme — so the
+  /// student's own scheme is the wrong answer. Per the Phase 19 decision,
+  /// evaluation follows the OFFERING department's scheme, and recording it on
+  /// the offering is what makes that reproducible after the scheme is
+  /// superseded.
+  evaluationSchemeId String
+
+  /// Capacity the department declared. Remaining seats are derived from this.
+  totalSeats Int
+
+  status OpenElectiveStatus @default(DRAFT)
+
+  allocationStrategy ElectiveAllocationStrategy @default(FCFS)
+
+  statusChangedAt DateTime @default(now())
+
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course     Course     @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  semester   Semester   @relation(fields: [semesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  department Department @relation(fields: [offeringDepartmentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy  User?      @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// Composite, tenant-proving: EvaluationScheme carries @@unique([tenantId, id]),
+  /// so an offering cannot cite another tenant's regulation. The same pattern
+  /// CourseRegistration already uses for the same column.
+  evaluationScheme EvaluationScheme @relation(fields: [tenantId, evaluationSchemeId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  eligibility OpenElectiveEligibility[]
+  preferences OpenElectivePreference[]
+  allocations OpenElectiveAllocation[]
+
+  /// One offering per course per semester. A second would split its seats into
+  /// two pools nobody could reconcile.
+  @@unique([courseId, semesterId])
+  /// Lets every child table below prove tenant ownership STRUCTURALLY through a
+  /// composite foreign key, rather than by a predicate a query could forget.
+  /// Available here because this is a new table; Student could not be given the
+  /// same key without altering an existing one.
+  @@unique([tenantId, id])
+  /// The catalogue read: which electives are open, in this semester, for this
+  /// tenant.
+  @@index([tenantId, semesterId, status])
+  @@index([offeringDepartmentId])
+}
+
+/// One positive rule about who may take an offering.
+///
+/// ABSENCE OF ROWS MEANS UNRESTRICTED. A row is an ALLOW rule, and multiple
+/// rows are OR-ed: "open to CSE" plus "open to ECE semester 5" admits both.
+/// Modelling restrictions as rows rather than as JSON on the offering is what
+/// makes "which electives can THIS student see" a query rather than a scan
+/// through blobs in application memory.
+///
+/// All three narrowing columns are nullable, and each null means "any":
+/// programmeId null = any programme, specialisationId null = any branch,
+/// semesterNumber null = any semester.
+model OpenElectiveEligibility {
+  id       String @id @default(cuid())
+  tenantId String
+
+  offeringId String
+
+  /// Null means any programme.
+  programmeId String?
+
+  /// Null means any branch. "Branch" is Specialisation, per the Phase 19 decision.
+  specialisationId String?
+
+  /// Null means any semester. The student's currentSemester, not a Semester id.
+  semesterNumber Int?
+
+  createdAt DateTime @default(now())
+
+  offering       OpenElectiveOffering @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+  programme      Programme?           @relation(fields: [programmeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  specialisation Specialisation?      @relation(fields: [specialisationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Reading one offering's rules, and supporting the cascade.
+  @@index([tenantId, offeringId])
+  /// NOT declared unique. PostgreSQL treats NULLs as DISTINCT in a unique
+  /// constraint, so (offering, null, null, null) could be inserted twice and
+  /// the constraint would permit it — a guarantee that holds for some rows and
+  /// not others is worse than none. Duplicate-rule prevention is the service's,
+  /// and is stated there rather than implied here.
+  @@index([programmeId])
+  @@index([specialisationId])
+}
+
+/// One student's ranked wish for one offering.
+///
+/// CourseRegistration cannot express any of this: it has no rank, no notion of
+/// an unfulfilled wish, and cannot hold three competing choices for one slot.
+/// This table is the input to allocation; CourseRegistration is its output.
+model OpenElectivePreference {
+  id       String @id @default(cuid())
+  tenantId String
+
+  studentId  String
+  offeringId String
+
+  /// Denormalised from the offering.
+  ///
+  /// Carried here ONLY so the rank-uniqueness constraint below can be
+  /// expressed — a unique index cannot reach through a relation. The service
+  /// copies it from the offering and must keep the two consistent; that is a
+  /// stated obligation, not an invariant the database enforces.
+  semesterId String
+
+  /// 1 is the most preferred. Ordering is ALWAYS honoured before any
+  /// tie-breaking strategy.
+  preferenceRank Int
+
+  /// When the student submitted. The FCFS tie-breaker reads this, which is why
+  /// it is a column rather than a reliance on createdAt semantics.
+  submittedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student  Student              @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  offering OpenElectiveOffering @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// A student cannot rank one offering twice.
+  @@unique([studentId, offeringId])
+  /// A student cannot spend one rank on two offerings in the same semester.
+  /// This is the constraint the denormalised semesterId exists to make
+  /// expressible.
+  @@unique([studentId, semesterId, preferenceRank])
+  /// The allocation read: every preference for one offering, in rank order,
+  /// with the FCFS tie-breaker available on the same index.
+  @@index([tenantId, offeringId, preferenceRank, submittedAt])
+}
+
+/// What an allocation run concluded for one student at one offering.
+///
+/// AUDIT AND HISTORY ONLY. The enrolment itself is a CourseRegistration with
+/// RegistrationType.OPEN_ELECTIVE — this table never becomes a second source of
+/// truth about who is enrolled. It exists because CourseRegistration cannot
+/// record WHICH PREFERENCE RANK was satisfied, and cannot record a student who
+/// received nothing; without both, an allocation report cannot be produced and
+/// a disputed outcome cannot be explained.
+model OpenElectiveAllocation {
+  id       String @id @default(cuid())
+  tenantId String
+
+  offeringId String
+  studentId  String
+
+  /// The rank this allocation satisfied. Recorded for ALLOCATED and
+  /// NOT_ALLOCATED alike, because "you were refused at rank 1" and "you were
+  /// refused at rank 4" are different answers to the same complaint.
+  preferenceRank Int
+
+  outcome ElectiveAllocationOutcome
+
+  /// The enrolment this produced. Null exactly when outcome is NOT_ALLOCATED.
+  courseRegistrationId String?
+
+  allocatedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  offering           OpenElectiveOffering @relation(fields: [tenantId, offeringId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+  student            Student              @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  courseRegistration CourseRegistration?  @relation(fields: [courseRegistrationId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// One verdict per student per offering. A re-run must replace the previous
+  /// verdict rather than accumulate a second one beside it.
+  @@unique([offeringId, studentId])
+  /// The seat count and the allocation report both read this shape.
+  @@index([tenantId, offeringId, outcome])
+  @@index([studentId])
+  @@index([courseRegistrationId])
+}
+
 model FacultyMember {
   id                String                    @id @default(cuid())
   tenantId          String
@@ -560,6 +867,8 @@ model FacultyMember {
   user              User                      @relation(fields: [userId], references: [id])
   timetables        Timetable[]
   assessmentEvents  AssessmentEvent[]
+
+  feedbackSubmissions FeedbackSubmission[]
 
   @@unique([tenantId, employeeId])
   @@index([tenantId])
@@ -1086,6 +1395,8 @@ model EvaluationScheme {
   /// One revision number per named regulation per tenant. This REPLACES the
   /// previous @@unique([tenantId, code]), which made versioning impossible: a
   /// second revision would have collided with the first on the same code.
+  openElectiveOfferings OpenElectiveOffering[]
+
   @@unique([tenantId, code, version])
   /// Not a uniqueness rule — `id` is already unique. This is the TARGET of the
   /// self-relation above and of every composite foreign key that later cites a
@@ -1640,6 +1951,8 @@ model CourseRegistration {
   /// predicate no unique index can hold; the service enforces that, and it is
   /// the single check covering both duplicate registration and duplicate
   /// attempt.
+  openElectiveAllocations OpenElectiveAllocation[]
+
   @@unique([studentId, courseId, attemptNumber])
   /// Composite-FK target for the marks and result tables that will cite a
   /// registration. Declared now because adding a unique index to a
@@ -2329,6 +2642,73 @@ enum BloodGroup {
   O_NEG
 }
 
+/// Broad groupings a student achievement falls into.
+///
+/// Institution-neutral on purpose: these must mean the same thing to every
+/// tenant, so nothing here names a competition, a society or a degree. A tenant
+/// needing finer granularity uses `title` and `description`, which are free
+/// text, rather than expecting this list to grow per university.
+enum AchievementCategory {
+  ACADEMIC
+  SPORTS
+  CULTURAL
+  TECHNICAL
+  RESEARCH
+  SOCIAL_SERVICE
+  PROFESSIONAL
+  OTHER
+}
+
+/// Lifecycle of an open-elective offering.
+///
+/// DRAFT     — being configured. Invisible to students; seats and eligibility
+///             may still change.
+/// OPEN      — students may submit and EDIT preferences. The only state in
+///             which a preference may be written.
+/// LOCKED    — preferences frozen. Nothing may be added, changed or withdrawn;
+///             the cohort is now fixed and allocation may run against it.
+/// ALLOCATED — allocation has run and seats are assigned. Terminal.
+///
+/// LOCKED precedes ALLOCATED deliberately: freezing the input set before
+/// computing against it is what makes an allocation reproducible. Allocating
+/// first and locking afterwards would compute against a set that could still
+/// move underneath the run.
+enum OpenElectiveStatus {
+  DRAFT
+  OPEN
+  LOCKED
+  ALLOCATED
+}
+
+/// How an offering breaks ties once preference order has been honoured.
+///
+/// Preference rank is ALWAYS respected first; this decides only what happens
+/// between two students competing at the same rank for the last seat.
+///
+/// FCFS  — the earlier `submittedAt` wins. Cheap and needs nothing beyond the
+///         preference row itself.
+/// MERIT — the higher CGPA wins, read from the result engine. Undefined for a
+///         first-semester student, which the service must handle rather than
+///         treating an absent CGPA as zero.
+///
+/// Stored on the offering because it is CONFIGURATION: two departments in one
+/// university may legitimately allocate differently, and neither is the
+/// engine's business to choose.
+enum ElectiveAllocationStrategy {
+  FCFS
+  MERIT
+}
+
+/// What an allocation run concluded for one student at one offering.
+///
+/// NOT_ALLOCATED rows are written, not omitted. A student who asked and was
+/// refused is the single most important row in an allocation report, and a
+/// table that recorded only winners could not answer "why did I not get it".
+enum ElectiveAllocationOutcome {
+  ALLOCATED
+  NOT_ALLOCATED
+}
+
 enum DocumentType {
   PHOTO
   AADHAAR
@@ -2706,4 +3086,314 @@ enum TranscriptStatus {
   GENERATED
   VERIFIED
   ISSUED
+}
+
+/// Phase 20 — Faculty Feedback System.
+///
+/// A versioned, tenant-owned QUESTIONNAIRE: the set of questions a student is
+/// asked about one faculty member in one course.
+///
+/// NO FIXED RATING COLUMNS. "Teaching", "Behaviour", "Communication",
+/// "Practical Knowledge" and "Infrastructure" are not columns anywhere in this
+/// section — they are FeedbackCategory values a tenant writes its own questions
+/// against. A university adding a ninth dimension configures a row rather than
+/// requesting a migration, which is the entire point of the model.
+///
+/// OWNERSHIP    : Tenant, carried as a plain column. Unlike GradeScale, there
+///                is no Tenant relation: a form is configuration, not a
+///                governed regulation, and the FK would only add a cascade the
+///                repository's tenant predicate already covers.
+/// LIFECYCLE    : DRAFT -> OPEN -> CLOSED. Questions are editable only while
+///                DRAFT; OPEN is the only state in which a submission may be
+///                written; CLOSED freezes the cohort so a report is
+///                reproducible.
+/// VERSIONING   : (tenantId, code) names the form; `version` names the
+///                revision. A submission pins one revision, so a report can
+///                always state which questions were actually asked.
+model FeedbackForm {
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// Stable identifier ACROSS versions, e.g. "LEC-FEEDBACK". Two rows sharing
+  /// a code are two revisions of one questionnaire.
+  code String
+
+  name        String
+  description String?
+
+  /// Revision number within (tenantId, code), starting at 1. Never reused.
+  version Int @default(1)
+
+  status FeedbackFormStatus @default(DRAFT)
+
+  /// Which kind of session this form is asked about. Reuses the existing
+  /// SessionType rather than declaring a parallel enum: a lab feedback form and
+  /// a lecture feedback form differ in the sessions they apply to, and that
+  /// vocabulary already exists on Timetable and Attendance.
+  sessionType SessionType @default(LECTURE)
+
+  createdById String?
+
+  /// When the status last changed. ONE column rather than a nullable timestamp
+  /// per state, matching CourseRegistration and AssessmentEvent: AuditLog
+  /// already holds every transition with its actor.
+  statusChangedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// SetNull because DELETE /api/users/[id] is a hard delete that a Restrict
+  /// here would begin rejecting. The permanent, actor-preserving record is
+  /// AuditLog.
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  questions   FeedbackQuestion[]
+  submissions FeedbackSubmission[]
+
+  /// The catalogue read: which forms are open, for this kind of session, in
+  /// this tenant.
+  @@index([tenantId, status, sessionType])
+  /// One revision number per named form per tenant.
+  @@unique([tenantId, code, version])
+  /// Not a uniqueness rule — `id` is already unique. This is the TARGET of the
+  /// composite foreign keys on FeedbackQuestion and FeedbackSubmission, which
+  /// is what makes a cross-tenant child structurally impossible rather than
+  /// merely avoided.
+  @@unique([tenantId, id])
+}
+
+/// Phase 20 — one question on a form.
+///
+/// This model IS the "no fixed rating columns" requirement. The question text
+/// is the tenant's, and `category` places it in a broad, institution-neutral
+/// grouping that a report rolls up by.
+///
+/// OWNERSHIP    : FeedbackForm. A question has no lifecycle of its own and is
+///                deleted with its form.
+/// LIFECYCLE    : Mutable only while the owning form is DRAFT.
+model FeedbackQuestion {
+  id       String @id @default(cuid())
+
+  /// Carried so the composite foreign key below can prove this question and its
+  /// form belong to the same tenant. Constrained by that key to equal the
+  /// form's tenantId, so the two cannot diverge.
+  tenantId String
+  formId   String
+
+  /// Stable handle within the form — "Q1", "CLARITY". A report years later must
+  /// name which question a score came from, and a cuid explains nothing.
+  code String
+
+  text String
+
+  category FeedbackCategory
+
+  /// How much this question counts in its category's average. Decimal(5,2)
+  /// matching the weightage columns of Phase 16, and exact base-10 so a
+  /// weighted mean has no binary rounding error. Defaults to 1.00, which is the
+  /// unweighted case every tenant starts from.
+  weight Decimal @default(1.00) @db.Decimal(5, 2)
+
+  /// Presentation order within the form.
+  sequence Int
+
+  /// Whether an answer is required for the submission to be completable. The
+  /// service branches on it, so it is a column.
+  isRequired Boolean @default(true)
+
+  /// Whether a free-text comment may accompany the rating. A question may be
+  /// rating-only; this is what says so.
+  allowsComment Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Owning form, tenant-proving. Cascade because a question cannot outlive its
+  /// form.
+  form FeedbackForm @relation(fields: [tenantId, formId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  answers FeedbackAnswer[]
+
+  /// THE hot read: one form's questions, in order.
+  @@index([tenantId, formId, sequence])
+  /// One handle per form. Both columns are NOT NULL, so PostgreSQL enforces
+  /// this completely.
+  @@unique([formId, code])
+}
+
+/// Phase 20 — one student's feedback on one faculty member, for one course, in
+/// one semester, against one form.
+///
+/// ANONYMITY IS A PROJECTION, NOT A COLUMN.
+///   studentId is stored, because a duplicate submission cannot otherwise be
+///   refused and an audit cannot otherwise be answered. What keeps it away from
+///   faculty is the repository publishing two projections and no third —
+///   ANONYMOUS_SUBMISSION_SELECT omits the column entirely, so a faculty-facing
+///   query physically cannot return an identity. There is no masking step to
+///   forget.
+///
+/// LIFECYCLE    : DRAFT -> SUBMITTED. A DRAFT is a student mid-thought and is
+///                never read by an analytic; only SUBMITTED rows are averaged.
+model FeedbackSubmission {
+  id       String @id @default(cuid())
+  tenantId String
+
+  formId String
+
+  studentId String
+
+  /// Who the feedback is ABOUT.
+  facultyId String
+
+  /// The course and term it concerns. Both required: feedback about a faculty
+  /// member detached from what and when they taught cannot be reported on.
+  courseId   String
+  semesterId String
+
+  status FeedbackSubmissionStatus @default(DRAFT)
+
+  /// When the student finalised it. NULL exactly while the status is DRAFT.
+  submittedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Owning form, tenant-proving. Cascade because a submission against a
+  /// deleted form has no questions to interpret it.
+  form FeedbackForm @relation(fields: [tenantId, formId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Plain single-column keys: none of these pre-existing parents carries
+  /// @@unique([tenantId, id]), and adding one would mean a blocking index build
+  /// on a live, populated table. Cross-tenant consistency here is enforced by
+  /// the repository, which filters every query on tenantId — a stated
+  /// weakening, not an oversight.
+  ///
+  /// Cascade on Student, matching StudentDocument and OpenElectivePreference: a
+  /// removed student's feedback has no author. NoAction on the other three,
+  /// checked at end-of-statement, so a stray delete that would orphan a
+  /// submission is refused while a tenant-level cascade still succeeds.
+  student  Student       @relation(fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  faculty  FacultyMember @relation(fields: [facultyId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  course   Course        @relation(fields: [courseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  semester Semester      @relation(fields: [semesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  answers FeedbackAnswer[]
+
+  /// THE faculty report, exactly: every submission about one faculty member for
+  /// one course in one term, filtered to SUBMITTED.
+  @@index([tenantId, facultyId, courseId, semesterId, status])
+  /// The per-form read: response counts and completion for one questionnaire.
+  @@index([tenantId, formId, status])
+  /// Supports the cascade on student deletion. PostgreSQL does not index a
+  /// foreign key automatically.
+  @@index([studentId])
+  /// One submission per student, per faculty member, per course, per term, per
+  /// form. This constraint — not a prior read — is what actually prevents a
+  /// duplicate: two concurrent submits both see nothing and both proceed. Every
+  /// column is NOT NULL, so PostgreSQL enforces it completely.
+  @@unique([studentId, facultyId, courseId, semesterId, formId])
+  /// Composite-FK target for FeedbackAnswer.
+  @@unique([tenantId, id])
+}
+
+/// Phase 20 — one student's answer to one question.
+///
+/// OWNERSHIP    : FeedbackSubmission. An answer has no meaning without the
+///                submission it belongs to and is deleted with it.
+/// LIFECYCLE    : Replaced wholesale rather than diffed — the repository
+///                deletes and re-inserts inside one transaction, because the
+///                (submissionId, questionId) constraint makes a partial update
+///                a minefield.
+model FeedbackAnswer {
+  id       String @id @default(cuid())
+
+  /// Carried so the composite foreign key below can prove this answer and its
+  /// submission belong to the same tenant, and so a cohort's answers can be
+  /// read tenant-scoped in ONE statement without a join.
+  tenantId     String
+  submissionId String
+
+  questionId String
+
+  /// The rating, an integer on the 1..5 scale. SmallInt rather than Int because
+  /// this is the largest table in the phase — students × faculty × courses ×
+  /// questions — and the range is bounded by two orders of magnitude more than
+  /// it will ever need. The bounds themselves are enforced by Zod at the
+  /// service boundary, where a violation can be reported to the student.
+  rating Int @db.SmallInt
+
+  /// Free text, permitted only when the question sets allowsComment.
+  comment String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Owning submission, tenant-proving. Cascade because an answer cannot
+  /// outlive its submission.
+  submission FeedbackSubmission @relation(fields: [tenantId, submissionId], references: [tenantId, id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// The question answered. Cascade because an answer to a deleted question
+  /// cannot be interpreted, and questions are only deletable while the form is
+  /// DRAFT — a state in which no submission exists.
+  question FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// One submission's answers, and the cohort read that aggregates a report
+  /// without an N+1.
+  @@index([tenantId, submissionId])
+  /// Supports the cascade on question deletion.
+  @@index([questionId])
+  /// A student cannot answer one question twice. Both columns are NOT NULL, so
+  /// PostgreSQL enforces this completely.
+  @@unique([submissionId, questionId])
+}
+
+/// Lifecycle of a feedback form revision.
+///
+/// DRAFT  — being written. Invisible to students; questions may still change.
+/// OPEN   — students may submit and edit. The ONLY state in which a submission
+///          may be written.
+/// CLOSED — submissions frozen. The cohort is fixed, which is what makes a
+///          report reproducible.
+///
+/// Deliberately a SEPARATE enum from OpenElectiveStatus and
+/// EvaluationSchemeStatus despite the shared shape: the three aggregates
+/// version independently, and a form is the one likely to gain a state the
+/// others never need.
+enum FeedbackFormStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+/// The broad dimension a question measures.
+///
+/// This enum is what replaces fixed rating columns. It is institution-neutral
+/// on purpose — nothing here names a department, a course or a teaching style —
+/// because these must mean the same thing to every tenant for a cross-faculty
+/// report to be comparable. A tenant needing finer granularity writes more
+/// QUESTIONS in a category, which is a row, not a migration. OVERALL carries
+/// the summary question every form ends on.
+enum FeedbackCategory {
+  TEACHING
+  BEHAVIOUR
+  COMMUNICATION
+  PRACTICAL_KNOWLEDGE
+  INFRASTRUCTURE
+  LAB_EXPERIENCE
+  OVERALL
+}
+
+/// Lifecycle of one student's submission.
+///
+/// DRAFT     — saved but not finalised. A student mid-thought. NEVER read by an
+///             analytic: averaging a half-finished form would let it move a
+///             faculty member's score when the student never said it was done.
+/// SUBMITTED — finalised. The only status any statistic reads.
+///
+/// There is deliberately no WITHDRAWN member: a student who changes their mind
+/// while the form is OPEN edits their answers, and once the form is CLOSED the
+/// cohort is fixed by design.
+enum FeedbackSubmissionStatus {
+  DRAFT
+  SUBMITTED
 }
