@@ -22,6 +22,12 @@ import {
 } from "@/lib/validations/assignment";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 24 — the DELETE handler appended at the foot of this file. These four
+// imports serve it alone; the GET and PATCH handlers above are untouched and
+// continue to use the inline envelope they were written with.
+import { assignmentLifecycleController } from "@/lib/controllers/assignmentLifecycle.controller";
+import { ASSIGNMENT_MANAGE_ROLES } from "@/lib/constants/assignmentLifecycle";
+import { handleRouteError, validationFailure } from "@/lib/utils/api-response";
 
 /**
  * Columns returned for an assignment.
@@ -389,5 +395,72 @@ export async function PATCH(
 
     console.error("[PATCH /api/assignments/[id]]", err);
     return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
+  }
+}
+
+// ============================================================================
+// PHASE 24 ADDITION — DELETE
+//
+// The README's Phase 24 names DELETE /api/assignments/[id] ("Delete
+// Assignment"), which Phase 10 did not implement. It is added HERE rather than
+// at a new path because Next.js requires every method for one URL to live in
+// one route module — a sibling file would not be reachable.
+//
+// NOTHING ABOVE THIS COMMENT WAS CHANGED. The GET and PATCH handlers, the
+// ASSIGNMENT_SELECT projection and the existing error mapping are exactly as
+// Phase 10 left them; this is a pure append.
+//
+// THE RULE, AND WHY IT IS A REFUSAL RATHER THAN A CASCADE
+//   An assignment holding submissions cannot be deleted — 409, not 403. The
+//   caller's role is not the problem; the state of the resource is. Destroying
+//   student work as a side effect of tidying an assignment list is not
+//   something an API should do quietly, and AssignmentSubmission holds a plain
+//   foreign key to Assignment with no cascade, so the database would refuse it
+//   anyway with an error a caller could not interpret.
+//
+//   An assignment with no submissions is removed permanently. The schema has no
+//   deletedAt column for this model and no archive to soft-delete into.
+// ============================================================================
+
+// DELETE
+// ACCESS     : ASSIGNMENT_MANAGE_ROLES — FACULTY · DEPARTMENT_HOD · HOD ·
+//              UNIVERSITY_ADMIN. Wider than this file's GET and PATCH, which
+//              predate the two HOD role names; a head of department managing
+//              their own department's assignments is the README's Phase 24
+//              intent and neither existing handler is altered to match.
+// VALIDATION : assignmentIdParamSchema — the same schema the sibling handlers
+//              use, so all three agree on what an id is.
+// FLOW       : Guard → tenant → validate param → controller.
+//
+//              The service resolves the assignment tenant-scoped first, so an
+//              unknown id and another tenant's id are the identical 404 and
+//              neither is ever confirmed to exist elsewhere. It then counts
+//              submissions and refuses with 409 if any exist. A row deleted
+//              between the check and the write reports the same 404 the lookup
+//              would have produced.
+// RESPONSE   : { success: true, data: null, message: "Assignment deleted" }
+// STATUS     : 200 · 400 · 401 · 403 · 404 · 409 · 500
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const guard = await requireRole(...ASSIGNMENT_MANAGE_ROLES);
+    if (!guard.authorized) return guard.response;
+
+    const tenantGuard = await requireTenant();
+    if (!tenantGuard.resolved) return tenantGuard.response;
+
+    const parsed = assignmentIdParamSchema.safeParse(await params);
+    if (!parsed.success) return validationFailure(parsed.error);
+
+    await assignmentLifecycleController.deleteAssignment(
+      tenantGuard.tenant.id,
+      parsed.data.id
+    );
+
+    return NextResponse.json(ok(null, "Assignment deleted"));
+  } catch (err) {
+    return handleRouteError("DELETE /api/assignments/[id]", err);
   }
 }

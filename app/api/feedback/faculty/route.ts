@@ -36,6 +36,13 @@ import { requireFeedbackSubmit } from "@/lib/middleware/requireFeedbackAccess";
 import { submitFeedbackSchema } from "@/lib/validations/feedback.validation";
 import { handleRouteError, malformedBody, validationFailure } from "@/lib/utils/api-response";
 import { ok } from "@/types";
+// PHASE 27 faculty event "Student Feedback". Emitted after commit, carrying NO
+// student identity and NO score — see below.
+import {
+  findFacultyUserId,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 const SCOPE = "POST /api/feedback/faculty";
 
@@ -78,6 +85,27 @@ export async function POST(request: NextRequest) {
       parsedBody.data,
       new Date()
     );
+
+    // PHASE 27 faculty event "Student Feedback".
+    //
+    // After the submission has committed, throwing nothing.
+    //
+    // THE NOTIFICATION CARRIES NO STUDENT IDENTITY AND NO RATING. Phase 20's
+    // entire design is that feedback is anonymous and reportable only in
+    // aggregate above a disclosure threshold; a bell entry naming the submitter
+    // or quoting a score would defeat that in one line. The faculty member is
+    // told that feedback arrived and directed to the report, which applies the
+    // anonymity rules properly.
+    await notifyAfterCommit("POST /api/feedback/faculty", async () => {
+      await notificationEmitter.studentFeedbackReceived({
+        tenantId: guard.context.tenantId,
+        facultyUserId: await findFacultyUserId(
+          guard.context.tenantId,
+          parsedBody.data.facultyId
+        ),
+        courseLabel: null,
+      });
+    });
 
     return NextResponse.json(ok(result));
   } catch (err) {

@@ -794,17 +794,47 @@ export interface ExamResult {
   updatedAt: string;
 }
 
+/**
+ * One line of GET /api/students/[id]/transcript.
+ *
+ * The endpoint DOES expand the examination, its course and its semester — the
+ * frontend once assumed otherwise and substituted placeholders for all three,
+ * which is why the shape is written out here rather than reusing ExamResult.
+ * `maxMarks` and `passMark` are lifted from the examination by the route, so
+ * they sit at the top level rather than under it.
+ */
+export interface TranscriptResult {
+  id: string;
+  marksObtained: string | null;
+  maxMarks: number;
+  passMark: number;
+  grade: string | null;
+  gradePoint: string | null;
+  isPassed: boolean | null;
+  isAbsent: boolean;
+  remarks: string | null;
+  publishedAt: string | null;
+  examination: { id: string; title: string; type: ExaminationType; date: string };
+  course: { id: string; code: string; name: string; type: string; credits: string };
+  semester: {
+    id: string;
+    name: string;
+    semesterNumber: number;
+    academicYearId: string;
+  };
+}
+
 /** GET /api/students/[id]/transcript — `{ student, results }`. */
 export interface Transcript {
   student: Student;
-  results: ExamResult[];
+  results: TranscriptResult[];
 }
 
 /**
- * A transcript row joined to the examination and course it belongs to.
+ * A transcript row flattened for the table that renders it.
  *
- * Composed on the frontend: a bare ExamResult carries only an examinationId,
- * which is unreadable on screen.
+ * The joins come from the endpoint; this shape only lifts them out of their
+ * nesting so a column can name one field.
  */
 export interface TranscriptRow extends ExamResult {
   examinationTitle: string;

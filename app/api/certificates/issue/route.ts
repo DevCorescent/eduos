@@ -19,6 +19,12 @@ import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { issueCertificateSchema } from "@/lib/validations/certificate";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 student event "Certificate Issued". Emitted after commit.
+import {
+  findStudentUserId,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -114,6 +120,21 @@ export async function POST(request: NextRequest) {
         tenantId: tenant.id,
       },
       select: CERTIFICATE_SELECT,
+    });
+
+        // PHASE 27 student event "Certificate Issued".
+    //
+    // After the certificate row exists, throwing nothing. Addressed to the
+    // student it was issued to, resolved Student -> User because a notification
+    // reaches a person rather than an enrolment.
+    await notifyAfterCommit("POST /api/certificates/issue", async () => {
+      await notificationEmitter.certificateIssued({
+        tenantId: tenant.id,
+        studentUserId: await findStudentUserId(tenant.id, certificate.studentId),
+        certificateType: certificate.type,
+        certificateNo: certificate.certificateNo,
+        certificateId: certificate.id,
+      });
     });
 
     return NextResponse.json(ok(certificate, "Certificate issued"), { status: 201 });

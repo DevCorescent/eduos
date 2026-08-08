@@ -19,6 +19,12 @@ import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { generateFeeDemandSchema } from "@/lib/validations/fee-demand";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 student event "Fee Demand Generated". Emitted after commit.
+import {
+  findStudentUserIds,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -243,7 +249,35 @@ export async function POST(request: NextRequest) {
       chunks.map((chunk) => prisma.feeDemand.createMany({ data: chunk }))
     );
 
+    // Summed across every chunk. Reading one chunk's count would under-report
+    // any batch above DEMAND_INSERT_CHUNK, and `count` is the whole response.
     const count = results.reduce((total, result) => total + result.count, 0);
+
+    // PHASE 27 student event "Fee Demand Generated".
+    //
+    // AFTER the transaction has committed, and outside it. Emitting inside
+    // would make a bell entry able to roll back a billing run, which is the
+    // wrong trade in every direction.
+    //
+    // The whole block is wrapped rather than just the emission. The recipient
+    // lookup is a bare Prisma read, and this route has no unique constraint to
+    // fall back on: a throw here would answer 500 for demands that are already
+    // in the database, and an operator who retried would bill the batch twice.
+    // See notifyAfterCommit for why the emitter's own guarantee stops short of
+    // covering this.
+    await notifyAfterCommit("POST /api/fee-demands/generate", async () => {
+      await notificationEmitter.feeDemandGenerated({
+        tenantId: tenant.id,
+        // ONE statement for the whole cohort, never one per demand. Bounded by
+        // the emitter's recipient cap, so a very large batch notifies the first
+        // N — the fee ledger itself has no such limit and remains complete.
+        recipientUserIds: await findStudentUserIds(
+          tenant.id,
+          students.map((student) => student.id)
+        ),
+        count,
+      });
+    });
 
     return NextResponse.json(ok({ count }, "Fee demands generated"), { status: 201 });
   } catch (err) {

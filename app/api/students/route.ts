@@ -17,6 +17,12 @@ import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createStudentSchema, listStudentsQuerySchema } from "@/lib/validations/student";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 administration event "New Admission". Emitted after commit.
+import {
+  findAdminUserIds,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -289,6 +295,21 @@ export async function POST(request: NextRequest) {
         tenantId: tenant.id,
       },
       select: STUDENT_SELECT,
+    });
+
+        // PHASE 27 administration event "New Admission".
+    //
+    // After the student row exists, throwing nothing. Addressed to the tenant's
+    // administrators, resolved by ROLE NAME through UserRole — the same stable
+    // identifier requireRole itself compares on.
+    await notifyAfterCommit("POST /api/students", async () => {
+      await notificationEmitter.newAdmission({
+        tenantId: tenant.id,
+        recipientUserIds: await findAdminUserIds(tenant.id),
+        studentName: student.enrollmentNo,
+        enrollmentNo: student.enrollmentNo,
+        studentId: student.id,
+      });
     });
 
     return NextResponse.json(ok(student, "Student created"), { status: 201 });

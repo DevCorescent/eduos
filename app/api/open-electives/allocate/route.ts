@@ -35,6 +35,14 @@ import { requireElectiveManage } from "@/lib/middleware/requireOpenElectiveAcces
 import { allocateSchema } from "@/lib/validations/openElective.validation";
 import { handleRouteError, malformedBody, validationFailure } from "@/lib/utils/api-response";
 import { ok } from "@/types";
+// PHASE 27 student event "Open Elective Window". Emitted after the allocation
+// run commits — allocation is the moment a student's elective outcome becomes
+// knowable, and the project has no "open the window" action to hang it on.
+import {
+  findElectiveAllocationUserIds,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 const SCOPE = "POST /api/open-electives/allocate";
 
@@ -73,6 +81,28 @@ export async function POST(request: NextRequest) {
       guard.context.userId,
       new Date()
     );
+
+    // PHASE 27 student event "Open Elective Window".
+    //
+    // After the run has committed, throwing nothing. Addressed to EVERY
+    // candidate, allocated or not — a student who did not get a seat is
+    // precisely the one who most needs to know the run happened.
+    {
+      const { userIds, semesterId } = await findElectiveAllocationUserIds(
+        guard.context.tenantId,
+        parsedBody.data.offeringId
+      );
+
+      if (semesterId) {
+        await notifyAfterCommit("POST /api/open-electives/allocate", async () => {
+          await notificationEmitter.openElectiveAllocated({
+            tenantId: guard.context.tenantId,
+            recipientUserIds: userIds,
+            semesterId,
+          });
+        });
+      }
+    }
 
     return NextResponse.json(ok(report));
   } catch (err) {

@@ -16,6 +16,7 @@
 
 import type {
   ApiResponse,
+  ExamResult,
   ListParams,
   PaginatedResult,
   Student,
@@ -204,12 +205,21 @@ export async function listStudentParents(
 /**
  * A student's results, joined to their examination, course and semester.
  *
- * GET /api/students/[id]/transcript returns `{ student, results }` where each
- * result carries only an examinationId — unreadable on screen. The joins are
- * done here so the page renders a table rather than a list of ids.
+ * ACCESS: UNIVERSITY_ADMIN only. A student reading their own results goes
+ * through getStudentExamResults below — this endpoint would answer 403.
  *
- * Unpublished results are excluded: a mark that has not been released is not
- * part of the transcript, and showing it would leak a grade before results day.
+ * GET /api/students/[id]/transcript expands the examination, its course and its
+ * semester, and lifts maxMarks and passMark to the top of each row. This only
+ * flattens that nesting so a table column can name a single field.
+ *
+ * An earlier version believed the endpoint expanded nothing and overwrote every
+ * joined value with a placeholder — including a fixed maxMarks of 100 and a
+ * type of INTERNAL. Those are not placeholders but wrong answers: the first
+ * drove the percentage column, the second mislabelled every external paper.
+ * Nothing is substituted here.
+ *
+ * Unpublished results are excluded by the route: a mark that has not been
+ * released is not part of the transcript.
  */
 export async function getStudentTranscript(
   studentId: string
@@ -217,20 +227,53 @@ export async function getStudentTranscript(
   const result = await apiRequest<Transcript>(`/api/students/${studentId}/transcript`);
   if (!result.success) return result;
 
-  // The live endpoint expands nothing, so the joins are not available. The rows
-  // are returned with placeholder labels rather than dropped, so the marks are
-  // still readable and the gap is visible.
   return {
     success: true,
     data: result.data.results.map((row) => ({
-      ...row,
-      examinationTitle: "—",
-      examinationType: "INTERNAL" as const,
-      maxMarks: 100,
-      courseCode: "—",
-      courseName: "—",
-      semesterId: "",
-      semesterName: "—",
+      id: row.id,
+      examinationId: row.examination.id,
+      studentId,
+      marksObtained: row.marksObtained,
+      grade: row.grade,
+      gradePoint: row.gradePoint,
+      isPassed: row.isPassed,
+      isAbsent: row.isAbsent,
+      remarks: row.remarks,
+      publishedAt: row.publishedAt,
+      // The route selects no row timestamps for a transcript line, so these
+      // carry the examination date rather than a fabricated "now".
+      createdAt: row.examination.date,
+      updatedAt: row.examination.date,
+      examinationTitle: row.examination.title,
+      examinationType: row.examination.type,
+      maxMarks: row.maxMarks,
+      courseCode: row.course.code,
+      courseName: row.course.name,
+      semesterId: row.semester.id,
+      semesterName: row.semester.name,
     })),
   };
+}
+
+/**
+ * A student's own published examination results.
+ *
+ * ACCESS: UNIVERSITY_ADMIN · FACULTY for any student, STUDENT for themselves.
+ * This is the only results endpoint a student may call — /transcript above
+ * requires UNIVERSITY_ADMIN, and pointing the student portal at it made the
+ * whole Results screen a 403 for every student.
+ *
+ * The trade is detail: this route expands no relation, so each row names its
+ * examination by id alone. The screen shows what the payload actually supports
+ * rather than inventing course and semester labels to fill its columns.
+ */
+export async function getStudentExamResults(
+  studentId: string
+): Promise<ApiResponse<ExamResult[]>> {
+  const result = await apiRequest<{ results: ExamResult[] }>(
+    `/api/students/${studentId}/results`
+  );
+  if (!result.success) return result;
+
+  return { success: true, data: result.data.results };
 }

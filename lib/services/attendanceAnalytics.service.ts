@@ -28,8 +28,17 @@ import type {
   SubjectAttendanceAnalytics,
 } from "@/lib/dto/attendanceAnalytics.dto";
 
-/** University-wide minimum attendance requirement. */
-const MINIMUM_PERCENTAGE = 75;
+/**
+ * University-wide minimum attendance requirement.
+ *
+ * EXPORTED by Phase 27 (this is the only change to this Phase 15 file). The
+ * README's Phase 27 student event "Attendance Below 75%" needs this exact
+ * threshold, and restating 75 in the notification path would create a SECOND
+ * definition of the same rule — the day one moved, the dashboard and the
+ * warning would disagree about whether a student is at risk. The value, its
+ * type and every use below are unchanged.
+ */
+export const MINIMUM_PERCENTAGE = 75;
 
 /** Below this (but above MINIMUM_PERCENTAGE) a student is WARNING, not SAFE. */
 const WARNING_PERCENTAGE = 85;
