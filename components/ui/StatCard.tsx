@@ -71,7 +71,7 @@ function TrendArrow({ direction }: { direction: "up" | "down" }) {
 export function StatCard({ label, value, icon, trend, caption, isLoading = false, className, ...props }: StatCardProps) {
   if (isLoading) {
     return (
-      <div className={cn("rounded-lg border border-border bg-surface p-5", className)} {...props}>
+      <div className={cn("glass rounded-lg p-5 transition-shadow hover:shadow-hover", className)} {...props}>
         <div className="h-4 w-24 animate-pulse rounded bg-muted" />
         <div className="mt-3 h-8 w-16 animate-pulse rounded bg-muted" />
       </div>
@@ -81,10 +81,17 @@ export function StatCard({ label, value, icon, trend, caption, isLoading = false
   const isGood = trend ? (trend.positiveIsUp ?? true) === (trend.direction === "up") : null;
 
   return (
-    <div className={cn("rounded-lg border border-border bg-surface p-5", className)} {...props}>
+    <div className={cn("glass rounded-lg p-5 transition-shadow hover:shadow-hover", className)} {...props}>
       <div className="flex items-start justify-between">
         <p className="text-sm font-medium text-muted-foreground">{label}</p>
-        {icon && <span className="text-muted-foreground">{icon}</span>}
+        {icon && (
+          // A tinted disc rather than a bare glyph: it gives the icon a
+          // footprint that matches the card's roundedness, which is what the
+          // reference does and what stops the corner looking unfinished.
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-bg text-primary-bg-foreground">
+            {icon}
+          </span>
+        )}
       </div>
 
       <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>

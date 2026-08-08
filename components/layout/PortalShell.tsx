@@ -93,7 +93,7 @@ export function PortalShell({
   return (
     // h-dvh, not h-screen: on mobile browsers 100vh includes the address bar
     // that is not actually visible, pushing the bottom of the page off-screen.
-    <div className="flex h-dvh overflow-hidden bg-background">
+    <div className="flex h-dvh gap-0 overflow-hidden bg-background lg:gap-5 lg:p-5">
       {/* Skip link. Visually hidden until focused, so it costs sighted users
           nothing — but without it a keyboard user tabs through seventeen
           sidebar links to reach the content on every single page. */}
@@ -122,7 +122,7 @@ export function PortalShell({
         )}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden lg:rounded-xl">
         <Topbar
           user={user}
           // Settings lives here rather than in the sidebar so every portal gets

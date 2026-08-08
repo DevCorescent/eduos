@@ -117,16 +117,20 @@ export function Sidebar({
 
       <aside
         className={cn(
-          // glass-plain rather than glass: the sidebar supplies its own single
-          // right border, and the full `glass` class would add a box on all
-          // four sides plus a shadow that fights the content area.
-          "glass-plain z-50 flex h-dvh shrink-0 flex-col border-r border-border",
+          // A FLOATING sage panel, not a flush column. The reference shows the
+          // navigation detached from the window edge with the canvas visible
+          // around it — which is also what gives the glass something to blur.
+          // A panel flush against the viewport edge has nothing behind it and
+          // reads as a solid block of colour.
+          "glass-nav z-50 flex flex-col rounded-xl",
           "transition-transform duration-200 lg:transition-[width]",
-          // Mobile: fixed panel, slid off-screen until opened.
-          "fixed inset-y-0 left-0 w-64",
+          // Mobile: fixed panel, slid off-screen until opened. It keeps the
+          // full height and squares its outer corners, because a floating card
+          // that slides in from the edge looks detached from the gesture.
+          "fixed inset-y-0 left-0 h-dvh w-64 rounded-l-none",
           isMobileOpen ? "translate-x-0" : "-translate-x-full",
-          // Desktop: back in the flow, always visible, width driven by collapse.
-          "lg:static lg:translate-x-0",
+          // Desktop: back in the flow, floating inside the shell's padding.
+          "lg:static lg:translate-x-0 lg:h-auto lg:rounded-xl lg:shrink-0",
           collapsed ? "lg:w-16" : "lg:w-64"
         )}
       >
@@ -175,12 +179,17 @@ export function Sidebar({
                         aria-current={isActive ? "page" : undefined}
                         title={collapsed ? item.label : undefined}
                         className={cn(
-                          "flex items-center gap-3 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
+                          "flex items-center gap-3 rounded-full px-3.5 py-2.5 text-sm font-medium transition-all",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           collapsed && "lg:justify-center",
+                          // A RAISED WHITE PILL on the sage — the strongest
+                          // figure/ground contrast available in the shell, and
+                          // the reason "where am I" is answerable without
+                          // reading. A tint-on-tint highlight, which is what
+                          // this was, disappears against a coloured panel.
                           isActive
-                            ? "bg-primary-bg text-primary-bg-foreground"
-                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            ? "bg-nav-active text-heading shadow-soft"
+                            : "text-on-surface-variant hover:bg-white/50 hover:text-heading"
                         )}
                       >
                         <span className="shrink-0 [&>svg]:size-5" aria-hidden="true">
@@ -211,7 +220,7 @@ export function Sidebar({
         </nav>
 
         {footer && (
-          <div className={cn("shrink-0 border-t border-border p-3", collapsed && "lg:hidden")}>
+          <div className={cn("shrink-0 border-t border-white/40 p-3", collapsed && "lg:hidden")}>
             {footer}
           </div>
         )}
@@ -221,7 +230,7 @@ export function Sidebar({
           onClick={() => setCollapsed((c) => !c)}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-expanded={!collapsed}
-          className="hidden h-10 shrink-0 items-center justify-center border-t border-border text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset lg:flex"
+          className="hidden h-10 shrink-0 items-center justify-center rounded-b-xl border-t border-white/40 text-on-surface-variant hover:bg-white/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset lg:flex"
         >
           <svg
             viewBox="0 0 20 20"

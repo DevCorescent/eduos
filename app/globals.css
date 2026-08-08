@@ -43,6 +43,18 @@
      separated by one. */
   --outline-color: #7d766e;
 
+  /* --- Navigation surface ----------------------------------------------- */
+  /* The sage panel from the reference. It is its own token rather than a reuse
+     of --color-success-tint: they happen to share a value today, but one is
+     "this succeeded" and the other is "this is the navigation", and a future
+     change to either must not silently move the other. */
+  --nav-surface: rgba(209, 226, 211, 0.72);
+  --nav-surface-solid: #d1e2d3;
+  /* The active item is a raised white pill on the sage — the strongest
+     figure/ground contrast in the shell, which is what makes "where am I"
+     answerable at a glance. */
+  --nav-active-surface: #ffffff;
+
   /* --- Primary brand ---------------------------------------------------- */
   --color-primary-base: #645d56;
   --color-primary-hover-base: #4c463f;
@@ -127,6 +139,9 @@
   --surface-active: var(--bg-secondary-end);
   --border: var(--border-color);
   --outline: var(--outline-color);
+  --nav: var(--nav-surface);
+  --nav-solid: var(--nav-surface-solid);
+  --nav-active: var(--nav-active-surface);
 
   --muted: var(--bg-secondary);
   --muted-foreground: var(--text-muted);
@@ -188,6 +203,10 @@
   --color-surface-active: var(--surface-active);
   --color-border: var(--border);
   --color-outline: var(--outline);
+  --color-nav: var(--nav);
+  --color-nav-solid: var(--nav-solid);
+  --color-nav-active: var(--nav-active);
+  --color-on-surface-variant: var(--text-body);
   --color-overlay: var(--overlay);
 
   --color-muted: var(--muted);
@@ -315,6 +334,15 @@ h6 {
 
 /* Same frosting without the border or shadow, for elements that supply their
    own edge — a sticky top bar with only a bottom border, for instance. */
+/* The navigation panel: sage glass, floating, with the same edge highlight the
+   cards use so it belongs to the same material system. */
+.glass-nav {
+  background-color: var(--nav-surface);
+  backdrop-filter: blur(var(--blur-glass));
+  -webkit-backdrop-filter: blur(var(--blur-glass));
+  box-shadow: var(--glass-edge), var(--shadow-soft);
+}
+
 .glass-plain {
   background-color: var(--bg-glass);
   backdrop-filter: blur(var(--blur-glass));

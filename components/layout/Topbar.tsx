@@ -104,7 +104,7 @@ export function Topbar({ title, user, menuItems, leading, center, actions }: Top
   }, [isOpen]);
 
   return (
-    <header className="glass-plain sticky top-0 z-30 flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border px-4 sm:px-6">
+    <header className="glass-plain sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between gap-4 border-b border-border px-4 sm:px-6">
       <div className="flex min-w-0 flex-1 items-center gap-3">
         {leading}
         {title && (
@@ -126,7 +126,7 @@ export function Topbar({ title, user, menuItems, leading, center, actions }: Top
             aria-haspopup="menu"
             aria-expanded={isOpen}
             aria-label="Open user menu"
-            className="flex items-center gap-2 rounded-md p-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex items-center gap-2 rounded-full p-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Avatar name={user.name} src={user.avatarUrl} size="sm" />
           </button>
@@ -136,7 +136,7 @@ export function Topbar({ title, user, menuItems, leading, center, actions }: Top
               ref={menuRef}
               role="menu"
               aria-label="User menu"
-              className="absolute right-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-surface py-1 shadow-lg"
+              className="glass-raised absolute right-0 top-full z-50 mt-2 w-56 rounded-lg border border-border py-1"
             >
               <div className="border-b border-border px-3 py-2">
                 <p className="truncate text-sm font-medium text-foreground">{user.name}</p>
