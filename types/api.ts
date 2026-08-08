@@ -77,6 +77,7 @@ export type ApiErrorCode =
   | "CONFLICT"
   | "TENANT_ERROR"
   | "AUTH_ERROR"
+  | "RATE_LIMITED"
   | "SERVER_ERROR"
   | "NETWORK_ERROR";
 

@@ -43,6 +43,15 @@ export interface UnavailableStateProps {
   description: string;
   /** Defaults to a construction glyph — deliberately unlike the empty-state icon. */
   icon?: ReactNode;
+  /**
+   * An action, for the one variant that has one.
+   *
+   * Almost every unavailable state is unactionable by definition — that is what
+   * separates it from an error. The exception is an ended session, where the
+   * reader can fix it themselves with a single link, so the slot exists rather
+   * than forcing that case into a different component.
+   */
+  children?: ReactNode;
   className?: string;
 }
 
@@ -50,6 +59,7 @@ export function UnavailableState({
   title,
   description,
   icon,
+  children,
   className,
 }: UnavailableStateProps) {
   return (
@@ -66,6 +76,8 @@ export function UnavailableState({
         <p className="text-sm font-semibold text-heading">{title}</p>
         <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
+
+      {children}
     </div>
   );
 }
