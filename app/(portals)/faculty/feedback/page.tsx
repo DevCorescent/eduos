@@ -50,7 +50,7 @@ export default async function FacultyFeedbackPage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your feedback" description={result.error} />
+        <ErrorState title="Feedback service is currently unavailable" description={result.error} />
       </>
     );
   }

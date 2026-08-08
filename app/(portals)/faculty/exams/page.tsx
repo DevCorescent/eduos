@@ -22,6 +22,16 @@ import {
 import { EXAM_STATUS_VALUES } from "@/types";
 import { formatDate, formatNumber } from "@/utils/format";
 
+/**
+ * Verified against the running API, not inferred: this collection's query
+ * schema accepts page and limit only, and drops every other key before the
+ * handler sees it — a filtered request returns the same rows as an unfiltered
+ * one. The controls stay visible and disabled rather than silently returning
+ * everything.
+ */
+const UNSUPPORTED_SEARCH = "Search will be available when backend support is enabled.";
+const UNSUPPORTED_FILTER = "Filtering will be available when backend support is enabled.";
+
 export const metadata: Metadata = { title: "My Exams" };
 
 type SearchParams = Promise<{ q?: string; status?: string }>;
@@ -49,7 +59,7 @@ export default async function FacultyExamsPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your exams" description={result.error} />
+        <ErrorState title="Examination service is currently unavailable" description={result.error} />
       </>
     );
   }
@@ -158,10 +168,12 @@ export default async function FacultyExamsPage({
 
       <ListToolbar
         className="mt-6"
-        search={<ListSearch placeholder="Search exams…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search exams…" />}
         filters={
           <ListFilter
             paramKey="status"
+              unsupported={UNSUPPORTED_FILTER}
             label="Status"
             hideLabel
             allLabel="All statuses"

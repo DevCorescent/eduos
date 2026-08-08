@@ -1007,3 +1007,38 @@ Medium
 
 **Requires**
 Infrastructure
+
+## BACKEND DEFECT — Student Results endpoint returns runtime error for valid student
+
+**Severity:** high · **Layer:** backend · **Raised:** frontend Module 6 verification
+
+`GET /api/results/student/[studentId]` returns a failure envelope for a
+student who exists, is ACTIVE, and whose profile, dashboard, attendance,
+assignments, transcript and fee endpoints all answer 200.
+
+Reproduce:
+
+```
+POST /api/auth/login   { tenantSlug: "demo", email: "student@demo.edu",
+                         password: "Student@123" }
+GET  /student/results  ->  renders ErrorState
+```
+
+The frontend behaviour is CORRECT and must not be changed: the request
+fails, so an ErrorState is the right state and the page says the results
+service is unavailable rather than that the student has no results. Do not
+"fix" this by rendering an empty state — that would report a system fault
+as an academic fact, telling a student they have no results when the
+system simply could not compute them.
+
+This is a backend defect. It is recorded here rather than worked around.
+
+**Frontend files involved (no change required):**
+`app/(portals)/student/results/page.tsx`, `services/evaluation.ts`
+
+**Suggested backend investigation:** `lib/services/result.service.ts`
+(1091 lines) and its regulation-preparation path — `composeAcademic` in
+`studentProfile.service.ts` already catches a throw from
+`getStudentResult` and degrades the dashboard panel to nulls, which
+suggests this endpoint can raise for a student whose evaluation scheme is
+incomplete.

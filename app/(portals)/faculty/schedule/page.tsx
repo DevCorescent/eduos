@@ -4,6 +4,7 @@ import { CalendarDays } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { UnavailableState } from "@/components/shared/UnavailableState";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { getCurrentFaculty } from "@/services/portal";
@@ -29,11 +30,31 @@ export default async function FacultySchedulePage() {
     />
   );
 
+  // A FORBIDDEN here is not a failure that might clear — it is the permanent
+  // shape of the API. GET /api/timetables/faculty/[id] is requireRole
+  // ("UNIVERSITY_ADMIN"), verified against the running server, so a lecturer is
+  // refused even for their OWN id. That is the fourth state, not the third:
+  // rendering "Couldn't load your schedule" invited a retry that can never
+  // succeed and implied a fault where there is none.
+  if (!result.success && result.code === "FORBIDDEN") {
+    return (
+      <>
+        {header}
+        <Card noPadding>
+          <UnavailableState
+            title="Your schedule is not available yet"
+            description="The timetable API is currently restricted to administrators, so there is no endpoint a lecturer can read their own schedule from. This page will fill in as soon as that access is opened up."
+          />
+        </Card>
+      </>
+    );
+  }
+
   if (!result.success) {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your schedule" description={result.error} />
+        <ErrorState title="Schedule service is currently unavailable" description={result.error} />
       </>
     );
   }
