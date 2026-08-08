@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowLeft, CalendarDays } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { FormField } from "@/components/shared/EntityFormModal";
@@ -132,11 +133,12 @@ export default async function AcademicYearDetailPage({ params }: { params: Param
 
       <Card noPadding>
         {!semestersResult.success ? (
-          <ErrorState
-            title="Couldn't load semesters"
-            description={semestersResult.error}
-            className="border-0 bg-transparent"
-          />
+          <StateView
+          state={resolveFailureState(semestersResult)}
+          subject="semesters"
+          message={semestersResult.error}
+          className="border-0 bg-transparent"
+        />
         ) : (
           <Table
             columns={columns}

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { ClipboardCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
@@ -72,7 +73,11 @@ export default async function MarkAttendancePage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load the timetable" description={timetableResult.error} />
+        <StateView
+          state={resolveFailureState(timetableResult)}
+          subject="the timetable"
+          message={timetableResult.error}
+        />
       </>
     );
   }

@@ -12,7 +12,8 @@ import {
   Users,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { Badge } from "@/components/ui/Badge";
@@ -53,7 +54,11 @@ export default async function UniversityDashboardPage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load the dashboard" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="the dashboard"
+          message={result.error}
+        />
       </>
     );
   }

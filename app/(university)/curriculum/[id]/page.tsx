@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityRowActions } from "@/components/shared/EntityCrud";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
@@ -174,10 +175,11 @@ export default async function CurriculumBuilderPage({ params }: { params: Params
         {/* Right: the structure, semester by semester. */}
         <div className="flex flex-col gap-4 lg:col-span-2">
           {!subjectsResult.success ? (
-            <ErrorState
-              title="Couldn't load the curriculum structure"
-              description={subjectsResult.error}
-            />
+            <StateView
+          state={resolveFailureState(subjectsResult)}
+          subject="the curriculum structure"
+          message={subjectsResult.error}
+        />
           ) : (
             semesters.map(([semesterNumber, rows]) => {
               const semesterCredits = rows.reduce((sum, row) => sum + row.credits, 0);
@@ -252,9 +254,10 @@ export default async function CurriculumBuilderPage({ params }: { params: Params
           )}
 
           {!coursesResult.success && (
-            <ErrorState
-              title="Couldn't load the course catalogue"
-              description={`${coursesResult.error} Subjects already placed are shown above, but nothing new can be added until the catalogue loads.`}
+            <StateView
+              state={resolveFailureState(coursesResult)}
+              subject="course catalogue"
+              message={`${coursesResult.error} Subjects already placed are shown above, but nothing new can be added until the catalogue loads.`}
             />
           )}
         </div>

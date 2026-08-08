@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { Award, ExternalLink } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card } from "@/components/ui/Card";
 import { Table, type TableColumn } from "@/components/ui/Table";
@@ -45,7 +46,11 @@ export default async function StudentCertificatesPage() {
     return (
       <>
         {header}
-        <ErrorState title="Certificate service is currently unavailable" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="certificates"
+          message={result.error}
+        />
       </>
     );
   }

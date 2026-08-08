@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { TranscriptViewer } from "@/components/evaluation/TranscriptViewer";
 import { getCurrentStudent } from "@/services/portal";
 import { getTranscript } from "@/services/evaluation";
@@ -34,7 +35,11 @@ export default async function StudentTranscriptPage() {
     return (
       <>
         {header}
-        <ErrorState title="Transcript service is currently unavailable" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="transcripts"
+          message={result.error}
+        />
       </>
     );
   }

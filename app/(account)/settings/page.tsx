@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { BadgeCheck, Bell, KeyRound, ShieldCheck, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -104,11 +106,12 @@ export default async function SettingsPage() {
           {preferencesResult.success ? (
             <NotificationPreferencesForm initialValues={preferencesResult.data} />
           ) : (
-            <ErrorState
-              title="Couldn't load your preferences"
-              description={preferencesResult.error}
-              className="border-0 bg-transparent"
-            />
+            <StateView
+          state={resolveFailureState(preferencesResult)}
+          subject="preferences"
+          message={preferencesResult.error}
+          className="border-0 bg-transparent"
+        />
           )}
         </Card>
 

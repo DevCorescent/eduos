@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Flag } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
@@ -60,9 +61,10 @@ export default async function FeatureFlagsPage({
     return (
       <>
         {header}
-        <ErrorState
-          title="Couldn't load subscriptions"
-          description={subscriptionsResult.error}
+        <StateView
+          state={resolveFailureState(subscriptionsResult)}
+          subject="subscriptions"
+          message={subscriptionsResult.error}
         />
       </>
     );

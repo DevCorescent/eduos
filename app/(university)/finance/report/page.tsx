@@ -3,7 +3,7 @@ import { PieChart, ReceiptText, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StateView } from "@/components/shared/StateView";
 import { UnavailableState } from "@/components/shared/UnavailableState";
-import { resolveUiState, type UiState } from "@/lib/ui-state";
+import { resolveFailureState } from "@/lib/ui-state";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { getFinanceSummary } from "@/services/finance";
@@ -43,7 +43,7 @@ export default async function FinanceReportPage() {
       <>
         {header}
         <StateView
-          state={resolveUiState(result) as Exclude<UiState, "success" | "loading">}
+          state={resolveFailureState(result)}
           subject="the finance report"
           message={result.error}
         />

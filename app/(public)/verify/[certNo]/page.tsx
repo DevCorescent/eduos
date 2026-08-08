@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { BadgeCheck, CircleSlash, FileQuestion } from "lucide-react";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { verifyCertificate } from "@/services/finance";
 import { CERTIFICATE_TYPE_LABELS } from "@/constants/labels";
 import { formatDate } from "@/utils/format";
@@ -39,10 +40,11 @@ export default async function VerifyCertificatePage({ params }: { params: Params
 
   if (!result.success) {
     return (
-      <ErrorState
-        title="Verification unavailable"
-        description={result.error}
-      />
+      <StateView
+          state={resolveFailureState(result)}
+          subject="certificate verification"
+          message={result.error}
+        />
     );
   }
 

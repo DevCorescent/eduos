@@ -3,7 +3,7 @@ import { Wallet } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { StateView } from "@/components/shared/StateView";
-import { resolveUiState, type UiState } from "@/lib/ui-state";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -53,7 +53,7 @@ export default async function FeeStructuresPage({
       <>
         {header}
         <StateView
-          state={resolveUiState(structuresResult) as Exclude<UiState, "success" | "loading">}
+          state={resolveFailureState(structuresResult)}
           subject="fee structures"
           message={structuresResult.error}
         />

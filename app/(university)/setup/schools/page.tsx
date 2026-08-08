@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { School as SchoolIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
@@ -89,11 +90,27 @@ export default async function SchoolsPage({ searchParams }: { searchParams: Sear
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Schools" subtitle="Faculties and schools within each campus." />
+  );
+
   if (!result.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load schools" description={result.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="schools"
+          message={result.error}
+        />
       </>
     );
   }

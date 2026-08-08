@@ -150,6 +150,41 @@ export function resolveUiState<T>(
   }
 }
 
+/**
+ * The states a screen can be in once it is KNOWN not to have succeeded.
+ *
+ * Exactly the set StateView renders, which is not a coincidence: a screen that
+ * has already tested `!result.success` cannot be in the other two, and saying
+ * so in the type is what removes the cast that would otherwise appear at every
+ * one of those branches.
+ */
+export type FailureState = Exclude<UiState, "success" | "loading">;
+
+/**
+ * Resolve a state for a response already known to have failed.
+ *
+ * Identical mapping to resolveUiState — it delegates rather than duplicating —
+ * but with a return type that reflects what the caller has already proved. Use
+ * it inside a `!result.success` branch; use resolveUiState when the outcome is
+ * still open and `isEmpty` has to be weighed.
+ *
+ * @example
+ * if (!result.success) {
+ *   return <StateView state={resolveFailureState(result)} subject="students" message={result.error} />
+ * }
+ */
+export function resolveFailureState(
+  input: Extract<ApiResponse<unknown>, { success: false }> | unknown,
+  options: Omit<ResolveOptions, "isEmpty"> = {}
+): FailureState {
+  const state = resolveUiState(input, options);
+
+  // Unreachable for a failed envelope or a thrown AppError, but a caller can
+  // pass anything, and silently rendering a success branch as an error page is
+  // less confusing than rendering nothing at all.
+  return state === "success" || state === "loading" ? "error" : state;
+}
+
 /** True for the { success, … } envelope every service returns. */
 function isEnvelope<T>(value: unknown): value is ApiResponse<T> {
   return typeof value === "object" && value !== null && "success" in value;

@@ -3,7 +3,8 @@ import Link from "next/link";
 import { Building2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
@@ -76,11 +77,27 @@ export default async function TenantsPage({ searchParams }: { searchParams: Sear
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Tenants" subtitle="Every institution onboarded to the platform." />
+  );
+
   if (!result.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load tenants" description={result.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="tenants"
+          message={result.error}
+        />
       </>
     );
   }

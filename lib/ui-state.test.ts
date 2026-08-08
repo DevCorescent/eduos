@@ -6,7 +6,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { resolveUiState, isRetryable, type UiState } from "./ui-state";
+import {
+  resolveUiState,
+  resolveFailureState,
+  isRetryable,
+  type UiState,
+} from "./ui-state";
 import type { ApiResponse } from "@/types";
 
 const ok = <T,>(data: T): ApiResponse<T> => ({ success: true, data });
@@ -161,5 +166,53 @@ describe("error taxonomy", () => {
     assert.equal(isAppError(null), false);
     assert.equal(isAppError({ code: "FORBIDDEN" }), false);
     assert.equal(isAppError(new TypeError("x")), false);
+  });
+});
+
+// ============================================================================
+// resolveFailureState is the same mapping with a narrower return type, used in
+// branches that have already proved the response failed. These assertions pin
+// the "same mapping" part: if the two ever disagree, a screen's treatment would
+// depend on which helper it happened to call.
+// ============================================================================
+
+describe("resolveFailureState", () => {
+  const codes = [
+    "UNAUTHORIZED", "AUTH_ERROR", "FORBIDDEN", "NOT_FOUND",
+    "RATE_LIMITED", "SERVER_ERROR", "TENANT_ERROR",
+  ];
+
+  it("agrees with resolveUiState on every failure code", () => {
+    for (const code of codes) {
+      assert.equal(
+        resolveFailureState(fail(code)),
+        resolveUiState(fail(code)),
+        `disagreement on ${code}`
+      );
+    }
+  });
+
+  it("maps a 403 to unavailable, which is the whole reason this exists", () => {
+    assert.equal(resolveFailureState(fail("FORBIDDEN")), "unavailable");
+  });
+
+  it("honours treatNotFoundAsEmpty, so a missing sub-resource stays empty", () => {
+    assert.equal(resolveFailureState(fail("NOT_FOUND")), "notFound");
+    assert.equal(
+      resolveFailureState(fail("NOT_FOUND"), { treatNotFoundAsEmpty: true }),
+      "empty"
+    );
+  });
+
+  it("never returns success or loading, even if handed a successful envelope", () => {
+    // Not reachable from a !result.success branch, but a caller can pass
+    // anything and the return type must not be a lie.
+    const state: Exclude<UiState, "success" | "loading"> = resolveFailureState(ok([1]));
+    assert.equal(state, "error");
+  });
+
+  it("treats an unclassifiable throw as error, the only retryable state", () => {
+    assert.equal(resolveFailureState(new TypeError("boom")), "error");
+    assert.ok(isRetryable(resolveFailureState(new TypeError("boom"))));
   });
 });

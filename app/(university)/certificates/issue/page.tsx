@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StateView } from "@/components/shared/StateView";
-import { resolveUiState, type UiState } from "@/lib/ui-state";
+import { resolveFailureState } from "@/lib/ui-state";
 import { listCertificateTemplates } from "@/services/finance";
 import { MAX_LIST_LIMIT } from "@/types/api";
 import { listStudents } from "@/services/students";
@@ -41,7 +41,7 @@ export default async function IssueCertificatePage() {
       <>
         {header}
         <StateView
-          state={resolveUiState(templatesResult) as Exclude<UiState, "success" | "loading">}
+          state={resolveFailureState(templatesResult)}
           subject="certificate issuing"
           message={templatesResult.error}
         />

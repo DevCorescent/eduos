@@ -3,7 +3,7 @@ import { ScrollText } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { StateView } from "@/components/shared/StateView";
-import { resolveUiState, type UiState } from "@/lib/ui-state";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
@@ -84,7 +84,7 @@ export default async function TranscriptPage({
         {header}
         {toolbar}
         <StateView
-          state={resolveUiState(result) as Exclude<UiState, "success" | "loading">}
+          state={resolveFailureState(result)}
           subject="transcripts"
           message={result.error}
         />

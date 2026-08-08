@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -61,7 +62,11 @@ export default async function FacultyAssignmentsPage({
     return (
       <>
         {header}
-        <ErrorState title="Assignment service is currently unavailable" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="assignments"
+          message={result.error}
+        />
       </>
     );
   }

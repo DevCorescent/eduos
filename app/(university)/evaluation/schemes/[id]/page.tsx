@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -57,7 +58,11 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
     return (
       <>
         {back}
-        <ErrorState title="Couldn't load the scheme" description={schemeResult.error} />
+        <StateView
+          state={resolveFailureState(schemeResult)}
+          subject="the scheme"
+          message={schemeResult.error}
+        />
       </>
     );
   }

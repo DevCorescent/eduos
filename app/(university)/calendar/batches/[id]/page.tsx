@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowLeft, Rows3 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import type { FormField } from "@/components/shared/EntityFormModal";
@@ -160,11 +161,12 @@ export default async function BatchDetailPage({ params }: { params: Params }) {
 
       <Card noPadding>
         {!sectionsResult.success ? (
-          <ErrorState
-            title="Couldn't load sections"
-            description={sectionsResult.error}
-            className="border-0 bg-transparent"
-          />
+          <StateView
+          state={resolveFailureState(sectionsResult)}
+          subject="sections"
+          message={sectionsResult.error}
+          className="border-0 bg-transparent"
+        />
         ) : (
           <Table
             columns={columns}

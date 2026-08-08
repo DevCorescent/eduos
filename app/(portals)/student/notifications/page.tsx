@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Bell } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { getPortalSession } from "@/services/session";
@@ -46,9 +47,10 @@ export default async function StudentNotificationsPage() {
     return (
       <>
         {header}
-        <ErrorState
-          title="Notification service is currently unavailable"
-          description={result.error}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="notifications"
+          message={result.error}
         />
       </>
     );

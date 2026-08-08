@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Receipt } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
@@ -40,7 +41,11 @@ export default async function StudentFeesPage() {
     return (
       <>
         {header}
-        <ErrorState title="Fee service is currently unavailable" description={demandsResult.error} />
+        <StateView
+          state={resolveFailureState(demandsResult)}
+          subject="fee demands"
+          message={demandsResult.error}
+        />
       </>
     );
   }

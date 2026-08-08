@@ -3,7 +3,7 @@ import { BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { StateView } from "@/components/shared/StateView";
-import { resolveUiState, type UiState } from "@/lib/ui-state";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
@@ -122,12 +122,24 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Courses" subtitle="The course catalogue this university teaches from." />
+  );
+
   if (!result.success) {
     return (
       <>
-        {header}
+        {failureHeader}
         <StateView
-          state={resolveUiState(result) as Exclude<UiState, "success" | "loading">}
+          state={resolveFailureState(result)}
           subject="courses"
           message={result.error}
         />

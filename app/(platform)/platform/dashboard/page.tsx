@@ -13,7 +13,8 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
@@ -65,7 +66,11 @@ export default async function PlatformDashboardPage() {
     return (
       <>
         <PageHeader title="Dashboard" subtitle="Platform-wide overview across all tenants." />
-        <ErrorState title="Couldn't load the dashboard" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="the dashboard"
+          message={result.error}
+        />
       </>
     );
   }

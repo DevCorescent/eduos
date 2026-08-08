@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -98,10 +99,11 @@ export default async function AssignmentGradingPage({ params }: { params: Params
 
       <div className="mt-6">
         {!submissionsResult.success ? (
-          <ErrorState
-            title="Couldn't load submissions"
-            description={submissionsResult.error}
-          />
+          <StateView
+          state={resolveFailureState(submissionsResult)}
+          subject="submissions"
+          message={submissionsResult.error}
+        />
         ) : (
           <GradingList
             assignmentId={id}

@@ -41,6 +41,13 @@ export interface StateViewProps {
   icon?: ReactNode;
   /** Rendered under an empty state — usually the action that would fill it. */
   action?: ReactNode;
+  /**
+   * Passed through to whichever state is rendered.
+   *
+   * Exists for the nested case: a secondary panel inside a card that has its
+   * own border already, where the default framing would draw a second one.
+   */
+  className?: string;
 }
 
 export function StateView({
@@ -51,6 +58,7 @@ export function StateView({
   description,
   icon,
   action,
+  className,
 }: StateViewProps) {
   switch (state) {
     case "empty":
@@ -60,6 +68,7 @@ export function StateView({
           title={title ?? `No ${subject} yet`}
           description={description ?? `You don't have any ${subject} right now.`}
           action={action}
+          className={className}
         />
       );
 
@@ -67,6 +76,7 @@ export function StateView({
       return (
         <UnavailableState
           icon={icon ?? <Ban className="size-6" aria-hidden="true" />}
+          className={className}
           title={title ?? `${capitalise(subject)} are not available to you`}
           description={
             description ??
@@ -80,6 +90,7 @@ export function StateView({
       // the reader can fix this one, and the fix is a single link.
       return (
         <UnavailableState
+          className={className}
           icon={<LogIn className="size-6" aria-hidden="true" />}
           title="Your session has ended"
           description="Sign in again to continue."
@@ -95,6 +106,7 @@ export function StateView({
       // requests, and a button is an invitation to make another.
       return (
         <UnavailableState
+          className={className}
           icon={<Clock className="size-6" aria-hidden="true" />}
           title="Too many requests"
           description={
@@ -107,6 +119,7 @@ export function StateView({
     case "notFound":
       return (
         <ErrorState
+          className={className}
           title={`We couldn't find those ${subject}`}
           description={message ?? "The record may have been removed."}
         />
@@ -116,6 +129,7 @@ export function StateView({
     default:
       return (
         <ErrorState
+          className={className}
           title={`${capitalise(subject)} service is currently unavailable`}
           description={message ?? "Please try again in a moment."}
         />
