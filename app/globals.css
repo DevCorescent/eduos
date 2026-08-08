@@ -21,108 +21,154 @@
    ========================================================================= */
 
 :root {
-  /* --- Backgrounds ------------------------------------------------------ */
-  /* SURFACES ARE COOL; THE PALETTE IS WARM. The two are different jobs, and
-     conflating them is the easy mistake here: DESIGN.md's prose calls a warm
-     cream the "primary canvas", but the swatch sheet labels that same #F8EDE3
-     as the PRIMARY colour — a container for banners and chips — while the
-     sheet's own card surfaces are light cool neutrals. The reference dashboard
-     shows exactly that: a sage sidebar and a cream banner sitting ON a light
-     neutral page, not a cream page.
-     So the frontmatter's surface ramp is used verbatim below, and the warm
-     cream, sage and coral live in the accent tokens further down. */
-  --bg-primary: #ffffff;        /* surface-container-lowest — cards, panels */
-  --bg-secondary: #f1f4fa;      /* surface-container-low — the page canvas */
-  --bg-secondary-end: #e5e8ee;  /* surface-container-high — gradient end */
-  /* 62% so the canvas reads through. Fully opaque glass is just a box, and
-     above ~75% the blur has nothing left to pick up. */
-  --bg-glass: rgba(255, 255, 255, 0.62);
-  --border-color: #dfe3e8;
-  /* DESIGN.md's `outline` — a stronger edge than --border-color, for controls
-     that are defined BY their border (the outlined button) rather than merely
-     separated by one. */
-  --outline-color: #7d766e;
+  /* ==========================================================================
+     PALETTE — the four brand scales, and nothing else.
+     ==========================================================================
+     Four colours were supplied. Everything below is derived from them by
+     lightness alone, so hue and saturation stay the brand's:
 
-  /* --- Navigation surface ----------------------------------------------- */
-  /* The sage panel from the reference. It is its own token rather than a reuse
-     of --color-success-tint: they happen to share a value today, but one is
-     "this succeeded" and the other is "this is the navigation", and a future
-     change to either must not silently move the other. */
+       PRIMARY   #F8EDE3   pinned at 100
+       SECONDARY #D1E2D3   pinned at 200
+       TERTIARY  #F5C9B2   pinned at 300
+       NEUTRAL   #5F6368   pinned at 600
+
+     Each supplied hex sits at its NATURAL step and is reproduced exactly, not
+     re-derived — anchoring #F8EDE3 at 500 would have meant shipping a colour
+     the brand never chose. The steps around it are interpolated in HLS with
+     saturation eased at the extremes, which is what stops 50 looking muddy and
+     900 looking neon.
+
+     No fifth palette exists. Success comes from Secondary, warning from
+     Tertiary, info from Neutral. The single exception is --danger, which is
+     kept deliberately outside the brand ramps: a destructive confirmation has
+     to read as danger to someone who has never seen this product, and no tint
+     of sage or peach does that.
+     ========================================================================= */
+  --primary-50: #fbf9f7;
+  --primary-100: #f8ede3;
+  --primary-200: #f3e1d0;
+  --primary-300: #ebcbad;
+  --primary-400: #dfae81;
+  --primary-500: #d28c4b;
+  --primary-600: #af6b2c;
+  --primary-700: #875222;
+  --primary-800: #603a18;
+  --primary-900: #372515;
+
+  --secondary-50: #f8f9f8;
+  --secondary-100: #eff3ef;
+  --secondary-200: #d1e2d3;
+  --secondary-300: #c0d8c3;
+  --secondary-400: #9ec2a2;
+  --secondary-500: #75a87b;
+  --secondary-600: #55875b;
+  --secondary-700: #416746;
+  --secondary-800: #2e4a32;
+  --secondary-900: #202d21;
+
+  --tertiary-50: #fbf8f6;
+  --tertiary-100: #f9eee9;
+  --tertiary-200: #f8dbcb;
+  --tertiary-300: #f5c9b2;
+  --tertiary-400: #ed9d73;
+  --tertiary-500: #e57438;
+  --tertiary-600: #c25319;
+  --tertiary-700: #954013;
+  --tertiary-800: #6a2d0e;
+  --tertiary-900: #3c1f10;
+
+  --neutral-50: #f8f9f9;
+  --neutral-100: #f0f1f1;
+  --neutral-200: #e0e2e3;
+  --neutral-300: #caccce;
+  --neutral-400: #acb0b4;
+  --neutral-500: #8a8e94;
+  --neutral-600: #5f6368;
+  --neutral-700: #505458;
+  --neutral-800: #393c3f;
+  --neutral-900: #252628;
+
+  /* --- Backgrounds ------------------------------------------------------ */
+  /* Surfaces are Neutral; the warm palettes are accents. The reference shows a
+     sage sidebar and a cream banner sitting ON a light neutral page — not a
+     cream page. */
+  --bg-primary: #ffffff;                 /* cards and panels */
+  --bg-secondary: var(--neutral-50);     /* the page canvas */
+  --bg-secondary-end: var(--neutral-100);
+  --bg-glass: rgba(255, 255, 255, 0.62);
+  --border-color: var(--neutral-200);
+  --outline-color: var(--neutral-400);   /* per the spec: outlined button border */
+
+  /* --- Navigation -------------------------------------------------------- */
+  /* Sidebar is the Secondary palette, per the spec. */
   --nav-surface: rgba(209, 226, 211, 0.72);
-  --nav-surface-solid: #d1e2d3;
-  /* The active item is a raised white pill on the sage — the strongest
-     figure/ground contrast in the shell, which is what makes "where am I"
-     answerable at a glance. */
+  --nav-surface-solid: var(--secondary-200);
   --nav-active-surface: #ffffff;
 
-  /* --- Primary brand ---------------------------------------------------- */
-  --color-primary-base: #645d56;
-  --color-primary-hover-base: #4c463f;
-  --color-primary-active-base: #3a352f;
-  --gradient-primary: linear-gradient(135deg, #6f675f 0%, #536256 100%);
-  --color-primary-tint: #f8ede3;
-  /* on-primary-fixed-variant, NOT the frontmatter's on-primary-container
-     (#726b63). That pairing is roughly 2.6:1 on this tint and fails WCAG AA;
-     #4c463f clears 7:1 on the same background. */
-  --color-primary-tint-fg: #4c463f;
+  /* --- Primary brand ----------------------------------------------------- */
+  /* The spec is explicit: primary buttons are Neutral 700 with white text.
+     Primary 100 is a CONTAINER colour — banners, pills, badges — not a fill
+     for a control that needs white type on it. */
+  --color-primary-base: var(--neutral-700);
+  --color-primary-hover-base: var(--neutral-800);
+  --color-primary-active-base: var(--neutral-900);
+  --gradient-primary: linear-gradient(135deg, #505458 0%, #393c3f 100%);
+  --color-primary-tint: var(--primary-100);
+  /* Neutral 800 on Primary 100 measures 9.9:1 — comfortably past AA. */
+  --color-primary-tint-fg: var(--neutral-800);
 
-  /* --- Accent ----------------------------------------------------------- */
-  --color-accent-base: #536256;                 /* sage — navigation, charts */
-  --gradient-accent: linear-gradient(135deg, #536256 0%, #6f675f 100%);
-  --color-cta: #785745;                         /* tertiary — coral, on-colour */
+  /* --- Accent ------------------------------------------------------------ */
+  --color-accent-base: var(--secondary-600);
+  --gradient-accent: linear-gradient(135deg, #75a87b 0%, #416746 100%);
+  --color-cta: var(--tertiary-600);
 
-  /* --- Text ------------------------------------------------------------- */
-  --text-heading: #181c20;
-  --text-body: #4c463f;
-  --text-muted: #5f6368;   /* swatch Neutral — cool, matching the surfaces */
+  /* --- Text -------------------------------------------------------------- */
+  /* Typography is Neutral only, per the spec. */
+  --text-heading: var(--neutral-900);
+  --text-body: var(--neutral-800);
+  --text-muted: var(--neutral-600);
 
-  /* --- Status ----------------------------------------------------------- */
-  /* Drawn from the palette's own families rather than stock red/green/amber,
-     so a badge belongs to the page instead of sitting on top of it. Success is
-     the sage secondary, warning the coral tertiary. */
-  --color-success: #536256;
-  --color-warning: #785745;
+  /* --- Status ------------------------------------------------------------ */
+  --color-success: var(--secondary-700);
+  --color-warning: var(--tertiary-700);
+  --color-info: var(--neutral-700);
+  /* Isolated from the brand ramps on purpose — see the palette note above. */
   --color-error: #ba1a1a;
-  --color-info: #4a6d8c;
 
-  --color-success-tint: #d1e2d3;
-  --color-success-tint-fg: #2f3d33;
-  --color-warning-tint: #f5c9b2;
-  --color-warning-tint-fg: #5e402f;
+  --color-success-tint: var(--secondary-200);
+  --color-success-tint-fg: var(--secondary-800);
+  --color-warning-tint: var(--tertiary-200);
+  --color-warning-tint-fg: var(--tertiary-800);
+  --color-info-tint: var(--neutral-100);
+  --color-info-tint-fg: var(--neutral-800);
   --color-error-tint: #ffdad6;
   --color-error-tint-fg: #93000a;
-  --color-info-tint: #e3ecf3;
-  --color-info-tint-fg: #2c4a63;
 
-  /* --- Elevation: glass + clay ------------------------------------------ */
-  /* Two systems, used for different jobs. Glass separates a panel from what is
-     behind it; clay makes a control feel pressable. A component picks one. */
-  --blur-glass: 20px;   /* level 1 — sidebars, cards */
-  --blur-active: 40px;  /* level 2 — modals, popovers */
-  /* The 1px inner highlight is what reads as the thickness of the glass edge.
-     Without it a translucent panel looks like a flat wash. */
+  /* --- Elevation: glass + clay ------------------------------------------- */
+  --blur-glass: 20px;
+  --blur-active: 40px;
   --glass-edge: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 
-  /* Warm-tinted, never neutral black: grey shadow over cream reads as dirt. */
+  /* Every shadow is tinted with Neutral rather than black. "No hard shadows",
+     per the spec — and neutral-tinted shade over a tinted surface is what
+     stops stacked panels looking grey and dirty. */
   --shadow-soft: 0 4px 20px rgba(95, 99, 104, 0.08);
   --shadow-hover: 0 8px 30px rgba(95, 99, 104, 0.14);
   --shadow-glow: 0 0 0 1px rgba(95, 99, 104, 0.10), 0 8px 30px rgba(95, 99, 104, 0.22);
-  /* Claymorphic extrusion — light from the top-left, shade to the bottom-right,
-     plus the outer diffusion that lifts it off the canvas. */
   --shadow-clay:
     inset 2px 2px 4px rgba(255, 255, 255, 0.75),
     inset -2px -2px 4px rgba(95, 99, 104, 0.12),
     0 4px 16px rgba(95, 99, 104, 0.10);
-  /* Inputs invert it: pressed into the surface rather than raised from it. */
   --shadow-inset:
     inset 2px 2px 5px rgba(95, 99, 104, 0.12),
     inset -1px -1px 2px rgba(255, 255, 255, 0.85);
 
-  /* --- Hero ------------------------------------------------------------- */
-  --gradient-hero: linear-gradient(135deg, #f8ede3 0%, #f5c9b2 60%, #ffffff 100%);
+  /* --- Hero -------------------------------------------------------------- */
+  /* The welcome banner is the Primary palette, per the spec. */
+  --gradient-hero: linear-gradient(135deg, #f8ede3 0%, #f8dbcb 60%, #ffffff 100%);
   --gradient-surface: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-secondary-end) 100%);
 
-  /* --- Motion ----------------------------------------------------------- */
+  /* --- Motion ------------------------------------------------------------ */
   --transition-base: all 0.2s ease;
 
   /* --- Compatibility aliases -------------------------------------------- */
@@ -188,7 +234,7 @@
   /* Dimmer behind a modal or an off-canvas panel. Indigo-tinted and light,
      because a hard black scrim under a white theme reads as a different
      product. */
-  --overlay: rgba(45, 49, 53, 0.32);
+  --overlay: rgba(37, 38, 40, 0.32);
 }
 
 @theme inline {
@@ -203,6 +249,49 @@
   --color-surface-active: var(--surface-active);
   --color-border: var(--border);
   --color-outline: var(--outline);
+
+  /* The four scales, exposed as utilities: bg-primary-100, text-neutral-800,
+     border-neutral-200 … so a component never needs a hex. */
+  --color-primary-50: var(--primary-50);
+  --color-primary-100: var(--primary-100);
+  --color-primary-200: var(--primary-200);
+  --color-primary-300: var(--primary-300);
+  --color-primary-400: var(--primary-400);
+  --color-primary-500: var(--primary-500);
+  --color-primary-600: var(--primary-600);
+  --color-primary-700: var(--primary-700);
+  --color-primary-800: var(--primary-800);
+  --color-primary-900: var(--primary-900);
+  --color-secondary-50: var(--secondary-50);
+  --color-secondary-100: var(--secondary-100);
+  --color-secondary-200: var(--secondary-200);
+  --color-secondary-300: var(--secondary-300);
+  --color-secondary-400: var(--secondary-400);
+  --color-secondary-500: var(--secondary-500);
+  --color-secondary-600: var(--secondary-600);
+  --color-secondary-700: var(--secondary-700);
+  --color-secondary-800: var(--secondary-800);
+  --color-secondary-900: var(--secondary-900);
+  --color-tertiary-50: var(--tertiary-50);
+  --color-tertiary-100: var(--tertiary-100);
+  --color-tertiary-200: var(--tertiary-200);
+  --color-tertiary-300: var(--tertiary-300);
+  --color-tertiary-400: var(--tertiary-400);
+  --color-tertiary-500: var(--tertiary-500);
+  --color-tertiary-600: var(--tertiary-600);
+  --color-tertiary-700: var(--tertiary-700);
+  --color-tertiary-800: var(--tertiary-800);
+  --color-tertiary-900: var(--tertiary-900);
+  --color-neutral-50: var(--neutral-50);
+  --color-neutral-100: var(--neutral-100);
+  --color-neutral-200: var(--neutral-200);
+  --color-neutral-300: var(--neutral-300);
+  --color-neutral-400: var(--neutral-400);
+  --color-neutral-500: var(--neutral-500);
+  --color-neutral-600: var(--neutral-600);
+  --color-neutral-700: var(--neutral-700);
+  --color-neutral-800: var(--neutral-800);
+  --color-neutral-900: var(--neutral-900);
   --color-nav: var(--nav);
   --color-nav-solid: var(--nav-solid);
   --color-nav-active: var(--nav-active);
