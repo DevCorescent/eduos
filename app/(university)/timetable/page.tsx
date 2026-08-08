@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { CalendarDays } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveUiState, type UiState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Alert } from "@/components/ui/Alert";
@@ -92,7 +93,11 @@ export default async function TimetablePage({ searchParams }: { searchParams: Se
       <>
         {header}
         {toolbar}
-        <ErrorState title="Couldn't load the timetable" description={timetableResult.error} />
+        <StateView
+          state={resolveUiState(timetableResult) as Exclude<UiState, "success" | "loading">}
+          subject="the timetable"
+          message={timetableResult.error}
+        />
       </>
     );
   }

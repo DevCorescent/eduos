@@ -3,7 +3,8 @@ import Link from "next/link";
 import { Receipt } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveUiState, type UiState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
@@ -53,7 +54,11 @@ export default async function FeeDemandsPage({ searchParams }: { searchParams: S
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load the ledger" description={result.error} />
+        <StateView
+          state={resolveUiState(result) as Exclude<UiState, "success" | "loading">}
+          subject="fee demands"
+          message={result.error}
+        />
       </>
     );
   }
@@ -148,18 +153,24 @@ export default async function FeeDemandsPage({ searchParams }: { searchParams: S
       {header}
 
       {summary && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total Billed" value={formatCurrency(summary.demanded)} />
+        // Only what GET /api/finance/report actually returns. Collected,
+        // outstanding and an overdue count were read here too and were all
+        // undefined — the endpoint sends three totals and never sent those.
+        // Showing them as zero would state that nothing has been collected,
+        // which is a claim about the institution's finances rather than a
+        // gap in an API.
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StatCard
-            label="Collected"
-            value={formatCurrency(summary.collected)}
-            caption={`${Math.round((summary.collected / Math.max(summary.demanded, 1)) * 100)}% of billed`}
+            label="Demands Raised"
+            value={formatNumber(summary.totalDemands)}
           />
-          <StatCard label="Outstanding" value={formatCurrency(summary.outstanding)} />
           <StatCard
-            label="Overdue"
-            value={formatNumber(summary.overdueCount)}
-            caption="demands past their due date"
+            label="Total Billed"
+            value={formatCurrency(Number(summary.totalDemandAmount))}
+          />
+          <StatCard
+            label="Waived"
+            value={formatCurrency(Number(summary.totalWaivedAmount))}
           />
         </div>
       )}

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveUiState, type UiState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
@@ -125,7 +126,11 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load courses" description={result.error} />
+        <StateView
+          state={resolveUiState(result) as Exclude<UiState, "success" | "loading">}
+          subject="courses"
+          message={result.error}
+        />
       </>
     );
   }

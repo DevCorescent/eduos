@@ -165,13 +165,26 @@ export async function listStudentPayments(
 
 // --- Finance report ---------------------------------------------------------
 
+/**
+ * What GET /api/finance/report ACTUALLY returns.
+ *
+ * This interface previously declared six fields — demanded, collected, waived,
+ * outstanding, overdueCount and a byStatus breakdown — none of which the route
+ * has ever sent. It replies with exactly three totals. Every field the report
+ * page read was therefore undefined, and mapping over the absent byStatus array
+ * crashed the page outright while the request itself returned 200.
+ *
+ * The shape below is the response, verified against the running endpoint. The
+ * figures the API does not produce are not modelled here at all: adding them as
+ * optional would only move the same guess into the page.
+ */
 export interface FinanceSummary {
-  demanded: number;
-  collected: number;
-  waived: number;
-  outstanding: number;
-  overdueCount: number;
-  byStatus: { status: FeeDemand["status"]; count: number; amount: number }[];
+  /** Number of demands raised. */
+  totalDemands: number;
+  /** Decimal string — total billed. */
+  totalDemandAmount: string;
+  /** Decimal string — total written off. */
+  totalWaivedAmount: string;
 }
 
 export async function getFinanceSummary(): Promise<ApiResponse<FinanceSummary>> {

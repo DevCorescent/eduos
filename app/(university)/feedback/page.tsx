@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { MessageSquare } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveUiState, type UiState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
@@ -70,7 +71,11 @@ export default async function FeedbackReportPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load the report" description={reportResult.error} />
+        <StateView
+          state={resolveUiState(reportResult) as Exclude<UiState, "success" | "loading">}
+          subject="feedback"
+          message={reportResult.error}
+        />
       </>
     );
   }

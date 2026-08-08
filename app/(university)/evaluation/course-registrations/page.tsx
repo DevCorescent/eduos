@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { ClipboardList } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveUiState, type UiState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Badge } from "@/components/ui/Badge";
@@ -68,7 +69,11 @@ export default async function CourseRegistrationsPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load registrations" description={result.error} />
+        <StateView
+          state={resolveUiState(result) as Exclude<UiState, "success" | "loading">}
+          subject="course registrations"
+          message={result.error}
+        />
       </>
     );
   }

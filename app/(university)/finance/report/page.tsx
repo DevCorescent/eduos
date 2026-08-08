@@ -1,31 +1,40 @@
 import type { Metadata } from "next";
+import { PieChart, ReceiptText, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { StateView } from "@/components/shared/StateView";
+import { UnavailableState } from "@/components/shared/UnavailableState";
+import { resolveUiState, type UiState } from "@/lib/ui-state";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
-import { Table, type TableColumn } from "@/components/ui/Table";
 import { getFinanceSummary } from "@/services/finance";
-import { FEE_STATUS_LABELS, FEE_STATUS_VARIANTS } from "@/constants/labels";
-import { formatCurrency, formatNumber, formatPercent } from "@/utils/format";
-import type { FeeStatus } from "@/types";
+import { formatCurrency, formatNumber } from "@/utils/format";
 
 export const metadata: Metadata = { title: "Finance Report" };
 
-interface StatusRow {
-  status: FeeStatus;
-  count: number;
-  amount: number;
-  share: number;
-}
-
+/**
+ * Collection summary for the tenant.
+ *
+ * REBUILT AGAINST THE ENDPOINT'S REAL RESPONSE.
+ *   This page previously read six figures — collected, outstanding, an overdue
+ *   count and a per-status breakdown — that GET /api/finance/report has never
+ *   returned. It sends three totals. Every one of those reads was therefore
+ *   undefined, and `summary.byStatus.map(...)` threw, so the page rendered its
+ *   error boundary while the request itself succeeded with a 200. Verified
+ *   against the running endpoint, which answers:
+ *
+ *     { totalDemands, totalDemandAmount, totalWaivedAmount }
+ *
+ *   The figures it does not produce are not shown at all, rather than shown as
+ *   zero. "₹0 collected" is a statement about the institution's finances and a
+ *   false one; absence of a number is not.
+ */
 export default async function FinanceReportPage() {
   const result = await getFinanceSummary();
 
   const header = (
     <PageHeader
       title="Finance Report"
-      subtitle="Collection performance across the fee ledger."
+      subtitle="Billing across the tenant's fee ledger."
     />
   );
 
@@ -33,72 +42,26 @@ export default async function FinanceReportPage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load the report" description={result.error} />
+        <StateView
+          state={resolveUiState(result) as Exclude<UiState, "success" | "loading">}
+          subject="the finance report"
+          message={result.error}
+        />
       </>
     );
   }
 
   const summary = result.data;
 
-  // Collection efficiency is measured against what is actually collectable —
-  // billed minus waived. Measuring against the gross billed figure would
-  // penalise the institution for concessions it chose to grant.
-  const collectable = summary.demanded - summary.waived;
-  const efficiency = collectable === 0 ? 0 : (summary.collected / collectable) * 100;
+  // Money crosses the wire as a decimal string to survive the Decimal columns
+  // intact; it is parsed here, at the point of display, and nowhere else.
+  const demanded = Number(summary.totalDemandAmount);
+  const waived = Number(summary.totalWaivedAmount);
 
-  const rows: StatusRow[] = summary.byStatus.map((entry) => ({
-    ...entry,
-    share: summary.demanded === 0 ? 0 : (entry.amount / summary.demanded) * 100,
-  }));
-
-  const columns: TableColumn<StatusRow>[] = [
-    {
-      key: "status",
-      header: "Status",
-      render: (row) => (
-        <StatusBadge
-          label={FEE_STATUS_LABELS[row.status]}
-          variant={FEE_STATUS_VARIANTS[row.status]}
-        />
-      ),
-    },
-    {
-      key: "count",
-      header: "Demands",
-      align: "right",
-      render: (row) => formatNumber(row.count),
-    },
-    {
-      key: "amount",
-      header: "Value",
-      align: "right",
-      render: (row) => formatCurrency(row.amount),
-    },
-    {
-      key: "share",
-      header: "Share of billed",
-      align: "right",
-      render: (row) => (
-        <div className="flex items-center justify-end gap-2">
-          {/* A bar alongside the number: proportions are what this table is
-              read for, and comparing seven percentages by eye is slower than
-              comparing seven lengths. */}
-          <span
-            aria-hidden="true"
-            className="h-1.5 w-20 overflow-hidden rounded-full bg-muted"
-          >
-            <span
-              className="block h-full rounded-full bg-primary"
-              style={{ width: `${Math.min(row.share, 100)}%` }}
-            />
-          </span>
-          <span className="w-12 text-right tabular-nums">
-            {formatPercent(row.share, 1)}
-          </span>
-        </div>
-      ),
-    },
-  ];
+  // Net billed is the only derived figure the response supports. Collection
+  // rate is deliberately absent: it needs a collected total, and inferring one
+  // would be inventing the number this page exists to report.
+  const netBilled = demanded - waived;
 
   return (
     <>
@@ -106,46 +69,45 @@ export default async function FinanceReportPage() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
+          label="Demands Raised"
+          value={formatNumber(summary.totalDemands)}
+          icon={<ReceiptText className="size-5" />}
+        />
+        <StatCard
           label="Total Billed"
-          value={formatCurrency(summary.demanded)}
-          caption="Gross demand raised"
-        />
-        <StatCard
-          label="Collected"
-          value={formatCurrency(summary.collected)}
-          caption={`${formatPercent(efficiency, 1)} of collectable`}
-        />
-        <StatCard
-          label="Outstanding"
-          value={formatCurrency(summary.outstanding)}
-          caption="Billed − collected − waived"
+          value={formatCurrency(demanded)}
+          icon={<Wallet className="size-5" />}
         />
         <StatCard
           label="Waived"
-          value={formatCurrency(summary.waived)}
-          caption="Concessions granted"
+          value={formatCurrency(waived)}
+          icon={<PieChart className="size-5" />}
+          caption={
+            demanded === 0
+              ? undefined
+              : `${((waived / demanded) * 100).toFixed(1)}% of billed`
+          }
         />
+        <StatCard label="Net Billed" value={formatCurrency(netBilled)} />
       </div>
 
       <Card
         className="mt-6"
         noPadding
-        header={<h2 className="text-sm font-semibold text-heading">Ledger by status</h2>}
+        header={
+          <div>
+            <h2 className="text-sm font-semibold text-heading">Collection breakdown</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              By demand status
+            </p>
+          </div>
+        }
       >
-        <Table columns={columns} data={rows} rowKey={(row) => row.status} />
+        <UnavailableState
+          title="Collection figures are not available yet"
+          description="GET /api/finance/report returns the number of demands raised, the total billed and the total waived. Collected, outstanding and the per-status breakdown need those aggregates added to the endpoint — they cannot be derived from what it sends today."
+        />
       </Card>
-
-      <div className="mt-4 space-y-1 text-xs text-muted-foreground">
-        <p>
-          Collection efficiency is measured against billed minus waived, not gross billed —
-          a waived amount is never going to be collected, and counting it would understate
-          performance.
-        </p>
-        <p>
-          Figures cover the whole ledger. Per-programme and per-semester breakdowns need an
-          aggregate endpoint that does not exist yet.
-        </p>
-      </div>
     </>
   );
 }

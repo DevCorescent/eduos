@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveUiState, type UiState } from "@/lib/ui-state";
 import { listCertificateTemplates } from "@/services/finance";
 import { listStudents } from "@/services/students";
 import { CERTIFICATE_TYPE_LABELS } from "@/constants/labels";
@@ -38,7 +39,11 @@ export default async function IssueCertificatePage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load templates" description={templatesResult.error} />
+        <StateView
+          state={resolveUiState(templatesResult) as Exclude<UiState, "success" | "loading">}
+          subject="certificate issuing"
+          message={templatesResult.error}
+        />
       </>
     );
   }
