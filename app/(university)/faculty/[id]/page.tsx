@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Avatar } from "@/components/ui/Avatar";
 import { getFaculty, listFacultyAssignments } from "@/services/faculty";
+import { unwrapResource } from "@/lib/require-resource";
 import { listDepartments } from "@/services/setup";
 import { listAcademicYears, listSemesters } from "@/services/calendar";
 import { listCourses } from "@/services/courses";
@@ -25,12 +25,7 @@ export default async function FacultyProfilePage({ params }: { params: Params })
 
   const facultyResult = await getFaculty(id);
 
-  if (!facultyResult.success) {
-    if (facultyResult.code === "NOT_FOUND") notFound();
-    throw new Error(facultyResult.error);
-  }
-
-  const faculty = facultyResult.data;
+  const faculty = unwrapResource(facultyResult, "faculty member");
 
   const [assignmentsResult, departmentsResult, coursesResult, yearsResult] =
     await Promise.all([

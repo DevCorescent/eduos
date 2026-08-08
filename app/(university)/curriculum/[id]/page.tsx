@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
@@ -10,6 +9,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { getCurriculum, listCurriculumSubjects } from "@/services/academics";
+import { unwrapResource } from "@/lib/require-resource";
 import { getProgramme } from "@/services/setup";
 import { listCourses } from "@/services/courses";
 import {
@@ -42,14 +42,7 @@ export default async function CurriculumBuilderPage({ params }: { params: Params
     listCourses({ page: 1, limit: 500 }),
   ]);
 
-  if (!curriculumResult.success) {
-    // A missing curriculum is a 404, not an error page — the record simply is
-    // not there, nothing broke.
-    if (curriculumResult.code === "NOT_FOUND") notFound();
-    throw new Error(curriculumResult.error);
-  }
-
-  const curriculum = curriculumResult.data;
+  const curriculum = unwrapResource(curriculumResult, "curriculum");
 
   // Fetched second because it needs the curriculum's programmeId, which the
   // first round of requests is what produces.

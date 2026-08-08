@@ -9,6 +9,7 @@ import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
 import { getCurrentFaculty } from "@/services/portal";
+import { resolveUiState } from "@/lib/ui-state";
 import { getFacultyTimetable, getSessionAttendance } from "@/services/academics";
 import { listStudents } from "@/services/students";
 import { MarkAttendanceForm } from "@/app/(university)/attendance/mark/MarkAttendanceForm";
@@ -44,7 +45,7 @@ export default async function FacultyMarkAttendancePage({
   // verified against the running server: the timetable that supplies the class
   // list (403) and GET /api/students that supplies the roster to mark (403).
   // Neither is a transient failure, so neither is an ErrorState.
-  if (!timetableResult.success && timetableResult.code === "FORBIDDEN") {
+  if (resolveUiState(timetableResult) === "unavailable") {
     return (
       <>
         {header}

@@ -8,6 +8,7 @@ import { UnavailableState } from "@/components/shared/UnavailableState";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { getCurrentFaculty } from "@/services/portal";
+import { resolveUiState } from "@/lib/ui-state";
 import { getFacultyTimetable } from "@/services/academics";
 import { DAY_OF_WEEK_SHORT, SESSION_TYPE_LABELS } from "@/constants/labels";
 import { formatNumber } from "@/utils/format";
@@ -36,7 +37,7 @@ export default async function FacultySchedulePage() {
   // refused even for their OWN id. That is the fourth state, not the third:
   // rendering "Couldn't load your schedule" invited a retry that can never
   // succeed and implied a fault where there is none.
-  if (!result.success && result.code === "FORBIDDEN") {
+  if (resolveUiState(result) === "unavailable") {
     return (
       <>
         {header}

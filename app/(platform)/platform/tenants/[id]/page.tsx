@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { getTenant, getTenantStats } from "@/services/tenants";
+import { unwrapResource } from "@/lib/require-resource";
 import { getSubscriptionForTenant } from "@/services/subscriptions";
 import { TENANT_STATUS_LABELS, TENANT_STATUS_VARIANTS } from "@/constants/labels";
 import { TenantDetailTabs } from "./TenantDetailTabs";
@@ -41,12 +41,7 @@ export default async function TenantDetailPage({ params }: { params: Params }) {
   // notFound() renders the 404 page. Any other failure is a real error and is
   // surfaced by the route's error boundary instead — the two must not be
   // conflated, or a transient outage would tell the user the tenant was deleted.
-  if (!tenantResult.success) {
-    if (tenantResult.code === "NOT_FOUND") notFound();
-    throw new Error(tenantResult.error);
-  }
-
-  const tenant = tenantResult.data;
+  const tenant = unwrapResource(tenantResult, "tenant");
 
   return (
     <>

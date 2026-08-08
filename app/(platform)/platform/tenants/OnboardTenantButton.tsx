@@ -154,8 +154,16 @@ export function OnboardTenantButton() {
     setIsSubmitting(false);
 
     if (!result.success) {
-      // A slug clash is the one conflict this endpoint returns, and it belongs
-      // on the field the user has to change — not in a banner above the form.
+      // THE ONE DELIBERATE EXCEPTION to "no component inspects an error code".
+      //
+      // resolveUiState answers "which state is this SCREEN in", and a form
+      // submission is not a screen state — the page is fine, one field is
+      // wrong. Routing this through the resolver would collapse CONFLICT into
+      // `error` and lose the only thing that matters here: WHICH field the
+      // clash is about. A slug clash belongs on the slug input, not in a banner
+      // above a form the user must then re-read to find the problem.
+      //
+      // Every page-level decision still goes through lib/ui-state.ts.
       if (result.code === "CONFLICT") {
         setFieldErrors({ slug: "That institution code is already taken." });
         return;

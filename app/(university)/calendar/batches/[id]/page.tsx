@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft, Rows3 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
@@ -12,6 +11,7 @@ import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { getBatch, listSections, listSemesters } from "@/services/calendar";
+import { unwrapResource } from "@/lib/require-resource";
 import { listProgrammes } from "@/services/setup";
 import { createSectionAction, deleteSectionAction } from "@/actions/calendar";
 import { formatDate, formatNumber } from "@/utils/format";
@@ -30,12 +30,7 @@ export default async function BatchDetailPage({ params }: { params: Params }) {
 
   const batchResult = await getBatch(id);
 
-  if (!batchResult.success) {
-    if (batchResult.code === "NOT_FOUND") notFound();
-    throw new Error(batchResult.error);
-  }
-
-  const batch = batchResult.data;
+  const batch = unwrapResource(batchResult, "batch");
 
   // Semesters depend on the batch's academic year, so this fetch cannot be
   // issued alongside the one above — it needs the batch first.

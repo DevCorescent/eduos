@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -13,6 +12,7 @@ import {
   listStudentParents,
 } from "@/services/students";
 import { listBatches, listSections } from "@/services/calendar";
+import { unwrapResource } from "@/lib/require-resource";
 import { listProgrammes } from "@/services/setup";
 import { STUDENT_STATUS_LABELS, STUDENT_STATUS_VARIANTS } from "@/constants/labels";
 import { StudentProfileTabs } from "./StudentProfileTabs";
@@ -30,12 +30,7 @@ export default async function StudentProfilePage({ params }: { params: Params })
 
   const studentResult = await getStudent(id);
 
-  if (!studentResult.success) {
-    if (studentResult.code === "NOT_FOUND") notFound();
-    throw new Error(studentResult.error);
-  }
-
-  const student = studentResult.data;
+  const student = unwrapResource(studentResult, "student");
 
   // Every tab's data is fetched up front and passed down as props, rather than
   // each tab fetching on selection. Five sub-resources issued together cost one

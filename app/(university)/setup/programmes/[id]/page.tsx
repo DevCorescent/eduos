@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight, Layers } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
@@ -11,6 +10,7 @@ import type { FormField } from "@/components/shared/EntityFormModal";
 import { Card } from "@/components/ui/Card";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { getProgramme, listDepartments, listSpecialisations } from "@/services/setup";
+import { unwrapResource } from "@/lib/require-resource";
 import { getCurriculumForProgramme } from "@/services/academics";
 import { createSpecialisationAction } from "@/actions/setup";
 import { DURATION_UNIT_LABELS, PROGRAMME_TYPE_LABELS } from "@/constants/labels";
@@ -43,14 +43,7 @@ export default async function ProgrammeDetailPage({ params }: { params: Params }
       getCurriculumForProgramme(id),
     ]);
 
-  if (!programmeResult.success) {
-    // A missing programme is a 404, not an error page. Conflating the two would
-    // tell the user something broke when the record simply is not there.
-    if (programmeResult.code === "NOT_FOUND") notFound();
-    throw new Error(programmeResult.error);
-  }
-
-  const programme = programmeResult.data;
+  const programme = unwrapResource(programmeResult, "programme");
   const department = departmentsResult.success
     ? departmentsResult.data.items.find((d) => d.id === programme.departmentId)
     : undefined;
