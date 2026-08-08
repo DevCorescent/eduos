@@ -116,7 +116,7 @@ export function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-8 shadow-sm">
+    <div className="glass w-full rounded-xl p-8">
       <h1 className="text-xl font-semibold text-heading">Sign in to eduOS</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Enter your institution code and credentials to continue.

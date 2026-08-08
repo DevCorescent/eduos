@@ -88,7 +88,7 @@ export function ForgotPasswordForm() {
     const nextHref = `/reset-password?tenant=${encodeURIComponent(form.tenantSlug.trim())}&email=${encodeURIComponent(form.email.trim())}`;
 
     return (
-      <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-8 text-center shadow-sm">
+      <div className="glass w-full rounded-xl p-8 text-center">
         <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-success-bg text-success-bg-foreground">
           <CheckCircle2 className="size-6" aria-hidden="true" />
         </div>
@@ -119,7 +119,7 @@ export function ForgotPasswordForm() {
   }
 
   return (
-    <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-8 shadow-sm">
+    <div className="glass w-full rounded-xl p-8">
       <h1 className="text-xl font-semibold text-heading">Reset your password</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Enter your institution code and email — we&apos;ll send you a verification code.
