@@ -9,6 +9,7 @@ import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
 import { getCurrentFaculty } from "@/services/portal";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { resolveUiState } from "@/lib/ui-state";
 import { getFacultyTimetable, getSessionAttendance } from "@/services/academics";
 import { listStudents } from "@/services/students";
@@ -92,7 +93,7 @@ export default async function FacultyMarkAttendancePage({
 
   const [studentsResult, existingResult] = await Promise.all([
     selected
-      ? listStudents({ page: 1, limit: 200, sectionId: selected.sectionId, status: "ACTIVE" })
+      ? listStudents({ page: 1, limit: MAX_LIST_LIMIT, sectionId: selected.sectionId, status: "ACTIVE" })
       : Promise.resolve(null),
     selected
       ? getSessionAttendance(selected.sectionId, selected.courseId, selectedDate)

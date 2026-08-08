@@ -1042,3 +1042,56 @@ This is a backend defect. It is recorded here rather than worked around.
 `getStudentResult` and degrades the dashboard panel to nulls, which
 suggests this endpoint can raise for a student whose evaluation scheme is
 incomplete.
+
+## BACKEND GAP — endpoints the UI calls that do not exist
+
+**Severity:** medium · **Layer:** backend · **Raised:** QA gate, verified at runtime
+
+Observed live during a 232-request sweep of every route as every role.
+Each returns 404 because the route is absent, not because the record is:
+
+| Endpoint | Callers | Consequence today |
+|---|---|---|
+| `GET /api/certificates` | certificates/templates | certificate list cannot load |
+| `GET /api/users/[id]/preferences` | account settings | notification tab cannot load |
+| `GET /api/payments` | student fee history | payment history cannot load |
+
+`GET /api/faculty/me` also returns 404 for SUPER_ADMIN and UNIVERSITY_ADMIN.
+That one is CORRECT and needs no work: those accounts own no FacultyMember
+row, and 404 is the honest answer.
+
+The frontend renders these as unavailable rather than empty, so no screen
+claims the records are absent. Do not "fix" this by suppressing the panels.
+
+---
+
+## BACKEND GAP — no collection endpoint accepts a search or filter parameter
+
+**Severity:** medium · **Layer:** backend · **Priority:** high for scale
+
+Verified at runtime, not inferred. `listStudentsQuerySchema`,
+`facultyQuerySchema`, `listTenantsQuerySchema` and their siblings extend
+`paginationQuerySchema` and add nothing, so Zod drops `?q`, `?status`,
+`?departmentId` and the rest before the handler sees them:
+
+```
+/api/students?q=zzzzzzzz          3 -> 3    dropped
+/api/students?status=WITHDRAWN    3 -> 3    dropped
+/api/users?q=zzzzzzzz            11 -> 11   dropped
+/api/faculty?departmentId=…       3 -> 3    dropped
+/api/campuses?q=zzzzzzzz          2 -> 2    dropped
+/api/courses?type=LAB             4 -> 4    dropped
+```
+
+Thirty-one controls across twelve screens are consequently rendered
+disabled with an explanation. They are not deleted, so the screens keep
+their shape and nothing needs redesigning when the parameters land.
+
+NOTE FOR WHOEVER PICKS THIS UP: the evaluation module's filters are NOT in
+this list. They ARE implemented — probing with an invalid enum returns 400,
+which proves the route parses the value. A row-count comparison had
+suggested otherwise only because those tables are empty.
+
+**Suggested fix:** extend each collection's query schema and `where` clause.
+No frontend change is required — removing the `unsupported` prop re-enables
+each control.

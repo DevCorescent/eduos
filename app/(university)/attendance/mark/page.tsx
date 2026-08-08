@@ -7,6 +7,7 @@ import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
 import { getSectionTimetable, getSessionAttendance } from "@/services/academics";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { allSections } from "@/services/reference";
 import { listStudents } from "@/services/students";
 import { MarkAttendanceForm } from "./MarkAttendanceForm";
@@ -57,7 +58,7 @@ export default async function MarkAttendancePage({
   // section.
   const [timetableResult, studentsResult] = await Promise.all([
     getSectionTimetable(sectionId),
-    listStudents({ page: 1, limit: 200, sectionId, status: "ACTIVE" }),
+    listStudents({ page: 1, limit: MAX_LIST_LIMIT, sectionId, status: "ACTIVE" }),
   ]);
 
   const header = (
