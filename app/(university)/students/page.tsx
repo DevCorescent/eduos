@@ -23,6 +23,16 @@ import { STUDENT_STATUS_LABELS, STUDENT_STATUS_VARIANTS } from "@/constants/labe
 import { STUDENT_STATUS_VALUES, type StudentWithUser } from "@/types";
 import { formatDate } from "@/utils/format";
 
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
+
 export const metadata: Metadata = { title: "Students" };
 
 const PAGE_SIZE = 20;
@@ -211,11 +221,13 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
       {header}
 
       <ListToolbar
-        search={<ListSearch placeholder="Search by name or enrolment number…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name or enrolment number…" />}
         filters={
           <>
             <ListFilter
               paramKey="status"
+              unsupported={UNSUPPORTED_FILTER}
               label="Status"
               hideLabel
               allLabel="All statuses"
@@ -226,6 +238,7 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
             />
             <ListFilter
               paramKey="programmeId"
+              unsupported={UNSUPPORTED_FILTER}
               label="Programme"
               hideLabel
               allLabel="All programmes"
@@ -233,6 +246,7 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
             />
             <ListFilter
               paramKey="batchId"
+              unsupported={UNSUPPORTED_FILTER}
               label="Batch"
               hideLabel
               allLabel="All batches"

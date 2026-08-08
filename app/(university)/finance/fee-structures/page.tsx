@@ -15,6 +15,15 @@ import { FEE_TYPE_LABELS } from "@/constants/labels";
 import { formatCurrency } from "@/utils/format";
 import type { FeeComponent } from "@/types";
 
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+
 export const metadata: Metadata = { title: "Fee Structures" };
 
 type SearchParams = Promise<{ q?: string; structureId?: string }>;
@@ -101,7 +110,8 @@ export default async function FeeStructuresPage({
     <>
       {header}
 
-      <ListToolbar search={<ListSearch placeholder="Search fee structures…" />} />
+      <ListToolbar search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search fee structures…" />} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card

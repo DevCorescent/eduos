@@ -17,6 +17,15 @@ import { roleLabel } from "@/constants/roles";
 import { formatNumber } from "@/utils/format";
 import type { RoleWithCounts } from "@/types";
 
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+
 export const metadata: Metadata = { title: "Roles" };
 
 const FIELDS: FormField[] = [
@@ -153,7 +162,8 @@ export default async function RolesPage({
     <>
       {header}
 
-      <ListToolbar search={<ListSearch placeholder="Search roles…" />} />
+      <ListToolbar search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search roles…" />} />
 
       <Card noPadding>
         <Table

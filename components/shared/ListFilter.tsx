@@ -13,6 +13,15 @@ export interface ListFilterProps {
   allLabel?: string;
   hideLabel?: boolean;
   className?: string;
+  /**
+   * Set when the backend's query schema does not accept this key.
+   *
+   * Renders the control disabled rather than removing it, so the shape of the
+   * screen does not change when the filter lands. A dropdown that writes a
+   * parameter the route drops looks like a filter that found nothing, which
+   * sends the user hunting for data that was never excluded.
+   */
+  unsupported?: string;
 }
 
 /**
@@ -42,8 +51,24 @@ export function ListFilter({
   allLabel,
   hideLabel = false,
   className,
+  unsupported,
 }: ListFilterProps) {
   const { get, setParam } = useListParams();
+
+  if (unsupported) {
+    return (
+      <Select
+        label={hideLabel ? undefined : label}
+        aria-label={`${label} — ${unsupported}`}
+        title={unsupported}
+        disabled
+        value=""
+        onChange={() => undefined}
+        options={[{ value: "", label: allLabel ?? `All ${label}` }]}
+        className={className}
+      />
+    );
+  }
 
   return (
     <Select

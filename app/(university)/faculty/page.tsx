@@ -21,6 +21,16 @@ import { EMPLOYEE_STATUS_LABELS, EMPLOYEE_STATUS_VARIANTS } from "@/constants/la
 import { EMPLOYEE_STATUS_VALUES, type FacultyWithUser } from "@/types";
 import { formatDate } from "@/utils/format";
 
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
+
 export const metadata: Metadata = { title: "Faculty" };
 
 const PAGE_SIZE = 20;
@@ -264,11 +274,13 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
       {header}
 
       <ListToolbar
-        search={<ListSearch placeholder="Search by name, ID or designation…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name, ID or designation…" />}
         filters={
           <>
             <ListFilter
               paramKey="status"
+              unsupported={UNSUPPORTED_FILTER}
               label="Status"
               hideLabel
               allLabel="All statuses"
@@ -279,6 +291,7 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
             />
             <ListFilter
               paramKey="departmentId"
+              unsupported={UNSUPPORTED_FILTER}
               label="Department"
               hideLabel
               allLabel="All departments"
