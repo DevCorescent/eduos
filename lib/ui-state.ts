@@ -51,6 +51,7 @@
 // ============================================================================
 
 import type { ApiResponse } from "@/types";
+import { isAppError } from "@/lib/errors";
 
 /** Every state a data-backed screen can be in. */
 export type UiState =
@@ -91,13 +92,42 @@ export interface ResolveOptions {
  */
 export function resolveUiState<T>(
   response: ApiResponse<T>,
+  options?: ResolveOptions
+): UiState;
+/**
+ * The same mapping, for a thrown error rather than a response envelope.
+ *
+ * A screen that calls a service through a try/catch and one that reads an
+ * envelope should reach the same state for the same failure — otherwise the
+ * behaviour depends on how the data happened to be fetched, which is exactly
+ * the coupling this module exists to remove.
+ */
+export function resolveUiState(error: unknown, options?: ResolveOptions): UiState;
+export function resolveUiState<T>(
+  input: ApiResponse<T> | unknown,
   options: ResolveOptions = {}
 ): UiState {
-  if (response.success) {
+  // A thrown AppError carries the same `code` vocabulary the envelope does, so
+  // both funnel into the one switch below rather than growing a second mapping
+  // that could disagree with it.
+  const code = isAppError(input)
+    ? input.code
+    : isEnvelope<T>(input)
+      ? input.success
+        ? null
+        : input.code
+      : undefined;
+
+  if (code === null) {
     return options.isEmpty ? "empty" : "success";
   }
 
-  switch (response.code) {
+  // Something that is neither an envelope nor an AppError — a raw TypeError, a
+  // rejected fetch. Unclassifiable, so it takes the treatment that offers a
+  // retry, which is the safest default for a fault nobody has characterised.
+  if (code === undefined) return "error";
+
+  switch (code) {
     case "UNAUTHORIZED":
     case "AUTH_ERROR":
       return "unauthorized";
@@ -118,6 +148,11 @@ export function resolveUiState<T>(
     default:
       return "error";
   }
+}
+
+/** True for the { success, … } envelope every service returns. */
+function isEnvelope<T>(value: unknown): value is ApiResponse<T> {
+  return typeof value === "object" && value !== null && "success" in value;
 }
 
 /**

@@ -73,3 +73,93 @@ describe("isRetryable", () => {
     assert.equal(isRetryable("error"), true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The typed-error path. A screen that catches a throw and one that reads an
+// envelope must reach the SAME state for the same failure — otherwise the
+// behaviour depends on how the data happened to be fetched, which is the
+// coupling this module exists to remove.
+// ---------------------------------------------------------------------------
+
+import {
+  AppError,
+  AuthError,
+  ConflictError,
+  NotFoundError,
+  PermissionError,
+  RateLimitError,
+  ServerError,
+  ValidationError,
+  isAppError,
+} from "./errors";
+
+describe("resolveUiState — typed errors agree with envelopes", () => {
+  const pairs: [InstanceType<typeof AppError>, UiState][] = [
+    [new PermissionError(), "unavailable"],
+    [new AuthError(), "unauthorized"],
+    [new RateLimitError(), "rateLimited"],
+    [new NotFoundError(), "notFound"],
+    [new ServerError(), "error"],
+    [new ValidationError(), "error"],
+    [new ConflictError(), "error"],
+  ];
+
+  for (const [error, expected] of pairs) {
+    it(`${error.name} -> ${expected}`, () => {
+      assert.equal(resolveUiState(error), expected);
+      // …and the envelope carrying the same code must agree.
+      assert.equal(resolveUiState(fail(error.code)), expected);
+    });
+  }
+
+  it("honours treatNotFoundAsEmpty for a thrown NotFoundError too", () => {
+    assert.equal(
+      resolveUiState(new NotFoundError(), { treatNotFoundAsEmpty: true }),
+      "empty"
+    );
+  });
+});
+
+describe("resolveUiState — unclassifiable failures", () => {
+  it("treats a raw throw as error, the state that offers a retry", () => {
+    // Nobody has characterised this fault, so the safest default is the one
+    // that lets the reader try again.
+    assert.equal(resolveUiState(new TypeError("boom")), "error");
+    assert.equal(resolveUiState("a string"), "error");
+    assert.equal(resolveUiState(null), "error");
+    assert.equal(resolveUiState(undefined), "error");
+  });
+});
+
+describe("error taxonomy", () => {
+  it("pins the status and code together so neither is retyped at a throw site", () => {
+    assert.equal(new PermissionError().statusCode, 403);
+    assert.equal(new PermissionError().code, "FORBIDDEN");
+    assert.equal(new RateLimitError().statusCode, 429);
+    assert.equal(new AuthError().statusCode, 401);
+    assert.equal(new NotFoundError().statusCode, 404);
+    assert.equal(new ConflictError().statusCode, 409);
+    assert.equal(new ValidationError().statusCode, 400);
+    assert.equal(new ServerError().statusCode, 500);
+  });
+
+  it("keeps every subclass an AppError, so existing catch blocks still match", () => {
+    for (const error of [
+      new ValidationError(), new AuthError(), new PermissionError(),
+      new NotFoundError(), new ConflictError(), new RateLimitError(), new ServerError(),
+    ]) {
+      assert.ok(error instanceof AppError, `${error.name} must extend AppError`);
+      assert.ok(isAppError(error));
+    }
+  });
+
+  it("carries retryAfterSeconds, the one thing a retry button cannot substitute for", () => {
+    assert.equal(new RateLimitError("slow down", 30).retryAfterSeconds, 30);
+  });
+
+  it("isAppError rejects non-errors rather than throwing on them", () => {
+    assert.equal(isAppError(null), false);
+    assert.equal(isAppError({ code: "FORBIDDEN" }), false);
+    assert.equal(isAppError(new TypeError("x")), false);
+  });
+});
