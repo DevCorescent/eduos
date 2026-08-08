@@ -45,7 +45,7 @@ export default async function StudentCertificatesPage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your certificates" description={result.error} />
+        <ErrorState title="Certificate service is currently unavailable" description={result.error} />
       </>
     );
   }

@@ -56,7 +56,7 @@ export default async function StudentProfilePage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your profile" description={result.error} />
+        <ErrorState title="Profile service is currently unavailable" description={result.error} />
       </>
     );
   }

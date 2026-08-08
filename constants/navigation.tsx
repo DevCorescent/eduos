@@ -16,6 +16,7 @@
 
 import {
   Award,
+  Bell,
   BookOpen,
   Building2,
   CalendarDays,
@@ -211,12 +212,14 @@ export const STUDENT_NAV: NavGroup[] = [
       { label: "Dashboard", href: "/student/dashboard", icon: <LayoutDashboard className={iconClass} /> },
       { label: "My Profile", href: "/student/profile", icon: <UserRound className={iconClass} /> },
       { label: "My Attendance", href: "/student/attendance", icon: <ClipboardCheck className={iconClass} /> },
+      { label: "Timetable", href: "/student/timetable", icon: <CalendarDays className={iconClass} /> },
       { label: "Assignments", href: "/student/assignments", icon: <FileText className={iconClass} /> },
       { label: "Results", href: "/student/results", icon: <GraduationCap className={iconClass} /> },
       { label: "Transcript", href: "/student/transcript", icon: <ScrollText className={iconClass} /> },
       { label: "Open Electives", href: "/student/electives", icon: <Library className={iconClass} /> },
       { label: "Fees", href: "/student/fees", icon: <Receipt className={iconClass} /> },
       { label: "Certificates", href: "/student/certificates", icon: <Award className={iconClass} /> },
+      { label: "Notifications", href: "/student/notifications", icon: <Bell className={iconClass} /> },
     ],
   },
 ];
@@ -309,6 +312,7 @@ export const NAV_LABELS: Record<string, string> = {
   electives: "Open Electives",
   feedback: "Faculty Feedback",
   profile: "Profile",
+  notifications: "Notifications",
   admins: "Administrators",
   "feature-flags": "Feature Flags",
 };

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Card } from "@/components/ui/Card";
+import { UnavailableState } from "@/components/shared/UnavailableState";
 
 /**
  * A dashboard panel whose data the backend cannot yet supply.
@@ -44,13 +45,10 @@ export function UnavailablePanel({
         </div>
       }
     >
-      <div className="flex flex-col items-center gap-3 py-6 text-center">
-        <span className="flex size-11 items-center justify-center rounded-full bg-neutral-100 text-neutral-500">
-          {icon}
-        </span>
-        <p className="text-sm font-medium text-foreground">Not yet available</p>
-        <p className="max-w-xs text-xs leading-5 text-muted-foreground">{reason}</p>
-      </div>
+      {/* Delegates to the shared third state so every "not built yet" panel in
+          the product reads identically — see UnavailableState for why this is a
+          distinct state rather than an empty one. */}
+      <UnavailableState title="Not yet available" description={reason} icon={icon} />
     </Card>
   );
 }

@@ -5,7 +5,15 @@ import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface ErrorStateProps {
-  /** Headline. @default "Something went wrong" */
+  /**
+ * THE SECOND STATE: the request failed and retrying is reasonable.
+ *
+ * Distinct from EmptyState (the request succeeded and the answer is zero) and
+ * from UnavailableState (there is no request to make, because the capability is
+ * not built). See UnavailableState for the full three-way distinction and why
+ * it matters. Copy here should describe a SERVICE that is unavailable, never
+ * data that is absent.
+ * Headline. @default "Something went wrong" */
   title?: string;
   /** The API's own message — `error` from the failure envelope. */
   description?: string;

@@ -40,7 +40,7 @@ export default async function StudentFeesPage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your fees" description={demandsResult.error} />
+        <ErrorState title="Fee service is currently unavailable" description={demandsResult.error} />
       </>
     );
   }

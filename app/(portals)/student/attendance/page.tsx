@@ -42,7 +42,7 @@ export default async function StudentAttendancePage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your attendance" description={result.error} />
+        <ErrorState title="Attendance service is currently unavailable" description={result.error} />
       </>
     );
   }

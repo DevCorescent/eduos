@@ -34,7 +34,7 @@ export default async function StudentTranscriptPage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your transcript" description={result.error} />
+        <ErrorState title="Transcript service is currently unavailable" description={result.error} />
       </>
     );
   }
