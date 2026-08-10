@@ -513,3 +513,17 @@ export async function listTenantProgrammes(
     `/api/platform/tenants/${tenantId}/programmes`
   );
 }
+
+/** A university's batches. §8.5 "Assigns programme and batch". Read-only. */
+export interface TenantBatch {
+  id: string;
+  code: string;
+  name: string;
+  programmeId: string;
+}
+
+export async function listTenantBatches(
+  tenantId: string
+): Promise<ApiResponse<{ batches: TenantBatch[] }>> {
+  return apiRequest<{ batches: TenantBatch[] }>(`/api/platform/tenants/${tenantId}/batches`);
+}

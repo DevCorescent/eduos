@@ -1295,6 +1295,80 @@ existing `/platform/tenants/[id]/domains` screen is the intended path.
 
 ---
 
+## W3 — Admissions (PRD §8, §49.2)
+
+### TD-W3-1 — §49.2 permits no skipping or reversing; the PRD is silent
+**Severity:** Low — a recorded reading, not a defect
+**What:** Transitions advance by EXACTLY one stage. §49.2 gives an ordered chain
+and says nothing about skipping, reversing, rejecting or withdrawing.
+**Why:** the simplest rule that cannot silently lose a step. A richer state
+machine — rejection, waitlisting, re-entry — would be inventing statuses §8
+never defines.
+**Fix:** if the product wants rejection/withdrawal, §8.4 "Withdrawal and
+cancellation" needs defining first.
+
+### TD-W3-2 — §8.5 conversion implements 5 of its 12 items
+**Severity:** Medium
+**Implemented:** creates student profile · generates student ID · generates
+enrolment number · assigns programme and batch · creates portal credentials.
+**NOT implemented, each for a stated reason:** assigns courses (no allocation
+rule defined) · generates fee plan (no rule; and see TD-W3-3) · assigns mentor
+(no rule) · assigns hostel and transport (§27/§28 unbuilt, no models) ·
+generates digital ID card (no model) · creates university email "through
+integration" (no integration defined) · sends onboarding communication (no mail
+transport).
+
+### TD-W3-3 — Admissions payments not built
+**Severity:** Medium — same root cause as TD-W2-1
+**What:** §8.2 "Application fee payment" and §8.4 "Admission fee collection",
+"Refund processing" are absent. The FEE_PAYMENT stage records that the step
+happened; it takes no money.
+**Why:** no gateway, provider, webhook or reconciliation behaviour is defined.
+
+### TD-W3-4 — Applicant portal and applicant authentication are blocked
+**Severity:** High for §8.2 completeness
+**What:** §8.2's online application implies an applicant-facing surface
+("Save and resume", "Mobile-friendly application", "Applicant signature"), and
+§4.2 names "Applicant" as a role. None is built.
+**Why:** the PRD defines no applicant authentication — no signup, no credential
+provisioning, no OTP or magic-link flow — and `constants/roles.ts` has no
+APPLICANT role. Inventing a session model for people outside the tenant is the
+one thing W3 was told not to do.
+**Fix:** define applicant authentication, then the portal is a thin surface over
+the existing Application model.
+
+### TD-W3-5 — §8.1 leads, §8.3 verification and §8.4 selection are unimplemented
+**Severity:** Medium — scope boundary
+**What:** Lead scoring, campaign tracking, counselling appointments, nurturing
+automation (§8.1); OCR, identity/government-ID verification, blacklist, fraud
+indicators, maker-checker, document rejection/re-upload (§8.3); merit lists,
+entrance scoring, interview/GD scheduling, seat matrix, category and campus
+allocation, waitlist, offer-letter generation, withdrawal, refunds (§8.4).
+**Why:** each names a capability with no algorithm, no model or no defined
+workflow. Document work is additionally blocked by the absence of object
+storage (TD-W15-4).
+
+### TD-W3-6 — Admissions is platform-side only; §57 places it under University Administration
+**Severity:** Medium — recorded rather than resolved silently
+**What:** The approved page paths are `/platform/tenants/[id]/admissions`, so
+the APIs are guarded by `requirePlatformAdmin()` and a university's own staff
+cannot reach them. PRD §57 lists "Admissions" under University Administration,
+which implies a tenant-side surface as well.
+**Why not both:** building two surfaces over one model now would be duplicate
+architecture. The platform paths were the explicit instruction.
+**Fix:** a tenant-side surface guarded by `requireRole` + `requireTenant` over
+the same service, if the product wants university staff to run admissions.
+
+### TD-W3-7 — Guardian information does not become a Parent record
+**Severity:** Low
+**What:** §8.2's guardian fields are stored on the Application. Conversion does
+not create a `Parent` row or a `StudentParent` link.
+**Why:** §8.5 enumerates what conversion creates and a parent record is not on
+the list. Creating one — and deciding whether it gets a portal account (W2) —
+would be inventing a step.
+
+---
+
 ## W2 — Parent Portal (PRD §32)
 
 ### TD-W2-1 — Online payments not built

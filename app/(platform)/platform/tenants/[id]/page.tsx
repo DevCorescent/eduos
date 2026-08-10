@@ -92,6 +92,13 @@ export default async function TenantDetailPage({ params }: { params: Params }) {
           <div className="flex items-center gap-3">
             {/* W1.6 · PRD §5.1 #14. Reached from the university it imports into,
                 so the target tenant is the URL rather than a form field. */}
+            {/* W3 · PRD §8. Scoped to this university by the URL. */}
+            <Link
+              href={`/platform/tenants/${tenant.id}/admissions`}
+              className={buttonStyles({ variant: "secondary", size: "sm" })}
+            >
+              Admissions
+            </Link>
             <Link
               href={`/platform/tenants/${tenant.id}/import`}
               className={buttonStyles({ variant: "secondary", size: "sm" })}
