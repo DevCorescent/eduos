@@ -17,7 +17,9 @@
 import {
   Award,
   Bell,
+  BookMarked,
   BookOpen,
+  Briefcase,
   Building2,
   CalendarDays,
   CalendarRange,
@@ -26,16 +28,20 @@ import {
   CreditCard,
   FileText,
   Flag,
+  Globe,
   GraduationCap,
   Hash,
   LayoutDashboard,
   Library,
+  LifeBuoy,
   MessageSquare,
+  PlayCircle,
   Receipt,
   School,
   ScrollText,
   Settings,
   ShieldCheck,
+  Sparkles,
   SlidersHorizontal,
   UserCog,
   UserRound,
@@ -80,6 +86,9 @@ export const PLATFORM_NAV: NavGroup[] = [
       { label: "Platform Users", href: "/platform/users", icon: <ShieldCheck className={iconClass} /> },
       { label: "Subscriptions", href: "/platform/subscriptions", icon: <CreditCard className={iconClass} /> },
       { label: "Feature Flags", href: "/platform/feature-flags", icon: <Flag className={iconClass} /> },
+      // W4 — PRD §7. The default landing template every new university starts
+      // from, and a per-institution page editor behind it.
+      { label: "Website CMS", href: "/platform/cms", icon: <Globe className={iconClass} /> },
     ],
   },
 ];
@@ -89,6 +98,14 @@ export const PLATFORM_NAV: NavGroup[] = [
 export const UNIVERSITY_NAV: NavGroup[] = [
   {
     items: [{ label: "Dashboard", href: "/dashboard", icon: <LayoutDashboard className={iconClass} /> }],
+  },
+  {
+    // W4 — PRD §7.3 and §57's "Website CMS" entry. UNIVERSITY_ADMIN only:
+    // the API is guarded by requireRole("UNIVERSITY_ADMIN"), and showing the
+    // link to a role that would be refused is a menu that lies.
+    items: [
+      { label: "Website", href: "/website", icon: <Globe className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+    ],
   },
   {
     label: "Setup",
@@ -260,19 +277,62 @@ export const PARENT_NAV: NavGroup[] = [
   },
 ];
 
+/**
+ * PRD §57 "Recommended Product Navigation → Student Portal", in the doc's own
+ * order, followed by the pages this product has that §57 does not name.
+ *
+ * WHY §57 IS FOLLOWED LITERALLY HERE AND NOT IN PARENT_NAV
+ *   §57 specifies a Student Portal menu and specifies no Parent Portal menu at
+ *   all. Where the doc names an order, the order is the specification: a
+ *   student moving between two institutions on this platform should find the
+ *   same menu in the same sequence, and that only holds if the sequence comes
+ *   from the document rather than from whichever page was built first.
+ *
+ * SEVEN OF THESE SIXTEEN LEAD TO A STUB, DELIBERATELY
+ *   My Programme, Learning, Examinations, Library, Placements, Events, Support
+ *   and AI Assistant have no model and no API — §14, §26, §29, §34, §38 and
+ *   §40 are all NOT_STARTED. Their pages render UnavailableState, which says
+ *   the capability is not built rather than pretending the data is empty.
+ *
+ *   This is the one place in this file where a nav entry may lead to a screen
+ *   the backend cannot fill, and it is a different decision from PARENT_NAV's
+ *   above. The reason is that this menu is a specified shape: an institution
+ *   evaluating the product is being shown the portal §57 describes, and the
+ *   honest way to show an unbuilt module is to name it as unbuilt — not to
+ *   omit it and let the shape look smaller than the roadmap.
+ *
+ * THE SECOND GROUP IS WHAT §57 OMITS
+ *   Transcript, Open Electives and Notifications are working, shipped pages
+ *   that §57's list does not contain. Dropping them to match the doc exactly
+ *   would hide delivered functionality behind a specification, so they keep
+ *   their links under a heading that makes clear they sit outside the §57 set.
+ */
 export const STUDENT_NAV: NavGroup[] = [
   {
     items: [
-      { label: "Dashboard", href: "/student/dashboard", icon: <LayoutDashboard className={iconClass} /> },
-      { label: "My Profile", href: "/student/profile", icon: <UserRound className={iconClass} /> },
-      { label: "My Attendance", href: "/student/attendance", icon: <ClipboardCheck className={iconClass} /> },
+      { label: "Home", href: "/student/dashboard", icon: <LayoutDashboard className={iconClass} /> },
+      { label: "My Programme", href: "/student/programme", icon: <BookOpen className={iconClass} /> },
+      { label: "Learning", href: "/student/learning", icon: <PlayCircle className={iconClass} /> },
       { label: "Timetable", href: "/student/timetable", icon: <CalendarDays className={iconClass} /> },
+      { label: "Attendance", href: "/student/attendance", icon: <ClipboardCheck className={iconClass} /> },
       { label: "Assignments", href: "/student/assignments", icon: <FileText className={iconClass} /> },
+      { label: "Examinations", href: "/student/examinations", icon: <ClipboardList className={iconClass} /> },
       { label: "Results", href: "/student/results", icon: <GraduationCap className={iconClass} /> },
-      { label: "Transcript", href: "/student/transcript", icon: <ScrollText className={iconClass} /> },
-      { label: "Open Electives", href: "/student/electives", icon: <Library className={iconClass} /> },
       { label: "Fees", href: "/student/fees", icon: <Receipt className={iconClass} /> },
       { label: "Certificates", href: "/student/certificates", icon: <Award className={iconClass} /> },
+      { label: "Library", href: "/student/library", icon: <Library className={iconClass} /> },
+      { label: "Placements", href: "/student/placements", icon: <Briefcase className={iconClass} /> },
+      { label: "Events", href: "/student/events", icon: <CalendarRange className={iconClass} /> },
+      { label: "Support", href: "/student/support", icon: <LifeBuoy className={iconClass} /> },
+      { label: "AI Assistant", href: "/student/ai-assistant", icon: <Sparkles className={iconClass} /> },
+      { label: "Profile", href: "/student/profile", icon: <UserRound className={iconClass} /> },
+    ],
+  },
+  {
+    label: "More",
+    items: [
+      { label: "Transcript", href: "/student/transcript", icon: <ScrollText className={iconClass} /> },
+      { label: "Open Electives", href: "/student/electives", icon: <BookMarked className={iconClass} /> },
       { label: "Notifications", href: "/notifications", icon: <Bell className={iconClass} /> },
     ],
   },
@@ -369,6 +429,20 @@ export const NAV_LABELS: Record<string, string> = {
   notifications: "Notifications",
   admins: "Administrators",
   "feature-flags": "Feature Flags",
+  cms: "Website CMS",
+  website: "Website",
+
+  // The §57 student segments. Present here even for the stubs, because the
+  // breadcrumb resolves a URL segment whether or not the page behind it has a
+  // backend — an absent entry leaves "ai-assistant" in the trail.
+  programme: "My Programme",
+  learning: "Learning",
+  examinations: "Examinations",
+  library: "Library",
+  placements: "Placements",
+  events: "Events",
+  support: "Support",
+  "ai-assistant": "AI Assistant",
 };
 
 /** Every role permitted into the university portal, re-exported for layouts. */

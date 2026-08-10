@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="eduOS">
+  <!--
+    The product mark, replacing Next.js's stock favicon.ico.
+
+    WHY app/icon.svg AND NOT A REPLACEMENT favicon.ico
+      This is the PLATFORM's fallback icon, used at the platform root and for
+      any tenant that has not set one. A tenant that HAS set faviconUrl gets
+      theirs instead, injected per request by generateMetadata in app/layout.tsx
+      (PRD §5.2 "Custom favicon and social preview") — so this file is only ever
+      the default, never an override of a university's own branding.
+
+      SVG rather than .ico so the mark stays sharp at every size and can be
+      edited as text.
+
+    The glyph is lucide's graduation-cap, the same mark the sidebar and the
+    login screen render, so the browser tab agrees with the page it belongs to.
+  -->
+  <rect width="64" height="64" rx="14" fill="#75a87b"/>
+  <g transform="translate(8 8) scale(2)" fill="none" stroke="#ffffff" stroke-width="2"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/>
+    <path d="M22 10v6"/>
+    <path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>
+  </g>
+</svg>
