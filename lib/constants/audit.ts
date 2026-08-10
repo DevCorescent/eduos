@@ -54,6 +54,14 @@ export const AUDIT_ACTIONS = {
   DOMAIN_REMOVED: "DOMAIN_REMOVED",
   BRANDING_UPDATED: "BRANDING_UPDATED",
 
+  // §47 "Data change logs" — W4. Publishing is the moment an institution's
+  // PUBLIC statement changes, which is a different class of event from saving a
+  // draft: only the publish is recorded, because only the publish is visible
+  // outside the university.
+  CMS_PAGE_PUBLISHED: "CMS_PAGE_PUBLISHED",
+  CMS_PAGE_UNPUBLISHED: "CMS_PAGE_UNPUBLISHED",
+  CMS_SITE_UPDATED: "CMS_SITE_UPDATED",
+
   // §47 "Login logs" — W1.4. A credential change belongs with the session
   // events rather than with data changes: what it alters is who can sign in,
   // and it is the event an investigator correlates a suspicious login against.
@@ -88,6 +96,10 @@ export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 /** The resource an action acted on. Stored in AuditLog.resource. */
 export const AUDIT_RESOURCES = {
   SESSION: "SESSION",
+  // W4 — the public website. CMS_PAGE covers the landing page and its versions;
+  // CMS_SITE is the header and footer around it.
+  CMS_PAGE: "CMS_PAGE",
+  CMS_SITE: "CMS_SITE",
   USER: "USER",
   ROLE: "ROLE",
   USER_ROLE: "USER_ROLE",
