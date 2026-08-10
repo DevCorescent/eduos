@@ -22,6 +22,7 @@ import {
   CalendarDays,
   CalendarRange,
   ClipboardCheck,
+  ClipboardList,
   CreditCard,
   FileText,
   Flag,
@@ -109,6 +110,15 @@ export const UNIVERSITY_NAV: NavGroup[] = [
   {
     label: "People",
     items: [
+      // TD-W3-6 · PRD §57 lists Admissions under University Administration.
+      // Restricted to the tenant's own administrators, matching the API guard —
+      // this only hides a link nobody else could follow.
+      {
+        label: "Admissions",
+        href: "/admissions",
+        icon: <ClipboardList className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN],
+      },
       { label: "Students", href: "/students", icon: <Users className={iconClass} /> },
       { label: "Faculty", href: "/faculty", icon: <UserCog className={iconClass} /> },
       { label: "Employees", href: "/employees", icon: <Users className={iconClass} /> },

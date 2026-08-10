@@ -284,3 +284,50 @@ describe("applicationIdParamSchema", () => {
     assert.equal(applicationIdParamSchema.safeParse({ applicationId: "  " }).success, false);
   });
 });
+
+describe("TD-W3-6 — two surfaces, one service", () => {
+  it("shares the stage vocabulary between both surfaces", () => {
+    // The tenant routes call the SAME advanceStage service, so the twelve
+    // stages and their order are defined once. If a second workflow ever
+    // appeared, this list would be the thing that drifted.
+    assert.equal(ADMISSION_STAGES.length, 12);
+    assert.equal(ADMISSION_STAGES[0], "LEAD");
+    assert.equal(ADMISSION_STAGES[ADMISSION_STAGES.length - 1], "PORTAL_ACTIVATION");
+  });
+
+  it("accepts no tenantId on ANY admissions schema", () => {
+    // The platform surface takes the tenant from its route segment and the
+    // university surface from the authenticated session. Neither reads a body,
+    // so no schema may define one — this is what makes "never trust a tenantId
+    // from the client" structural rather than a rule per route.
+    assert.equal(
+      createApplicationSchema.safeParse({ ...VALID, tenantId: "other" }).success,
+      false
+    );
+    assert.equal(updateApplicationSchema.safeParse({ tenantId: "other" }).success, false);
+    assert.equal(
+      advanceStageSchema.safeParse({ toStage: "COUNSELLING", tenantId: "other" }).success,
+      false
+    );
+    assert.equal(
+      convertApplicationSchema.safeParse({ programmeId: "p", batchId: "b", tenantId: "other" })
+        .success,
+      false
+    );
+  });
+
+  it("keeps identifier and conversion inputs server-owned on both surfaces", () => {
+    // Same schemas back both routes, so neither surface can be talked into
+    // accepting a chosen application number, stage or enrolment number.
+    assert.equal(
+      createApplicationSchema.safeParse({ ...VALID, applicationNo: "X" }).success,
+      false
+    );
+    assert.equal(createApplicationSchema.safeParse({ ...VALID, stage: "OFFER_LETTER" }).success, false);
+    assert.equal(
+      convertApplicationSchema.safeParse({ programmeId: "p", batchId: "b", enrollmentNo: "E1" })
+        .success,
+      false
+    );
+  });
+});

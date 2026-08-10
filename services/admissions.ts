@@ -147,3 +147,57 @@ export async function convertApplication(
     body: input,
   });
 }
+
+// --- Tenant-scoped surface (TD-W3-6, PRD §57) --------------------------------
+//
+// The SAME service and workflow as the platform functions above, reached
+// through the university's own guard. The tenant is the authenticated session's
+// and appears in no path and no body, so none of these takes a tenantId.
+
+const mine = "/api/admissions";
+
+export async function listMyApplications(
+  params?: ListParams
+): Promise<ApiResponse<ApplicationPage>> {
+  return apiRequest<ApplicationPage>(mine, { params });
+}
+
+export async function getMyApplication(
+  applicationId: string
+): Promise<ApiResponse<Application>> {
+  return apiRequest<Application>(`${mine}/${applicationId}`);
+}
+
+export async function createMyApplication(
+  input: ApplicationInput
+): Promise<ApiResponse<Application>> {
+  return apiRequest<Application>(mine, { method: "POST", body: input });
+}
+
+export async function updateMyApplication(
+  applicationId: string,
+  input: Partial<ApplicationInput>
+): Promise<ApiResponse<Application>> {
+  return apiRequest<Application>(`${mine}/${applicationId}`, { method: "PATCH", body: input });
+}
+
+export async function advanceMyStage(
+  applicationId: string,
+  toStage: AdmissionStageName,
+  note?: string
+): Promise<ApiResponse<Application>> {
+  return apiRequest<Application>(`${mine}/${applicationId}/stage`, {
+    method: "POST",
+    body: { toStage, ...(note ? { note } : {}) },
+  });
+}
+
+export async function convertMyApplication(
+  applicationId: string,
+  input: { programmeId: string; batchId: string; admissionDate?: string }
+): Promise<ApiResponse<ConversionResult>> {
+  return apiRequest<ConversionResult>(`${mine}/${applicationId}/convert`, {
+    method: "POST",
+    body: input,
+  });
+}

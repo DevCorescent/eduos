@@ -1348,6 +1348,197 @@ allocation, waitlist, offer-letter generation, withdrawal, refunds (§8.4).
 workflow. Document work is additionally blocked by the absence of object
 storage (TD-W15-4).
 
+### TD-W3-6 — RESOLVED: Admissions is now reachable from both surfaces
+**Severity:** was Medium · now closed
+**What was wrong:** the approved page paths put Admissions inside the platform
+portal, guarded by `requirePlatformAdmin()`, so a university's own staff could
+not run admissions at all — while PRD §57 lists "Admissions" under University
+Administration.
+**Resolution:** tenant-scoped routes at `/api/admissions` guarded by
+`requireRole("UNIVERSITY_ADMIN")` + `requireTenant()`, and a university-side UI
+at `/admissions`. They call the SAME `admission.service` functions — one
+`Application` model, one §49.2 stage machine, one identifier path, one
+conversion transaction, one set of Zod schemas. Nothing was duplicated below the
+route layer, and the platform routes were not touched.
+**Tenant source:** the platform surface takes it from its route segment; the
+university surface from `requireTenant()`, which compares the request host
+against the token's own tenant. No admissions schema defines `tenantId`, so
+neither surface can be told which university to act on.
+**Verified live:** university admin ran create → patch → 9 stage advances →
+convert → student sign-in; the platform surface created an application in the
+same tenant and both were visible to the university admin. Cross-tenant read,
+patch and stage-advance from the other university all answered 404, and a token
+used against the wrong host answered 403.
+**Residual:** the two route files per operation share no code — the guard, parse
+and envelope are written twice. The service beneath them is single, so a
+behaviour change lands in one place; only the HTTP plumbing could drift.
+
+### TD-W3-7 — Node `fetch` cannot set a Host header (testing note)
+**Severity:** Informational
+**What:** `Host` is a forbidden header name in undici, so `fetch` silently drops it. A probe using it produced false 200s that briefly looked like a tenant-isolation failure.
+**Fix:** Use `curl -H "Host: …"` for any host-dependent test. Recorded so the next person does not repeat it.
+
+---
+
+## W1.3 — Platform Users
+
+### TD-W13-1 — Platform user changes are not written to `AuditLog`
+**Severity:** Medium — the events are recorded, but not queryably
+**What:** Creating, updating, activating, deactivating and password-resetting a
+platform operator are logged with `console.warn` (`[platform-users] …`, actor id
++ subject id + verb) rather than to `AuditLog`. Platform authentication already
+does the same for the same reason.
+**Why not fixed:** `AuditLog.tenantId` is required and foreign-keyed to `Tenant`,
+so a platform event has nowhere of its own to live. Writing it against an
+arbitrary tenant would file platform activity inside a university's readable
+audit trail — worse than not recording it, because that university could read
+who operates the platform.
+**Fix:** Make `AuditLog.tenantId` nullable and add a platform-scoped read path.
+That is a change to a table eleven modules already write to, so it belongs in
+its own reviewed work package rather than being smuggled in beside a user list.
+
+### TD-W13-2 — A temporary password is handed over in-band
+**Severity:** Medium
+**What:** `POST /api/platform/users` and `POST /api/platform/users/[id]/reset-password`
+return the generated plaintext once, in the response body, to the authenticated
+`PLATFORM_ADMIN` who made the call. The creating operator therefore knows the
+new operator's first password.
+**Why not fixed:** There is no mail transport anywhere in this codebase. The
+alternative is a token-and-link flow needing a new table, an expiry sweep and a
+delivery channel that does not exist — which is the invitation system W1.3
+explicitly says not to invent. The exposure is bounded: only the hash is stored,
+`mustChangePassword` is set, and `requirePlatformAdmin` refuses every request
+from that account until its owner replaces the password, so the shared secret
+buys exactly one sign-in.
+**Fix:** Once a mail layer exists, send a single-use setup link instead and stop
+returning the plaintext. The `mustChangePassword` column and the
+`/super-admin/change-password` route are reused unchanged by that flow.
+
+### TD-W13-3 — Platform sessions are not revoked on deactivation or reset
+**Severity:** Low
+**What:** Deactivating an operator or resetting their password does not
+invalidate an already-issued platform JWT; the token stays syntactically valid
+until it expires.
+**Why not fixed:** It does not need to be. `requirePlatformAdmin` re-reads
+`isActive` and `mustChangePassword` from the database on every request, so the
+token grants nothing from the next request onward — and the platform token's TTL
+is one hour. A revocation list would add state to a stateless session for a
+window the guard already closes.
+**Fix:** Only if platform tokens are ever given a long lifetime, in which case a
+`tokenVersion` column on `PlatformUser` compared in the guard is the cheap
+option.
+
+---
+
+## W1.4 — University Provisioning
+
+### TD-W14-1 — Provisioning events are not written to `AuditLog`
+**Severity:** Medium
+**What:** Creating a university, provisioning its first administrator and changing
+its status are logged with `console.warn` (`[provisioning] …`, actor id + tenant
+id + subject id) rather than to `AuditLog`.
+**Why not fixed:** This is a closer call than TD-W13-1, because a tenant DOES
+exist and `AuditLog.tenantId` could be satisfied. It is still declined:
+`AuditLog` is the university's own trail, readable by that university's admins
+through `/governance/audit`, and "the platform created your administrator
+account" is a platform act about a tenant rather than a tenant act. Filing it
+there would also expose platform-operator ids in the actor column to the tenant.
+**Fix:** The same fix as TD-W13-1 — a platform-scoped audit path, which needs
+`AuditLog.tenantId` to become nullable. W1.4's instruction not to build
+platform-wide audit access is consistent with deferring it.
+
+### TD-W14-2 — The forced-change redirect covers the university portal only
+**Severity:** Low
+**What:** `mustChangePassword` is enforced for EVERY tenant API by `requireAuth`,
+which is the control. The convenience redirect that sends a user to
+`/change-password` instead of a console full of 403s exists in the login form and
+in `app/(university)/layout.tsx`, but not in the faculty, student or account
+layouts.
+**Why not fixed:** W1.4 provisions exactly one kind of account — a
+UNIVERSITY_ADMIN — and no W1.4 path sets the flag on a faculty member, student or
+parent. Adding the read to three more layouts today would be three more
+per-navigation queries guarding a state nothing can currently produce.
+**Fix:** When bulk user import (W1.6) starts issuing generated passwords to
+faculty and students, lift the check into a shared portal guard rather than
+copying it into each layout.
+
+### TD-W14-3 — No email delivery for provisioned credentials
+**Severity:** Medium — same root cause as TD-W13-2
+**What:** The initial University Admin's password is returned once in the
+provisioning response and handed over out of band by the platform operator.
+**Why not fixed:** There is no mail transport in this codebase. The exposure is
+bounded: only the bcrypt hash is stored, `mustChangePassword` is set, and
+`requireAuth` refuses every tenant API until the owner replaces it — so the
+credential buys exactly one sign-in.
+**Fix:** Once a mail layer exists, send a single-use setup link instead. The
+`User.mustChangePassword` column and `POST /api/auth/change-password` are reused
+unchanged by that flow.
+
+### TD-W14-4 — Provisioning does not create a `Domain` row
+**Severity:** None — recorded so the absence is not read as an oversight
+**What:** A provisioned university reaches its console at
+`<slug>.<root-domain>` through the platform-subdomain path in
+`lib/services/tenant.ts`, which needs no `Domain` row. None is written.
+**Why:** `Domain` is for a CUSTOM hostname an institution proves it controls, and
+an unverified row does not resolve. Writing one at provisioning time would put a
+non-functioning domain on the tenant's domains screen that nobody asked for. The
+existing `/platform/tenants/[id]/domains` screen is the intended path.
+
+---
+
+## W3 — Admissions (PRD §8, §49.2)
+
+### TD-W3-1 — §49.2 permits no skipping or reversing; the PRD is silent
+**Severity:** Low — a recorded reading, not a defect
+**What:** Transitions advance by EXACTLY one stage. §49.2 gives an ordered chain
+and says nothing about skipping, reversing, rejecting or withdrawing.
+**Why:** the simplest rule that cannot silently lose a step. A richer state
+machine — rejection, waitlisting, re-entry — would be inventing statuses §8
+never defines.
+**Fix:** if the product wants rejection/withdrawal, §8.4 "Withdrawal and
+cancellation" needs defining first.
+
+### TD-W3-2 — §8.5 conversion implements 5 of its 12 items
+**Severity:** Medium
+**Implemented:** creates student profile · generates student ID · generates
+enrolment number · assigns programme and batch · creates portal credentials.
+**NOT implemented, each for a stated reason:** assigns courses (no allocation
+rule defined) · generates fee plan (no rule; and see TD-W3-3) · assigns mentor
+(no rule) · assigns hostel and transport (§27/§28 unbuilt, no models) ·
+generates digital ID card (no model) · creates university email "through
+integration" (no integration defined) · sends onboarding communication (no mail
+transport).
+
+### TD-W3-3 — Admissions payments not built
+**Severity:** Medium — same root cause as TD-W2-1
+**What:** §8.2 "Application fee payment" and §8.4 "Admission fee collection",
+"Refund processing" are absent. The FEE_PAYMENT stage records that the step
+happened; it takes no money.
+**Why:** no gateway, provider, webhook or reconciliation behaviour is defined.
+
+### TD-W3-4 — Applicant portal and applicant authentication are blocked
+**Severity:** High for §8.2 completeness
+**What:** §8.2's online application implies an applicant-facing surface
+("Save and resume", "Mobile-friendly application", "Applicant signature"), and
+§4.2 names "Applicant" as a role. None is built.
+**Why:** the PRD defines no applicant authentication — no signup, no credential
+provisioning, no OTP or magic-link flow — and `constants/roles.ts` has no
+APPLICANT role. Inventing a session model for people outside the tenant is the
+one thing W3 was told not to do.
+**Fix:** define applicant authentication, then the portal is a thin surface over
+the existing Application model.
+
+### TD-W3-5 — §8.1 leads, §8.3 verification and §8.4 selection are unimplemented
+**Severity:** Medium — scope boundary
+**What:** Lead scoring, campaign tracking, counselling appointments, nurturing
+automation (§8.1); OCR, identity/government-ID verification, blacklist, fraud
+indicators, maker-checker, document rejection/re-upload (§8.3); merit lists,
+entrance scoring, interview/GD scheduling, seat matrix, category and campus
+allocation, waitlist, offer-letter generation, withdrawal, refunds (§8.4).
+**Why:** each names a capability with no algorithm, no model or no defined
+workflow. Document work is additionally blocked by the absence of object
+storage (TD-W15-4).
+
 ### TD-W3-6 — Admissions is platform-side only; §57 places it under University Administration
 **Severity:** Medium — recorded rather than resolved silently
 **What:** The approved page paths are `/platform/tenants/[id]/admissions`, so
