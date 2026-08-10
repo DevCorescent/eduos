@@ -27,6 +27,28 @@ model Tenant {
   accreditationNo   String?
   establishedYear   Int?
   settings          Json?
+
+  /// PRD §5.1 "Assign support manager" — the platform operator who owns this
+  /// university's onboarding and support.
+  ///
+  /// A nullable FK to PlatformUser rather than a free-text name: the support
+  /// manager is an EduOS operator, and PlatformUser is where operators live.
+  /// §5.1 names the capability and defines no other field, so nothing else is
+  /// modelled here.
+  ///
+  /// onDelete: SetNull — an operator leaving the platform must not cascade
+  /// their universities away, and a dangling id would be worse than none.
+  supportManagerId  String?
+  supportManager    PlatformUser?         @relation("TenantSupportManager", fields: [supportManagerId], references: [id], onDelete: SetNull)
+
+  /// W1.5 — when the university was archived, and by which platform operator.
+  ///
+  /// Kept as their own columns rather than inferred from `status`, because
+  /// status can move away from ARCHIVED and the record of the archival should
+  /// survive that. Null while the university has never been archived.
+  archivedAt        DateTime?
+  archivedBy        String?
+
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   academicYears     AcademicYear[]
@@ -42,20 +64,115 @@ model Tenant {
   users             User[]
   evaluationSchemes EvaluationScheme[]
   gradeScales       GradeScale[]
+  onboardingSteps   TenantOnboardingStep[]
+  /// W3 — admission applications.
+  applications      Application[]
 
   @@index([slug])
   @@index([status])
+  @@index([supportManagerId])
+}
+
+/// PRD §49.1 — the University Onboarding Workflow, verbatim and in order.
+///
+/// These twelve values are the PRD's own arrow-chain, not a workflow invented
+/// here: "University Enquiry → Commercial Approval → Tenant Creation → Domain
+/// Configuration → Branding Configuration → Module Selection → Academic Setup
+/// → Data Import → User Creation → Training → UAT → Go Live".
+///
+/// They are what §5.1 "Track onboarding progress" tracks and what §5.1
+/// "University readiness checklist" lists. No stage is added, renamed or split.
+enum OnboardingStage {
+  UNIVERSITY_ENQUIRY
+  COMMERCIAL_APPROVAL
+  TENANT_CREATION
+  DOMAIN_CONFIGURATION
+  BRANDING_CONFIGURATION
+  MODULE_SELECTION
+  ACADEMIC_SETUP
+  DATA_IMPORT
+  USER_CREATION
+  TRAINING
+  UAT
+  GO_LIVE
+}
+
+/// One completed stage of one university's onboarding (PRD §5.1, §49.1).
+///
+/// WHY A ROW PER COMPLETED STAGE, NOT A POINTER ON Tenant
+///   A single `currentStage` column can express "we are at Academic Setup" but
+///   not the checklist §5.1 asks for: which stages are done, when, and by whom.
+///   It also cannot represent the real case where a later stage is finished
+///   before an earlier one — onboarding runs in parallel across teams, and the
+///   PRD's arrow-chain is the intended order, not a lock.
+///
+/// The composite primary key makes a stage completable exactly once per tenant,
+/// so "mark complete" is idempotent at the database rather than in a service.
+///
+/// This is the ONLY new model in W1.5. Every other §5.1 capability is written
+/// against Tenant, Subscription, Domain, Campus, School, AcademicYear or User,
+/// which already exist.
+model TenantOnboardingStep {
+  tenantId String
+  stage    OnboardingStage
+
+  completedAt DateTime @default(now())
+
+  /// The PlatformUser who marked it. No FK: an operator who later leaves the
+  /// platform must not take the onboarding record with them, and this column is
+  /// evidence rather than a relation anything traverses.
+  completedBy String?
+
+  /// PRD §55 Stage 3 "Reconciliation" — free-text context for a stage, such as
+  /// which records were reconciled. Optional and never required.
+  note String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, stage])
+  @@index([tenantId])
 }
 
 model Domain {
-  id        String     @id @default(cuid())
-  tenantId  String
-  domain    String     @unique
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// The hostname, ALWAYS stored normalised: lower-cased, no port, no trailing
+  /// dot. Resolution normalises the request host the same way and compares
+  /// exactly, so "AKTU.Eduos.com:3000" and "aktu.eduos.com." both find this row
+  /// and nothing else does. The global unique constraint is what stops one
+  /// hostname pointing at two tenants — the worst failure this table can have.
+  domain String @unique
+
   type      DomainType @default(SUBDOMAIN)
-  verified  Boolean    @default(false)
-  isPrimary Boolean    @default(false)
-  createdAt DateTime   @default(now())
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Whether the institution has proven control of this hostname.
+  ///
+  /// An unverified domain does NOT resolve — see resolveTenantByHost. PRD §5.2
+  /// asks for "Automated DNS verification" but names no mechanism, no token
+  /// format and no schedule, and this stack has no worker to poll with. So the
+  /// FLAG is honoured and the automation is deferred rather than guessed at;
+  /// today it is set by the platform operator. The column needs no change
+  /// whichever mechanism is chosen later.
+  verified Boolean @default(false)
+
+  /// A retired domain stops resolving without being deleted.
+  ///
+  /// Deleting is not the same thing: a removed row frees the hostname for
+  /// another tenant to claim, and any link still pointing at it would then
+  /// resolve to somebody else's institution.
+  isActive Boolean @default(true)
+
+  /// PRD §5.2 "Canonical domain configuration".
+  ///
+  /// At most one per tenant, enforced by the partial unique index below rather
+  /// than by application code — two canonical domains is a state no amount of
+  /// careful service logic can prevent under concurrency.
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([domain])
@@ -73,9 +190,26 @@ model Subscription {
   maxStudents   Int?
   maxFaculty    Int?
   maxStorage    BigInt?
+
+  /// PRD §5.1 "Set limits for users, storage and courses".
+  ///
+  /// Users and storage were already representable through maxStudents,
+  /// maxFaculty and maxStorage; courses had no column at all, so the third
+  /// limit the PRD names could not be set. Nullable like its siblings, and
+  /// nullable means "no limit" exactly as they do.
+  maxCourses    Int?
   features      Json?
   pricePerMonth Decimal?           @db.Decimal(10, 2)
   currency      String             @default("INR")
+
+  /// PRD §5.3 pricing basis. Defaults to FLAT_PLAN, which is what every row
+  /// created before W1.5 already was, so no stored subscription changes meaning.
+  pricingModel  PricingModel       @default(FLAT_PLAN)
+
+  /// PRD §5.3 "Auto-renewal management". A boolean is the whole of what the
+  /// PRD defines — it names the capability and no renewal window, no notice
+  /// period and no reminder schedule, so none is modelled.
+  autoRenew     Boolean            @default(true)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   invoices      PlatformInvoice[]
@@ -119,6 +253,22 @@ model User {
   avatarUrl    String?
   isActive     Boolean        @default(true)
   isVerified   Boolean        @default(false)
+
+  /// W1.4 — the account holds a password it did not choose.
+  ///
+  /// The tenant-side counterpart of PlatformUser.mustChangePassword, and
+  /// deliberately the same mechanism rather than a second one: an initial
+  /// University Admin provisioned by a platform operator is in exactly the
+  /// position a platform operator created by another one is — somebody else has
+  /// seen the plaintext, so it is a shared secret until its owner replaces it.
+  ///
+  /// requireAuth refuses every tenant API while this is set, so it is a gate
+  /// rather than a hint the UI may choose to honour. The single exception is
+  /// POST /api/auth/change-password, which is the act that clears it.
+  ///
+  /// Defaults to false so every pre-W1.4 user keeps working unchanged.
+  mustChangePassword Boolean @default(false)
+
   lastLoginAt  DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -126,6 +276,8 @@ model User {
   faculty      FacultyMember?
   sessions     Session[]
   student      Student?
+  /// W2 — back-relation for the parent portal. Emits no column on User.
+  parent       Parent?
   tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userRoles    UserRole[]
 
@@ -309,6 +461,8 @@ model Programme {
   updatedAt           DateTime             @updatedAt
   batches             Batch[]
   curricula           Curriculum[]
+  /// W3 — back-relation for admission programme preferences. Emits no column.
+  applicationPreferences ApplicationPreference[]
   department          Department           @relation(fields: [departmentId], references: [id])
   specialisations     Specialisation[]
   courseRegistrations CourseRegistration[]
@@ -532,6 +686,8 @@ model Student {
   personal            StudentPersonal?
   courseRegistrations CourseRegistration[]
   achievements        Achievement[]
+  /// W3 — the application this student was converted from, if any.
+  application         Application?
 
   openElectivePreferences OpenElectivePreference[]
   openElectiveAllocations OpenElectiveAllocation[]
@@ -586,6 +742,24 @@ model StudentDocument {
 model Parent {
   id           String          @id @default(cuid())
   tenantId     String
+
+  /// W2 — the sign-in account for this parent, when one has been created.
+  ///
+  /// NULLABLE because Parent has always been, and remains, a CONTACT record:
+  /// every row that exists today was created by POST /api/parents as guardian
+  /// information on a student, with no account behind it. Requiring a user
+  /// would invalidate all of them.
+  ///
+  /// UNIQUE because one account is one parent. It mirrors Student.userId,
+  /// FacultyMember.userId and Employee.userId exactly rather than introducing a
+  /// second way to attach a person to an account.
+  ///
+  /// This column is the ONLY source of truth for parent authorization. The
+  /// email column above is optional and not unique, so it can never be used to
+  /// decide who a signed-in parent is.
+  userId       String?         @unique
+  user         User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   firstName    String
   lastName     String
   email        String?
@@ -2480,19 +2654,146 @@ model AuditLog {
   after      Json?
   ipAddress  String?
   userAgent  String?
-  createdAt  DateTime @default(now())
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+
+  /// PRD 47 "Failed action logs".
+  ///
+  /// Without this column a refused action is indistinguishable from one that
+  /// never happened, and a rejected privilege escalation leaves no trace at
+  /// all — which is precisely the event an investigator is looking for. A
+  /// FAILURE row is written OUTSIDE the transaction that failed, because
+  /// anything written inside it rolls back with it.
+  status AuditStatus @default(SUCCESS)
+
+  /// Ties every entry produced by one request together.
+  ///
+  /// A single admission writes an identifier issue, a user creation and a
+  /// student creation. Without a shared handle an investigator reconstructing
+  /// that from timestamps alone has to guess which rows belong together, and
+  /// guesses wrong the moment two clerks work at once.
+  correlationId String?
+
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
   @@index([userId])
   @@index([resource, resourceId])
   @@index([createdAt])
+  /// The viewer's default read: one tenant, newest first.
+  @@index([tenantId, createdAt])
+  @@index([correlationId])
+}
+
+/// PRD 47 — whether the audited action succeeded.
+enum AuditStatus {
+  SUCCESS
+  FAILURE
+}
+
+/// ============================================================================
+/// PLATFORM IDENTITY (W1.2)
+///
+/// The EduOS platform's own operators. Deliberately SEPARATE from User/Role/
+/// UserRole, which are tenant-owned.
+///
+/// WHY A SECOND SET OF TABLES RATHER THAN A FLAG ON User
+///   Before W1.2, platform authority was a tenant Role named "SUPER_ADMIN".
+///   Role is @@unique([tenantId, name]) — a per-tenant row — and requireRole
+///   compared role NAMES taken from the JWT. So a university admin could grant
+///   themselves that role through the ordinary role-assignment API and read
+///   every tenant on the platform. Reproduced live in the W1.1 audit.
+///
+///   The vulnerability existed because platform authority was expressed as a
+///   value inside data that tenants are allowed to write. No amount of
+///   validation on that value fixes it: deny-listing the name leaves the next
+///   tenant free to mint its own, and an isSystem flag is still a tenant-owned
+///   column.
+///
+///   These tables carry NO tenantId. There is no column a tenant can write that
+///   grants membership, so the escalation is not blocked — it is unrepresentable.
+/// ============================================================================
+model PlatformUser {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  isActive     Boolean @default(true)
+
+  /// W1.3 — the account holds a password it did not choose.
+  ///
+  /// Set when an operator is created by another operator, and when their
+  /// password is reset for them: in both cases a second person has seen the
+  /// plaintext, so it is a shared secret until the owner replaces it. While
+  /// this is true the account can sign in and do exactly one thing — change its
+  /// password. requirePlatformAdmin refuses everything else, so the flag is an
+  /// actual gate rather than a hint the UI may choose to honour.
+  ///
+  /// Defaults to false so every pre-W1.3 row keeps working unchanged.
+  mustChangePassword Boolean @default(false)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  platformUserRoles PlatformUserRole[]
+
+  /// PRD §5.1 "Assign support manager". Back-relation only — emits no column on
+  /// PlatformUser; the FK lives on Tenant.
+  supportedTenants Tenant[] @relation("TenantSupportManager")
+
+  @@index([email])
+}
+
+/// A platform-level role. W1.2 defines exactly one: PLATFORM_ADMIN.
+///
+/// PRD §4.1 lists ~13 platform roles, but defines no permissions for any of
+/// them. Seeding twelve roles that grant nothing and gate nothing would be
+/// inventing an authorization model the PRD does not describe, so they are
+/// recorded as deferred until their semantics exist.
+model PlatformRole {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  platformUserRoles PlatformUserRole[]
+}
+
+/// Membership. Composite primary key, so a role cannot be granted twice.
+model PlatformUserRole {
+  platformUserId String
+  platformRoleId String
+  grantedAt      DateTime @default(now())
+
+  platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
+  platformRole PlatformRole @relation(fields: [platformRoleId], references: [id], onDelete: Cascade)
+
+  @@id([platformUserId, platformRoleId])
+  @@index([platformUserId])
 }
 
 model IdSequence {
-  id             String        @id @default(cuid())
-  tenantId       String
-  entityType     String
+  id         String @id @default(cuid())
+  tenantId   String
+  entityType String
+
+  /// PRD 9.3 "Reset sequence by campus" and "by programme".
+  ///
+  /// The counter dimension BELOW tenant + entityType. Empty string means the
+  /// tenant keeps one counter for this entity; a campus or programme id means
+  /// one counter per campus or per programme, which is what lets
+  /// EMP-JPR-ADM-00125 and EMP-DEL-ADM-00125 both be 125 within their own
+  /// campus.
+  ///
+  /// Empty rather than null because a null would make the unique index below
+  /// stop constraining anything: Postgres treats every NULL as distinct, so two
+  /// unscoped sequences for the same entity could be created and each would
+  /// hand out the same numbers.
+  scopeKey String @default("")
+
   prefix         String?
   suffix         String?
   format         String        @default("{PREFIX}{YEAR}{SEQ}")
@@ -2501,11 +2802,24 @@ model IdSequence {
   resetCycle     SequenceReset @default(YEARLY)
   lastResetYear  Int?
   lastResetMonth Int?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, entityType])
+  /// A retired sequence stops issuing without being deleted.
+  ///
+  /// Deleting one would lose lastSequence, and a sequence recreated at zero
+  /// would reissue numbers already printed on certificates and ID cards. The
+  /// generator refuses an inactive row rather than falling back to a default,
+  /// so switching this off is a deliberate, visible stop.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// The counter identity. This index is what makes concurrent generation safe:
+  /// the single UPDATE ... RETURNING that issues a number locks exactly one row,
+  /// so two simultaneous requests serialise on it rather than both reading the
+  /// same lastSequence.
+  @@unique([tenantId, entityType, scopeKey])
   @@index([tenantId])
 }
 
@@ -2521,6 +2835,41 @@ enum TenantStatus {
   SUSPENDED
   TRIAL
   CANCELLED
+
+  /// W1.5 — PRD §5.1 "Tenant deletion and data archival", non-destructively.
+  ///
+  /// The PRD names the capability, and §46.3 names "Data-retention policies"
+  /// and "Data-deletion workflows" — but defines no retention period, no
+  /// archive format and no restore procedure anywhere. So this is the half the
+  /// PRD DOES define: the university stops serving traffic and every row it
+  /// owns is kept.
+  ///
+  /// Deliberately NOT a hard delete. Deleting a Tenant cascades its users,
+  /// roles, campuses, subscriptions, students and results away, and no
+  /// requirement asks for that. ARCHIVED blocks access exactly as SUSPENDED
+  /// and CANCELLED already do — both the login route and tenant resolution
+  /// refuse anything that is not ACTIVE or TRIAL — and is reversible.
+  ARCHIVED
+}
+
+/// PRD §5.3 — the pricing bases the PRD enumerates for a subscription.
+///
+/// Verbatim from "5.3 Subscription and Billing": "Module-based pricing",
+/// "Per-student pricing", "Per-active-user pricing", "Per-course pricing",
+/// "Storage-based pricing". FLAT_PLAN is the sixth: §5.3's own "University
+/// subscription plans" line, which is what every existing Subscription row
+/// already is, and is the default so no stored row changes meaning.
+///
+/// What §5.1 calls "Configure payment terms" is only PARTLY this. The PRD
+/// defines the pricing BASIS and the billing CYCLE and nothing about terms —
+/// no due day, no net period, no advance or grace. Those are not modelled.
+enum PricingModel {
+  FLAT_PLAN
+  MODULE_BASED
+  PER_STUDENT
+  PER_ACTIVE_USER
+  PER_COURSE
+  STORAGE_BASED
 }
 
 enum DomainType {
@@ -4107,4 +4456,124 @@ model AnnouncementRead {
   /// idempotent rather than a second row.
   @@unique([announcementId, userId])
   @@index([userId])
+}
+
+/// ============================================================================
+/// ADMISSIONS (W3 — PRD §8.2, §8.5, §9.1, §49.2)
+///
+/// One model, plus a preference join. Nothing here duplicates Student, User or
+/// Parent: an Application is the record of somebody who is NOT yet a student,
+/// and it points at the Student it became once §8.5 conversion has run.
+/// ============================================================================
+
+/// PRD §49.2 — the Student Admission Workflow, verbatim and in order.
+///
+/// These twelve values are the PRD's own arrow-chain: "Lead → Counselling →
+/// Application → Document Verification → Eligibility Check → Entrance
+/// Examination → Merit or Selection → Offer Letter → Fee Payment → Student ID
+/// Generation → Course Allocation → Portal Activation". No stage is added,
+/// renamed, split or reordered, and no status outside this list exists —
+/// §8 defines none.
+enum AdmissionStage {
+  LEAD
+  COUNSELLING
+  APPLICATION
+  DOCUMENT_VERIFICATION
+  ELIGIBILITY_CHECK
+  ENTRANCE_EXAMINATION
+  MERIT_OR_SELECTION
+  OFFER_LETTER
+  FEE_PAYMENT
+  STUDENT_ID_GENERATION
+  COURSE_ALLOCATION
+  PORTAL_ACTIVATION
+}
+
+/// An admission application (PRD §8.2).
+model Application {
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// PRD §9.1 "Applicant ID" and "Application number".
+  ///
+  /// Both, because §9.1 names both. They are issued by the EXISTING identifier
+  /// engine (PRD §9) and never by this model — no default, no autoincrement.
+  applicantNo   String
+  applicationNo String
+
+  /// Applicant details (§8.2).
+  firstName   String
+  lastName    String
+  email       String
+  phone       String?
+  dateOfBirth DateTime?
+
+  /// Guardian information (§8.2).
+  ///
+  /// Held on the application rather than as a Parent row: an applicant is not
+  /// yet a student, so there is no Student for StudentParent to join to.
+  /// Conversion is where a Parent record would be created, and §8.5 does not
+  /// ask for one — recorded as a gap rather than guessed at.
+  guardianName     String?
+  guardianRelation String?
+  guardianPhone    String?
+  guardianEmail    String?
+
+  /// Education and work history (§8.2 "Education history",
+  /// "Work-experience history").
+  ///
+  /// UNTYPED JSON, deliberately. §8.2 names both and defines no field for
+  /// either — no institution, no year, no grade, no employer. Imposing a shape
+  /// would be inventing the requirement, so the column stores what is supplied
+  /// and the validator bounds only its size and depth. Same treatment as
+  /// Tenant.address and Tenant.settings.
+  educationHistory Json?
+  workHistory      Json?
+
+  /// PRD §49.2. Every application starts at the first stage.
+  stage AdmissionStage @default(LEAD)
+
+  /// PRD §8.5 — the Student this application became, once converted.
+  ///
+  /// Nullable because most applications have not converted, and @unique so one
+  /// application can produce at most one student. This column is what makes
+  /// duplicate conversion impossible at the database rather than in a service.
+  studentId   String?   @unique
+  convertedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student     Student?                @relation(fields: [studentId], references: [id])
+  preferences ApplicationPreference[]
+
+  /// Both identifiers are unique per tenant, matching every other identifier in
+  /// this schema. The email is unique per tenant too: §8.3 asks for "Duplicate
+  /// application detection", and one address applying twice to one university
+  /// is what that means in the terms this model has.
+  @@unique([tenantId, applicationNo])
+  @@unique([tenantId, applicantNo])
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, stage])
+}
+
+/// PRD §8.2 "Multiple programme preferences".
+///
+/// A join rather than a column, because "multiple" is the requirement. The
+/// composite key stops one programme being listed twice for one application.
+model ApplicationPreference {
+  applicationId String
+  programmeId   String
+
+  /// 1 is the applicant's first choice. Ordering is the whole point of a
+  /// preference list, so it is stored rather than inferred from insert order.
+  priority Int
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  programme   Programme   @relation(fields: [programmeId], references: [id])
+
+  @@id([applicationId, programmeId])
+  @@index([applicationId])
 }

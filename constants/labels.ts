@@ -60,6 +60,7 @@ export const TENANT_STATUS_LABELS: Record<TenantStatus, string> = {
   SUSPENDED: "Suspended",
   TRIAL: "Trial",
   CANCELLED: "Cancelled",
+  ARCHIVED: "Archived",
 };
 
 export const SUBSCRIPTION_PLAN_LABELS: Record<SubscriptionPlan, string> = {
@@ -304,6 +305,7 @@ export const TENANT_STATUS_VARIANTS: Record<TenantStatus, BadgeVariant> = {
   TRIAL: "warning",
   SUSPENDED: "danger",
   CANCELLED: "neutral",
+  ARCHIVED: "neutral",
 };
 
 export const SUBSCRIPTION_STATUS_VARIANTS: Record<SubscriptionStatus, BadgeVariant> = {

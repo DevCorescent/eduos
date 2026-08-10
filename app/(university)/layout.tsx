@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getPortalSession } from "@/services/session";
+import { mustChangePassword } from "@/lib/auth/mustChangePassword";
 import { PortalShell } from "@/components/layout/PortalShell";
+import { NotificationBell } from "@/components/shared/NotificationBell";
 import { UNIVERSITY_NAV, filterNav } from "@/constants/navigation";
 import { ROLES, UNIVERSITY_ROLES, hasAnyRole, homeRouteForRoles } from "@/constants/roles";
 import { topbarUserFromSession } from "@/utils/user";
@@ -24,6 +26,22 @@ export default async function UniversityLayout({ children }: { children: ReactNo
 
   if (!session) redirect("/login");
 
+  // W1.4 — a University Admin provisioned by the platform holds a password
+  // somebody else generated, and requireAuth refuses every tenant API until it
+  // is replaced. Without this redirect they would reach a fully rendered
+  // console in which every panel shows an error, which reads as a broken
+  // product rather than as one required action.
+  //
+  // Read from the database rather than from the token: the flag is cleared
+  // after the token was minted, so a JWT claim would be stale for the whole of
+  // its lifetime. The cost is one indexed primary-key lookup per navigation in
+  // this portal — the same shape of read the layout's own guard already makes.
+  //
+  // This is the portal a provisioned administrator lands in, which is why the
+  // redirect lives here. The enforcement that matters is not location-dependent:
+  // requireAuth refuses the APIs whichever screen is open.
+  if (await mustChangePassword(session.sub)) redirect("/change-password");
+
   const isPermitted =
     hasAnyRole(session.roles, UNIVERSITY_ROLES) || session.roles.includes(ROLES.SUPER_ADMIN);
 
@@ -33,6 +51,7 @@ export default async function UniversityLayout({ children }: { children: ReactNo
 
   return (
     <PortalShell
+      topbarActions={<NotificationBell />}
       sections={filterNav(UNIVERSITY_NAV, session.roles)}
       user={topbarUserFromSession(session)}
       portalName="University"

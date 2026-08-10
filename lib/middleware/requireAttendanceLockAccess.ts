@@ -6,28 +6,6 @@
 //          PARTICULAR operation requires, resolve their tenant, and hand back
 //          everything the route needs — in ONE call.
 //
-// WHY THIS TAKES THE ROLE SET AS AN ARGUMENT
-//   The four Phase 22 endpoints do NOT share one entry rule. Locking admits
-//   FACULTY; unlocking must not, or the lock is a suggestion a faculty member
-//   can talk their way past (see lib/constants/attendanceLock.ts). A single
-//   fixed-role guard would have to be the union of the two, and the difference
-//   between them is the entire security property of this phase. So the guard is
-//   parameterised, and each route names the set it means.
-//
-// WHAT IT RETURNS
-//   tenantId, the authenticated userId, and the request metadata every audited
-//   write records. The metadata is gathered HERE rather than in each route
-//   because all four headers are read the same way and an audit entry missing
-//   its origin is materially less useful than one carrying it.
-//
-// ROLE THEN TENANT, IN THAT ORDER
-//   requireRole runs first so an unauthenticated caller receives requireAuth's
-//   401 rather than a tenant-shaped error, and a caller with a valid session but
-//   the wrong role receives 403 without the tenant lookup happening at all.
-//   Reversing them would leak the existence of a tenant to someone not
-//   permitted to reach the module. Same ordering as
-//   requireStudentProfileAccess and requireFeedbackAccess.
-//
 // TESTABILITY
 //   The two guards are injected with defaults, matching the `client: DbClient =
 //   prisma` convention the repositories use and the pattern
@@ -36,6 +14,7 @@
 // ============================================================================
 
 import type { NextResponse } from "next/server";
+import { readRequestOrigin } from "@/lib/utils/requestOrigin";
 import { requireRole as defaultRequireRole } from "@/lib/middleware/requireRole";
 import { requireTenant as defaultRequireTenant } from "@/lib/middleware/requireTenant";
 import type { ApiResponse } from "@/types";
@@ -68,33 +47,14 @@ const DEFAULT_DEPS: AttendanceLockAccessDeps = {
 };
 
 /**
- * Read the caller's origin from the request headers.
+ * Re-exported from lib/utils/requestOrigin.ts, where WP-2 moved it.
  *
- * `x-forwarded-for` may carry a comma-separated chain when several proxies are
- * in front of the app; the FIRST entry is the originating client and the rest
- * are the hops. Trimmed because the separator is conventionally ", ".
- *
- * Returns null rather than a placeholder when no header is present. An audit
- * entry saying "unknown" is indistinguishable from one where a proxy sent the
- * literal string, and null is the honest answer.
+ * Kept here so every Phase 22 caller keeps working unchanged. The
+ * implementation is identical — it was moved, not rewritten — because the
+ * login handler now needs it too and importing an attendance-lock middleware
+ * to read a header would misdescribe the dependency.
  */
-export function readRequestOrigin(headers: Headers): {
-  ipAddress: string | null;
-  userAgent: string | null;
-} {
-  const forwarded = headers.get("x-forwarded-for");
-  const realIp = headers.get("x-real-ip");
-
-  const ipAddress =
-    forwarded?.split(",")[0]?.trim() ||
-    realIp?.trim() ||
-    null;
-
-  return {
-    ipAddress: ipAddress && ipAddress.length > 0 ? ipAddress : null,
-    userAgent: headers.get("user-agent"),
-  };
-}
+export { readRequestOrigin };
 
 /**
  * Guard a Phase 22 route behind a named role set.

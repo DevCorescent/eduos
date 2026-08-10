@@ -106,6 +106,9 @@ export function homeRouteForRoles(roles: readonly string[]): string {
   if (hasAnyRole(roles, UNIVERSITY_ROLES)) return "/dashboard";
   if (roles.includes(ROLES.FACULTY)) return "/faculty/dashboard";
   if (roles.includes(ROLES.STUDENT)) return "/student/dashboard";
+  // W2 — PRD §32. Last of the portals: a user who is somehow both a student and
+  // a parent is primarily the student, whose portal is about their own record.
+  if (roles.includes(ROLES.PARENT)) return "/parent/dashboard";
 
   // Terminal, not /dashboard. See NO_PORTAL_ROUTE: returning a portal route
   // here is what created the redirect loop, because the portal that rejected

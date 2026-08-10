@@ -75,7 +75,13 @@ export type StudentIdParam = z.infer<typeof studentIdParamSchema>;
  */
 export const createStudentSchema = z.object({
   userId: z.string().trim().min(1),
-  enrollmentNo: z.string().trim().min(1),
+  /**
+   * Optional since WP-1: omitted, the identifier engine issues it from the
+   * institution's configured sequence (PRD §9). Supplied, the value is used
+   * as given, which is what keeps legacy imports and institutions without a
+   * configured sequence working exactly as before.
+   */
+  enrollmentNo: z.string().trim().min(1).optional(),
   programmeId: z.string().trim().min(1).optional(),
   batchId: z.string().trim().min(1).optional(),
   sectionId: z.string().trim().min(1).optional(),

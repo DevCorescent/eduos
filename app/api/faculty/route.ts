@@ -15,6 +15,10 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createFacultySchema, facultyQuerySchema } from "@/lib/validations/faculty";
+import { generateIdentifier } from "@/lib/services/identifier.service";
+import { recordAudit } from "@/lib/services/audit.service";
+import { readRequestOrigin } from "@/lib/utils/requestOrigin";
+import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@/lib/constants/audit";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
@@ -197,12 +201,17 @@ export async function POST(request: NextRequest) {
         where: { userId: input.userId },
         select: { id: true },
       }),
-      prisma.facultyMember.findUnique({
-        where: {
-          tenantId_employeeId: { tenantId: tenant.id, employeeId: input.employeeId },
-        },
-        select: { id: true },
-      }),
+      // Nothing to pre-check when the engine will issue it: a generated value
+      // is unique by construction, and the unique index remains the real guard
+      // either way.
+      input.employeeId === undefined
+        ? Promise.resolve(null)
+        : prisma.facultyMember.findUnique({
+            where: {
+              tenantId_employeeId: { tenantId: tenant.id, employeeId: input.employeeId },
+            },
+            select: { id: true },
+          }),
       input.departmentId === undefined
         ? Promise.resolve(null)
         : prisma.department.findFirst({
@@ -238,12 +247,58 @@ export async function POST(request: NextRequest) {
 
     // Single write — already atomic, so no transaction is warranted. tenantId
     // comes from the resolved tenant context, never from the request body.
-    const faculty = await prisma.facultyMember.create({
-      data: {
-        ...input,
-        tenantId: tenant.id,
-      },
-      select: FACULTY_SELECT,
+        // PRD §9 — the identifier engine issues employeeId when the caller omits it.
+    //
+    // The field stays OPTIONAL rather than becoming generated-only: an
+    // institution that has not configured a sequence must keep working exactly
+    // as before, and a migration importing legacy records must be able to carry
+    // their existing numbers across. A supplied value always wins, so this is a
+    // widening of the contract and breaks no existing client.
+    //
+    // Generation happens INSIDE the transaction that creates the row, so a
+    // failed create rolls the counter back with it and leaves no gap.
+    // One actor for every entry this request writes, so the identifier issue
+    // and the record creation are findable together.
+    const actor = {
+      userId: guard.session.sub,
+      ...readRequestOrigin(request.headers),
+    };
+
+    const faculty = await prisma.$transaction(async (tx) => {
+      const employeeId =
+        input.employeeId ??
+        (await generateIdentifier(
+          { tenantId: tenant.id, entityType: "FACULTY", actor },
+          tx
+        ));
+
+      const created = await tx.facultyMember.create({
+        data: {
+          ...input,
+          employeeId,
+          tenantId: tenant.id,
+        },
+        select: FACULTY_SELECT,
+      });
+
+      // PRD §47 "Data change logs". Same transaction as the row it describes,
+      // so evidence and record commit or roll back together.
+      await recordAudit(
+        {
+          tenantId: tenant.id,
+          actor,
+          action: AUDIT_ACTIONS.FACULTY_CREATED,
+          resource: AUDIT_RESOURCES.FACULTY,
+          resourceId: created.id,
+          // The identifier and the linked user, not the whole record. A
+          // creation snapshot of every column would copy personal data into a
+          // second table for no investigative gain.
+          after: { employeeId, userId: created.userId },
+        },
+        tx
+      );
+
+      return created;
     });
 
     return NextResponse.json(ok(faculty, "Faculty member created"), { status: 201 });

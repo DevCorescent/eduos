@@ -23,6 +23,15 @@ export interface PortalShellProps {
   homeHref: string;
   /** Label for the breadcrumb's first entry. @default "Dashboard" */
   homeLabel?: string;
+  /**
+   * Rendered in the top bar, left of the user menu — the notification bell.
+   *
+   * Passed in rather than rendered here because this component is the client
+   * boundary and the bell reads the API on the server. The layout above is a
+   * Server Component, so it can render the bell and hand the finished element
+   * down through this slot, keeping the fetch off the browser entirely.
+   */
+  topbarActions?: ReactNode;
   children: ReactNode;
 }
 
@@ -60,6 +69,7 @@ export function PortalShell({
   portalName,
   homeHref,
   homeLabel = "Dashboard",
+  topbarActions,
   children,
 }: PortalShellProps) {
   const router = useRouter();
@@ -132,6 +142,7 @@ export function PortalShell({
             { label: "Settings", href: "/settings" },
             { label: "Sign out", onClick: handleLogout, destructive: true },
           ]}
+          actions={topbarActions}
           center={<PortalBreadcrumb root={{ label: homeLabel, href: homeHref }} />}
           leading={
             <button

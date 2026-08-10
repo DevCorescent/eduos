@@ -58,10 +58,24 @@ export async function changePasswordAction(
       field: "currentPassword",
     };
   }
-  if (newPassword.length < 8) {
+  // 12, matching changeTenantPasswordSchema on POST /api/auth/change-password
+  // (W1.4). This check existed before the route did and asked for 8, which
+  // would now hand the API a value it rejects and surface the refusal as a
+  // banner rather than on the field.
+  if (newPassword.length < 12) {
     return {
       success: false,
-      error: "Use at least 8 characters.",
+      error: "Use at least 12 characters.",
+      field: "newPassword",
+    };
+  }
+  // The API refuses this too — resubmitting an issued password would clear the
+  // forced-change flag while leaving the shared secret in place — but the
+  // message belongs on the field rather than arriving as a generic 400.
+  if (newPassword === currentPassword) {
+    return {
+      success: false,
+      error: "Choose a password different from your current one.",
       field: "newPassword",
     };
   }

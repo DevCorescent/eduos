@@ -73,7 +73,13 @@ export type FacultyIdParam = z.infer<typeof facultyIdParamSchema>;
  */
 export const createFacultySchema = z.object({
   userId: z.string().trim().min(1),
-  employeeId: z.string().trim().min(1),
+  /**
+   * Optional since WP-1: omitted, the identifier engine issues it from the
+   * institution's configured sequence (PRD §9). Supplied, the value is used
+   * as given, which is what keeps legacy imports and institutions without a
+   * configured sequence working exactly as before.
+   */
+  employeeId: z.string().trim().min(1).optional(),
   joinDate: z.coerce.date(),
   departmentId: z.string().trim().min(1).optional(),
   designation: z.string().trim().min(1).optional(),

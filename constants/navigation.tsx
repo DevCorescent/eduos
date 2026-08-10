@@ -26,6 +26,7 @@ import {
   FileText,
   Flag,
   GraduationCap,
+  Hash,
   LayoutDashboard,
   Library,
   MessageSquare,
@@ -71,6 +72,11 @@ export const PLATFORM_NAV: NavGroup[] = [
     items: [
       { label: "Dashboard", href: "/platform/dashboard", icon: <LayoutDashboard className={iconClass} /> },
       { label: "Tenants", href: "/platform/tenants", icon: <Building2 className={iconClass} /> },
+      // W1.3. "Platform Users" rather than "Users": the University portal has a
+      // Users screen of its own, and the breadcrumb map below is built from
+      // these labels, so two entries called "Users" would produce two trails
+      // that read identically for entirely different people.
+      { label: "Platform Users", href: "/platform/users", icon: <ShieldCheck className={iconClass} /> },
       { label: "Subscriptions", href: "/platform/subscriptions", icon: <CreditCard className={iconClass} /> },
       { label: "Feature Flags", href: "/platform/feature-flags", icon: <Flag className={iconClass} /> },
     ],
@@ -90,6 +96,7 @@ export const UNIVERSITY_NAV: NavGroup[] = [
       { label: "Schools", href: "/setup/schools", icon: <School className={iconClass} /> },
       { label: "Departments", href: "/setup/departments", icon: <Library className={iconClass} /> },
       { label: "Programmes", href: "/setup/programmes", icon: <GraduationCap className={iconClass} /> },
+      { label: "Identifiers", href: "/setup/identifiers", icon: <Hash className={iconClass} /> },
     ],
   },
   {
@@ -173,6 +180,15 @@ export const UNIVERSITY_NAV: NavGroup[] = [
         roles: [ROLES.UNIVERSITY_ADMIN, ROLES.HOD, ROLES.DEPARTMENT_HOD],
       },
       {
+        // PRD §47. Restricted to UNIVERSITY_ADMIN because the trail names who
+        // did what to whom — the API enforces the same, so this only hides a
+        // link nobody else could follow.
+        label: "Audit Trail",
+        href: "/governance/audit",
+        icon: <ScrollText className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN],
+      },
+      {
         label: "Finance",
         href: "/finance/fee-demands",
         icon: <Wallet className={iconClass} />,
@@ -206,6 +222,34 @@ export const FACULTY_NAV: NavGroup[] = [
 
 // --- Student Portal ---------------------------------------------------------
 
+// --- Parent (W2, PRD §32) ---------------------------------------------------
+
+/**
+ * Parent portal navigation.
+ *
+ * ONLY the §32 items that have a backing API. §32 also names online payments,
+ * faculty communication, behavioural reports, leave requests, hostel, transport,
+ * events, counsellor appointments and raising concerns — none of which has a
+ * model or a defined workflow, so none appears here. A nav entry that leads to
+ * a screen the backend cannot fill is a promise the product does not keep.
+ *
+ * §57 defines no Parent Portal navigation at all, so this list is derived from
+ * §32's feature list rather than from a specified menu.
+ */
+export const PARENT_NAV: NavGroup[] = [
+  {
+    items: [
+      { label: "Dashboard", href: "/parent/dashboard", icon: <LayoutDashboard className={iconClass} /> },
+      { label: "Attendance", href: "/parent/attendance", icon: <ClipboardCheck className={iconClass} /> },
+      { label: "Timetable", href: "/parent/timetable", icon: <CalendarDays className={iconClass} /> },
+      { label: "Results", href: "/parent/results", icon: <GraduationCap className={iconClass} /> },
+      { label: "Fees", href: "/parent/fees", icon: <Receipt className={iconClass} /> },
+      { label: "Notices", href: "/parent/notices", icon: <Bell className={iconClass} /> },
+      { label: "Documents", href: "/parent/documents", icon: <ScrollText className={iconClass} /> },
+    ],
+  },
+];
+
 export const STUDENT_NAV: NavGroup[] = [
   {
     items: [
@@ -219,7 +263,7 @@ export const STUDENT_NAV: NavGroup[] = [
       { label: "Open Electives", href: "/student/electives", icon: <Library className={iconClass} /> },
       { label: "Fees", href: "/student/fees", icon: <Receipt className={iconClass} /> },
       { label: "Certificates", href: "/student/certificates", icon: <Award className={iconClass} /> },
-      { label: "Notifications", href: "/student/notifications", icon: <Bell className={iconClass} /> },
+      { label: "Notifications", href: "/notifications", icon: <Bell className={iconClass} /> },
     ],
   },
 ];

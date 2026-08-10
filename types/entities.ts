@@ -92,6 +92,8 @@ export interface Tenant {
   accreditationNo: string | null;
   establishedYear: number | null;
   settings: Record<string, unknown> | null;
+  /** W1.5 · PRD §5.1 "Assign support manager" — a PlatformUser id, or null. */
+  supportManagerId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -126,6 +128,63 @@ export interface Subscription {
 export interface TenantStats {
   students: { total: number; active: number };
   faculty: { total: number; active: number };
+}
+
+/**
+ * GET /api/platform/tenants/[id]/admins — a university's own administrator
+ * (W1.4).
+ *
+ * An ordinary tenant `User`, not a new kind of account: it carries a tenantId,
+ * signs in through the normal tenant login, and is bounded by requireTenant
+ * like every other member of its university. It is typed separately from
+ * `User` below only because the platform route returns a narrower projection.
+ *
+ * `passwordHash` is not on this type because the route never sends it: the
+ * provisioning service selects an explicit column list that omits it.
+ */
+export interface TenantAdmin {
+  id: string;
+  tenantId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  isActive: boolean;
+  /** True while the account holds the password the platform generated for it. */
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  roles: string[];
+}
+
+/**
+ * GET /api/platform/users — an EduOS platform operator (W1.3).
+ *
+ * Distinct from `User` below, which is a TENANT member and carries a tenantId.
+ * A platform operator belongs to no institution; that missing column is the
+ * whole security property of the model, so it is missing here too rather than
+ * being present and set to null.
+ *
+ * `passwordHash` is not on this type because the route never sends it: the
+ * service selects an explicit column list that omits it.
+ *
+ * `roles` holds granted PlatformRole names. It is an array because
+ * PlatformUserRole is a join table, even though W1.3 grants exactly one role —
+ * modelling it as a single string here would misreport an account that somehow
+ * holds two, which is exactly when an operator needs to see the truth.
+ */
+export interface PlatformUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  isActive: boolean;
+  /** True while the account holds a password another operator generated. */
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  roles: string[];
 }
 
 // --- Identity & access ------------------------------------------------------
@@ -240,6 +299,14 @@ export interface AuthUser {
   firstName: string;
   lastName: string;
   roles: string[];
+  /**
+   * W1.4 — true while the account holds a password somebody else generated.
+   *
+   * Optional because /api/auth/me does not report it; only the login response
+   * does, which is where it is acted on. It is a routing hint, never a control:
+   * requireAuth re-reads the column on every request.
+   */
+  mustChangePassword?: boolean;
 }
 
 // --- Organisation structure -------------------------------------------------

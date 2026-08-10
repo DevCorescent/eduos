@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getPortalSession } from "@/services/session";
 import { PortalShell } from "@/components/layout/PortalShell";
+import { NotificationBell } from "@/components/shared/NotificationBell";
 import { STUDENT_NAV, filterNav } from "@/constants/navigation";
 import { ROLES, homeRouteForRoles } from "@/constants/roles";
 import { topbarUserFromSession } from "@/utils/user";
@@ -25,6 +26,7 @@ export default async function StudentPortalLayout({ children }: { children: Reac
 
   return (
     <PortalShell
+      topbarActions={<NotificationBell />}
       sections={filterNav(STUDENT_NAV, session.roles)}
       user={topbarUserFromSession(session)}
       portalName="Student"

@@ -52,6 +52,14 @@ export interface AuditLogEntry {
   after?: unknown;
   ipAddress: string | null;
   userAgent: string | null;
+  /**
+   * PRD §47 "Failed action logs". Optional so the eleven modules that wrote
+   * entries before WP-2 continue to compile and continue to mean what they
+   * meant: the column defaults to SUCCESS, which is what those calls recorded.
+   */
+  status?: "SUCCESS" | "FAILURE";
+  /** Ties the several entries one request produces together. */
+  correlationId?: string | null;
 }
 
 export class AuditLogRepository {
@@ -78,6 +86,8 @@ export class AuditLogRepository {
         after: entry.after as Prisma.InputJsonValue | undefined,
         ipAddress: entry.ipAddress,
         userAgent: entry.userAgent,
+        status: entry.status ?? "SUCCESS",
+        correlationId: entry.correlationId ?? null,
       },
       select: { id: true },
     });

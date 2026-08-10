@@ -29,7 +29,7 @@ export interface ListToolbarProps {
  * <ListToolbar
  *   search={<ListSearch placeholder="Search tenants…" />}
  *   filters={<ListFilter paramKey="status" label="Status" options={statusOptions} hideLabel />}
- *   action={<OnboardTenantButton />}
+ *   action={<ProvisionUniversityLink />}
  * />
  * ```
  */

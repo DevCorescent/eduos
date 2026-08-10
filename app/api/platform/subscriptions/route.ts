@@ -2,21 +2,21 @@
 // OWNER  : Gauransh
 // MODULE : Platform — List Subscriptions
 // FLOW   : Returns paginated platform subscriptions.
-// ACCESS : SUPER_ADMIN
+// ACCESS : PLATFORM_ADMIN (platform session — W1.2)
 // BACKEND: Uses existing Prisma Subscription model.
 // PURPOSE: View SaaS subscriptions managed by the platform.
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { requireRole } from "@/lib/middleware/requireRole";
+import { requirePlatformAdmin } from "@/lib/middleware/requirePlatformAdmin";
 import { serialize } from "@/lib/utils/serialize";
 import { listSubscriptionsQuerySchema } from "@/lib/validations/platform";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
 // GET
-// ACCESS     : SUPER_ADMIN
+// ACCESS     : PLATFORM_ADMIN (platform session — W1.2)
 // VALIDATION : listSubscriptionsQuerySchema — ?page (default 1) and ?limit
 //              (default 20, max 100), both coerced from search params.
 // FLOW       : Authorise → validate query → read one page of subscriptions
@@ -35,7 +35,7 @@ import { validationDetails } from "@/lib/utils/validation-error";
 //              403 FORBIDDEN · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("SUPER_ADMIN");
+    const guard = await requirePlatformAdmin();
     if (!guard.authorized) return guard.response;
 
     const parsed = listSubscriptionsQuerySchema.safeParse(

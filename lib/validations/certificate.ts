@@ -104,7 +104,13 @@ import { CertificateType } from "@/app/generated/prisma/client";
 export const issueCertificateSchema = z.object({
   templateId: z.string().trim().min(1),
   studentId: z.string().trim().min(1),
-  certificateNo: z.string().trim().min(1),
+  /**
+   * Optional since WP-1: omitted, the identifier engine issues it from the
+   * institution's configured sequence (PRD §9). Supplied, the value is used
+   * as given, which is what keeps legacy imports and institutions without a
+   * configured sequence working exactly as before.
+   */
+  certificateNo: z.string().trim().min(1).optional(),
   type: z.enum(CertificateType),
   data: z.record(z.string(), z.unknown()).optional(),
   expiresAt: z.coerce.date().optional(),

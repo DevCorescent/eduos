@@ -67,7 +67,22 @@ function unauthorized(): NextResponse<ApiResponse<never>> {
  *   // ... session.tenantId is available for tenant-scoped queries
  * }
  */
-export async function requireAuth(): Promise<AuthGuardResult> {
+export interface RequireAuthOptions {
+  /**
+   * Permit a caller whose password must still be changed (W1.4).
+   *
+   * Set by exactly ONE route — POST /api/auth/change-password — which is the
+   * act that clears the flag. Every other tenant route leaves it false, so an
+   * account holding a password somebody else generated can do that one thing
+   * and nothing else. Gating here rather than in the UI is what makes it a
+   * control: the forced change cannot be skipped by calling the API directly.
+   */
+  readonly allowPasswordChangeRequired?: boolean;
+}
+
+export async function requireAuth(
+  options: RequireAuthOptions = {}
+): Promise<AuthGuardResult> {
   const session = await getSession();
 
   if (!session) {
@@ -96,7 +111,7 @@ export async function requireAuth(): Promise<AuthGuardResult> {
       where: { token },
       select: {
         expiresAt: true,
-        user: { select: { isActive: true } },
+        user: { select: { isActive: true, mustChangePassword: true } },
       },
     })
   );
@@ -111,6 +126,25 @@ export async function requireAuth(): Promise<AuthGuardResult> {
     return {
       authenticated: false,
       response: NextResponse.json(fail("Account is inactive", "FORBIDDEN"), { status: 403 }),
+    };
+  }
+
+  // W1.4 — the account still holds a password another person generated and has
+  // seen. Read from the database on every request rather than from the token,
+  // for the same reason isActive is: a token minted before the flag was set
+  // would otherwise keep working until it expired, which for an initial
+  // credential is the entire window that matters.
+  //
+  // The body names the state instead of answering a flat "Forbidden". Nothing
+  // is disclosed by it — the caller has already authenticated as this account,
+  // so they are being told something about themselves.
+  if (storedSession.user.mustChangePassword && !options.allowPasswordChangeRequired) {
+    return {
+      authenticated: false,
+      response: NextResponse.json(
+        fail("Password change required", "PASSWORD_CHANGE_REQUIRED"),
+        { status: 403 }
+      ),
     };
   }
 
