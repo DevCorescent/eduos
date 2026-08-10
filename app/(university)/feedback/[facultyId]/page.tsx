@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { FeedbackSummary } from "@/components/feedback/FeedbackSummary";
 import { getFacultyFeedback } from "@/services/feedback";
 import { getFaculty } from "@/services/faculty";
@@ -50,7 +51,11 @@ export default async function FacultyFeedbackPage({ params }: { params: Params }
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load the summary" description={summaryResult.error} />
+        <StateView
+          state={resolveFailureState(summaryResult)}
+          subject="the summary"
+          message={summaryResult.error}
+        />
       </>
     );
   }

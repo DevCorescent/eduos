@@ -4,7 +4,8 @@ import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -23,6 +24,15 @@ import {
   ASSIGNMENT_TYPE_LABELS,
 } from "@/constants/labels";
 import { formatDate, formatNumber } from "@/utils/format";
+
+/**
+ * Verified against the running API, not inferred: this collection's query
+ * schema accepts page and limit only, and drops every other key before the
+ * handler sees it — a filtered request returns the same rows as an unfiltered
+ * one. The controls stay visible and disabled rather than silently returning
+ * everything.
+ */
+const UNSUPPORTED_SEARCH = "Search will be available when backend support is enabled.";
 
 export const metadata: Metadata = { title: "My Assignments" };
 
@@ -52,7 +62,11 @@ export default async function FacultyAssignmentsPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your assignments" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="assignments"
+          message={result.error}
+        />
       </>
     );
   }
@@ -142,7 +156,8 @@ export default async function FacultyAssignmentsPage({
 
       <ListToolbar
         className="mt-6"
-        search={<ListSearch placeholder="Search assignments…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search assignments…" />}
       />
 
       <Card noPadding>

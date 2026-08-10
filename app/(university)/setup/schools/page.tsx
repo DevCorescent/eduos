@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { School as SchoolIcon } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
@@ -14,6 +15,16 @@ import { Table, type TableColumn } from "@/components/ui/Table";
 import { listCampuses, listSchools } from "@/services/setup";
 import { createSchoolAction, deleteSchoolAction, updateSchoolAction } from "@/actions/setup";
 import type { School } from "@/types";
+
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = { title: "Schools" };
 
@@ -79,11 +90,27 @@ export default async function SchoolsPage({ searchParams }: { searchParams: Sear
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Schools" subtitle="Faculties and schools within each campus." />
+  );
+
   if (!result.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load schools" description={result.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="schools"
+          message={result.error}
+        />
       </>
     );
   }
@@ -144,10 +171,12 @@ export default async function SchoolsPage({ searchParams }: { searchParams: Sear
       {header}
 
       <ListToolbar
-        search={<ListSearch placeholder="Search schools…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search schools…" />}
         filters={
           <ListFilter
             paramKey="campusId"
+              unsupported={UNSUPPORTED_FILTER}
             label="Campus"
             hideLabel
             allLabel="All campuses"

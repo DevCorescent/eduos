@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { getAssignment, listSubmissions } from "@/services/assignments";
+import { unwrapResource } from "@/lib/require-resource";
 import {
   ASSIGNMENT_STATUS_LABELS,
   ASSIGNMENT_STATUS_VARIANTS,
@@ -33,12 +34,7 @@ export default async function AssignmentGradingPage({ params }: { params: Params
     listSubmissions(id),
   ]);
 
-  if (!assignmentResult.success) {
-    if (assignmentResult.code === "NOT_FOUND") notFound();
-    throw new Error(assignmentResult.error);
-  }
-
-  const assignment = assignmentResult.data;
+  const assignment = unwrapResource(assignmentResult, "assignment");
   const submissions = submissionsResult.success ? submissionsResult.data : [];
 
   const graded = submissions.filter((s) => s.status === "GRADED");
@@ -103,10 +99,11 @@ export default async function AssignmentGradingPage({ params }: { params: Params
 
       <div className="mt-6">
         {!submissionsResult.success ? (
-          <ErrorState
-            title="Couldn't load submissions"
-            description={submissionsResult.error}
-          />
+          <StateView
+          state={resolveFailureState(submissionsResult)}
+          subject="submissions"
+          message={submissionsResult.error}
+        />
         ) : (
           <GradingList
             assignmentId={id}

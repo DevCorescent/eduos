@@ -4,8 +4,24 @@ import { forwardRef } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
-/** Visual style of the button — each maps to a distinct semantic purpose. */
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+/**
+ * Visual style of the button — each maps to a distinct semantic purpose.
+ *
+ * `danger` is retained as the historical spelling of `destructive`. Both are
+ * accepted and render identically, so the ~4 existing call sites did not have
+ * to be rewritten to gain the new variants; the alias costs nothing at runtime
+ * and can be dropped once nothing uses it.
+ */
+export type ButtonVariant =
+  | "primary"
+  | "secondary"
+  | "outlined"
+  | "inverted"
+  | "destructive"
+  | "danger"
+  | "ghost"
+  | "link"
+  | "icon";
 
 /** Physical size of the button, controlling height, padding, and font size. */
 export type ButtonSize = "sm" | "md" | "lg";
@@ -36,28 +52,64 @@ const baseStyles = [
   "font-medium whitespace-nowrap select-none",
   // `transition-all`, not `transition-colors`: the primary variant lifts and
   // grows its shadow on hover, and neither would animate otherwise.
-  "rounded-md transition-all duration-200",
+  // Pill, always. DESIGN.md: "Buttons & Chips: Always fully pill-shaped (50%
+  // of height) to contrast against the rectangular grid of the dashboard."
+  "rounded-full transition-all duration-200",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
   "disabled:pointer-events-none disabled:opacity-50",
 ].join(" ");
 
 const variantStyles: Record<ButtonVariant, string> = {
-  // The gradient, its shadow and the hover lift all live in the .btn-gradient
-  // class in globals.css — a gradient background cannot be expressed as a
-  // Tailwind colour token, and keeping it there means the brand gradient is
-  // defined once for buttons, hero panels and text alike.
+  // The gradient, its clay lighting and the press inversion all live in
+  // .btn-gradient in globals.css — a gradient cannot be expressed as a Tailwind
+  // colour token, and keeping it there means the brand surface is defined once
+  // for buttons, hero panels and text alike.
   primary: "btn-gradient",
+
+  // Filled with the surface, not the canvas, so it stays legible on both.
   secondary:
-    "bg-surface text-foreground border border-border shadow-soft hover:bg-surface-hover hover:shadow-hover",
-  ghost: "bg-transparent text-foreground hover:bg-muted",
+    "bg-surface text-foreground border border-border shadow-soft hover:bg-surface-hover hover:shadow-hover active:shadow-inset",
+
+  // Border only. Distinct from `secondary`, which is filled — an outlined
+  // button on a glass panel lets the panel show through, which is the point.
+  outlined:
+    "bg-transparent text-foreground border border-outline hover:bg-surface-hover hover:border-foreground",
+
+  // The high-contrast counterweight to `primary`, for the one action on a
+  // light panel that must outrank everything around it.
+  inverted:
+    "bg-heading text-background shadow-soft hover:shadow-hover hover:opacity-90 active:shadow-inset",
+
+  destructive:
+    "bg-danger text-danger-foreground shadow-soft hover:bg-danger-hover hover:shadow-hover active:bg-danger-active",
   danger:
     "bg-danger text-danger-foreground shadow-soft hover:bg-danger-hover hover:shadow-hover active:bg-danger-active",
+
+  ghost: "bg-transparent text-foreground hover:bg-muted",
+
+  // No chrome at all: sits inline in prose and must not look like a control
+  // until it is hovered.
+  link: "bg-transparent text-primary underline-offset-4 hover:underline p-0 h-auto",
+
+  // Icon-only. Squared to its own height by sizeStyles below so it lands as a
+  // circle rather than a stretched pill.
+  icon: "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-sm",
-  md: "h-10 px-4 text-sm",
-  lg: "h-12 px-6 text-base",
+  sm: "h-8 px-4 text-sm",
+  md: "h-10 px-5 text-sm",
+  lg: "h-12 px-7 text-base",
+};
+
+/**
+ * Icon-only sizing: width equals height so the pill radius resolves to a
+ * circle. Applied instead of the padded sizes above, never alongside them.
+ */
+const iconOnlySizeStyles: Record<ButtonSize, string> = {
+  sm: "size-8 p-0",
+  md: "size-10 p-0",
+  lg: "size-12 p-0",
 };
 
 const iconSizeStyles: Record<ButtonSize, string> = {
@@ -97,7 +149,13 @@ export function buttonStyles({
   return cn(
     baseStyles,
     variantStyles[variant],
-    sizeStyles[size],
+    // `icon` is squared to a circle and `link` carries no box at all, so
+    // neither takes the padded size ramp the other variants share.
+    variant === "icon"
+      ? iconOnlySizeStyles[size]
+      : variant === "link"
+        ? ""
+        : sizeStyles[size],
     fullWidth && "w-full",
     className
   );

@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Library } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
@@ -18,6 +19,16 @@ import {
   updateDepartmentAction,
 } from "@/actions/setup";
 import type { Department } from "@/types";
+
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = { title: "Departments" };
 
@@ -107,11 +118,27 @@ export default async function DepartmentsPage({
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Departments" subtitle="Academic departments that own programmes and faculty." />
+  );
+
   if (!result.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load departments" description={result.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="departments"
+          message={result.error}
+        />
       </>
     );
   }
@@ -186,11 +213,13 @@ export default async function DepartmentsPage({
       {header}
 
       <ListToolbar
-        search={<ListSearch placeholder="Search departments…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search departments…" />}
         filters={
           <>
             <ListFilter
               paramKey="campusId"
+              unsupported={UNSUPPORTED_FILTER}
               label="Campus"
               hideLabel
               allLabel="All campuses"
@@ -198,6 +227,7 @@ export default async function DepartmentsPage({
             />
             <ListFilter
               paramKey="schoolId"
+              unsupported={UNSUPPORTED_FILTER}
               label="School"
               hideLabel
               allLabel="All schools"

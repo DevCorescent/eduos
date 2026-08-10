@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { ScrollText } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
@@ -82,7 +83,11 @@ export default async function TranscriptPage({
       <>
         {header}
         {toolbar}
-        <ErrorState title="Couldn't load the transcript" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="transcripts"
+          message={result.error}
+        />
       </>
     );
   }

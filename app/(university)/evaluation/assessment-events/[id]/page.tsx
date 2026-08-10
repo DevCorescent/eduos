@@ -3,7 +3,8 @@ import Link from "next/link";
 import { ArrowLeft, FileSpreadsheet } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -56,7 +57,11 @@ export default async function AssessmentEventPage({ params }: { params: Params }
     return (
       <>
         {back}
-        <ErrorState title="Couldn't load the sitting" description={eventResult.error} />
+        <StateView
+          state={resolveFailureState(eventResult)}
+          subject="the sitting"
+          message={eventResult.error}
+        />
       </>
     );
   }
@@ -165,10 +170,11 @@ export default async function AssessmentEventPage({ params }: { params: Params }
         >
           {!sheetResult.success ? (
             <div className="px-5 py-6">
-              <ErrorState
-                title="Couldn't load the marks sheet"
-                description={sheetResult.error}
-              />
+              <StateView
+          state={resolveFailureState(sheetResult)}
+          subject="the marks sheet"
+          message={sheetResult.error}
+        />
             </div>
           ) : (
             <Table

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -8,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { getUser, listRoles } from "@/services/users";
+import { unwrapResource } from "@/lib/require-resource";
 import { formatDateTime, formatRelative } from "@/utils/format";
 import { UserRolesPanel } from "./UserRolesPanel";
 
@@ -29,12 +29,7 @@ export default async function UserDetailPage({ params }: { params: Params }) {
     listRoles({ page: 1, limit: 100 }),
   ]);
 
-  if (!userResult.success) {
-    if (userResult.code === "NOT_FOUND") notFound();
-    throw new Error(userResult.error);
-  }
-
-  const user = userResult.data;
+  const user = unwrapResource(userResult, "user");
   const fullName = `${user.firstName} ${user.lastName}`;
   const allRoles = rolesResult.success ? rolesResult.data.items : [];
 

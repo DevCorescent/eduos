@@ -32,11 +32,16 @@ const DEMO_SLUG = "demo";
  * those code paths were unreachable — every manage endpoint answered 403 to
  * everyone except UNIVERSITY_ADMIN, and no read could be exercised as an HOD.
  */
+// Every password here MUST satisfy loginSchema's `min(8)`. Two of these were
+// seven characters, so the accounts seeded fine and then failed at the login
+// validator with "Too small" — CONTROLLER_OF_EXAMINATION and DEPARTMENT_HOD
+// were unreachable, and with them every code path that only those roles can
+// exercise.
 const ACCOUNTS = [
   { email: "superadmin@eduos.local", password: "SuperAdmin@123", role: "SUPER_ADMIN", firstName: "Super", lastName: "Admin" },
   { email: "admin@demo.edu", password: "Admin@123", role: "UNIVERSITY_ADMIN", firstName: "Uni", lastName: "Admin" },
-  { email: "coe@demo.edu", password: "Coe@123", role: "CONTROLLER_OF_EXAMINATION", firstName: "Demo", lastName: "Controller" },
-  { email: "hod@demo.edu", password: "Hod@123", role: "DEPARTMENT_HOD", firstName: "Demo", lastName: "Hod" },
+  { email: "coe@demo.edu", password: "Coe@12345", role: "CONTROLLER_OF_EXAMINATION", firstName: "Demo", lastName: "Controller" },
+  { email: "hod@demo.edu", password: "Hod@12345", role: "DEPARTMENT_HOD", firstName: "Demo", lastName: "Hod" },
   { email: "faculty@demo.edu", password: "Faculty@123", role: "FACULTY", firstName: "Demo", lastName: "Faculty" },
   { email: "student@demo.edu", password: "Student@123", role: "STUDENT", firstName: "Demo", lastName: "Student" },
 ] as const;

@@ -24,12 +24,20 @@ export const INSTITUTION_TYPE_VALUES = [
   "SCHOOL",
 ] as const satisfies readonly InstitutionType[];
 
-export type TenantStatus = "ACTIVE" | "SUSPENDED" | "TRIAL" | "CANCELLED";
+export type TenantStatus =
+  | "ACTIVE"
+  | "SUSPENDED"
+  | "TRIAL"
+  | "CANCELLED"
+  | "ARCHIVED";
 export const TENANT_STATUS_VALUES = [
   "ACTIVE",
   "SUSPENDED",
   "TRIAL",
   "CANCELLED",
+  // W1.5 · PRD §5.1 "Tenant deletion and data archival", non-destructively.
+  // Blocks access exactly as SUSPENDED and CANCELLED do, and keeps every row.
+  "ARCHIVED",
 ] as const satisfies readonly TenantStatus[];
 
 export type DomainType = "PRIMARY" | "CUSTOM" | "SUBDOMAIN";

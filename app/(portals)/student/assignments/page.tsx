@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { FileText } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
@@ -22,6 +23,17 @@ import {
 import { formatDate, formatNumber } from "@/utils/format";
 import { cn } from "@/lib/utils";
 import type { AssignmentRow } from "@/types";
+
+/**
+ * Verified against the running API, not inferred: GET /api/assignments accepts
+ * page and limit only, and drops ?q and ?state before the handler sees them —
+ * a filtered request returns the same three rows as an unfiltered one. The
+ * controls stay visible and disabled rather than quietly returning everything.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will be available when backend support is enabled.";
+const UNSUPPORTED_FILTER =
+  "Filtering will be available when backend support is enabled.";
 
 export const metadata: Metadata = { title: "My Assignments" };
 
@@ -47,7 +59,11 @@ export default async function StudentAssignmentsPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your assignments" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="assignments"
+          message={result.error}
+        />
       </>
     );
   }
@@ -163,10 +179,12 @@ export default async function StudentAssignmentsPage({
 
       <ListToolbar
         className="mt-6"
-        search={<ListSearch placeholder="Search assignments…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search assignments…" />}
         filters={
           <ListFilter
             paramKey="state"
+              unsupported={UNSUPPORTED_FILTER}
             label="State"
             hideLabel
             allLabel="All"

@@ -2,7 +2,7 @@
 // OWNER  : Gauransh
 // MODULE : Platform — Tenant Statistics
 // FLOW   : Validates tenant, aggregates platform statistics, returns summary.
-// ACCESS : SUPER_ADMIN
+// ACCESS : PLATFORM_ADMIN (platform session — W1.2)
 // BACKEND: Uses existing Prisma aggregate/count queries.
 // PURPOSE: Provide operational statistics for a single tenant.
 // ============================================================================
@@ -10,13 +10,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { EmployeeStatus, StudentStatus } from "@/app/generated/prisma/client";
-import { requireRole } from "@/lib/middleware/requireRole";
+import { requirePlatformAdmin } from "@/lib/middleware/requirePlatformAdmin";
 import { tenantIdParamSchema } from "@/lib/validations/platform";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
 // GET
-// ACCESS     : SUPER_ADMIN
+// ACCESS     : PLATFORM_ADMIN (platform session — W1.2)
 // VALIDATION : tenantIdParamSchema — the [id] segment must be a non-empty
 //              string once trimmed. Reused as-is from the sibling routes.
 // FLOW       : Authorise → validate the route param → confirm the tenant exists
@@ -34,7 +34,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("SUPER_ADMIN");
+    const guard = await requirePlatformAdmin();
     if (!guard.authorized) return guard.response;
 
     // Route params resolve asynchronously in this Next.js version.

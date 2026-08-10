@@ -4,6 +4,15 @@ import type { ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/**
+ * THE SECOND STATE: the request failed and retrying is reasonable.
+ *
+ * Distinct from EmptyState (the request succeeded and the answer is zero) and
+ * from UnavailableState (there is no request to make, because the capability is
+ * not built). See lib/ui-state.ts for the full mapping and why each line of it
+ * is the way it is. Copy here should describe a SERVICE that is unavailable,
+ * never data that is absent.
+ */
 export interface ErrorStateProps {
   /** Headline. @default "Something went wrong" */
   title?: string;

@@ -102,8 +102,17 @@ export function LoginForm() {
     // version of this page read a singular `role`, which is always undefined,
     // so every user silently fell through to /dashboard and no admin ever
     // reached the platform console.
-    const destination =
-      searchParams.get("next") ?? homeRouteForRoles(result.data.user.roles);
+    // W1.4 — an account whose password was issued by somebody else goes
+    // straight to the form that replaces it, ahead of ?next and ahead of the
+    // role-based home. Every other destination would render a console in which
+    // requireAuth refuses every request, which reads as the product being
+    // broken rather than as an action being required.
+    //
+    // This is navigation, not enforcement: the gate is requireAuth, which
+    // re-reads the column on every request.
+    const destination = result.data.user.mustChangePassword
+      ? "/change-password"
+      : (searchParams.get("next") ?? homeRouteForRoles(result.data.user.roles));
 
     // replace(), not push(): the login page must not be reachable with the back
     // button once signed in. refresh() re-runs the Server Components so the
@@ -116,7 +125,7 @@ export function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-8 shadow-sm">
+    <div className="glass w-full rounded-xl p-8">
       <h1 className="text-xl font-semibold text-heading">Sign in to eduOS</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         Enter your institution code and credentials to continue.

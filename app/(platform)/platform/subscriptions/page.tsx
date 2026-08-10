@@ -3,7 +3,8 @@ import Link from "next/link";
 import { CreditCard } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -73,7 +74,11 @@ export default async function SubscriptionsPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load subscriptions" description={subscriptionsResult.error} />
+        <StateView
+          state={resolveFailureState(subscriptionsResult)}
+          subject="subscriptions"
+          message={subscriptionsResult.error}
+        />
       </>
     );
   }

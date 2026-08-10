@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { Library } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Alert } from "@/components/ui/Alert";
@@ -50,7 +51,11 @@ export default async function StudentElectivesPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load electives" description={offeringsResult.error} />
+        <StateView
+          state={resolveFailureState(offeringsResult)}
+          subject="electives"
+          message={offeringsResult.error}
+        />
       </>
     );
   }

@@ -4,6 +4,8 @@ import { Award, FileCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -45,11 +47,27 @@ export default async function CertificateTemplatesPage({
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Certificates" subtitle="Templates the university issues from, and the documents issued so far." />
+  );
+
   if (!templatesResult.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load templates" description={templatesResult.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(templatesResult)}
+          subject="certificate templates"
+          message={templatesResult.error}
+        />
       </>
     );
   }

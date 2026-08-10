@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { ArrowLeft, BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityRowActions } from "@/components/shared/EntityCrud";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { getCurriculum, listCurriculumSubjects } from "@/services/academics";
+import { unwrapResource } from "@/lib/require-resource";
 import { getProgramme } from "@/services/setup";
 import { listCourses } from "@/services/courses";
 import {
@@ -42,14 +43,7 @@ export default async function CurriculumBuilderPage({ params }: { params: Params
     listCourses({ page: 1, limit: 500 }),
   ]);
 
-  if (!curriculumResult.success) {
-    // A missing curriculum is a 404, not an error page — the record simply is
-    // not there, nothing broke.
-    if (curriculumResult.code === "NOT_FOUND") notFound();
-    throw new Error(curriculumResult.error);
-  }
-
-  const curriculum = curriculumResult.data;
+  const curriculum = unwrapResource(curriculumResult, "curriculum");
 
   // Fetched second because it needs the curriculum's programmeId, which the
   // first round of requests is what produces.
@@ -181,10 +175,11 @@ export default async function CurriculumBuilderPage({ params }: { params: Params
         {/* Right: the structure, semester by semester. */}
         <div className="flex flex-col gap-4 lg:col-span-2">
           {!subjectsResult.success ? (
-            <ErrorState
-              title="Couldn't load the curriculum structure"
-              description={subjectsResult.error}
-            />
+            <StateView
+          state={resolveFailureState(subjectsResult)}
+          subject="the curriculum structure"
+          message={subjectsResult.error}
+        />
           ) : (
             semesters.map(([semesterNumber, rows]) => {
               const semesterCredits = rows.reduce((sum, row) => sum + row.credits, 0);
@@ -259,9 +254,10 @@ export default async function CurriculumBuilderPage({ params }: { params: Params
           )}
 
           {!coursesResult.success && (
-            <ErrorState
-              title="Couldn't load the course catalogue"
-              description={`${coursesResult.error} Subjects already placed are shown above, but nothing new can be added until the catalogue loads.`}
+            <StateView
+              state={resolveFailureState(coursesResult)}
+              subject="course catalogue"
+              message={`${coursesResult.error} Subjects already placed are shown above, but nothing new can be added until the catalogue loads.`}
             />
           )}
         </div>

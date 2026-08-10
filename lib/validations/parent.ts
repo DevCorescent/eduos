@@ -101,3 +101,45 @@ export const linkParentSchema = z.object({
 });
 
 export type LinkParentInput = z.infer<typeof linkParentSchema>;
+
+// ============================================================================
+// W2 — PARENT PORTAL ACCOUNT (PRD §32)
+// ============================================================================
+
+/**
+ * Route param schema for /api/parents/[id]/account.
+ *
+ * No cuid format is asserted: the id is an opaque key, and asserting a shape
+ * would turn an unrecognised-but-well-formed id into a 400 when 404 is the
+ * accurate answer.
+ */
+export const parentIdParamSchema = z.object({
+  id: z.string().trim().min(1),
+});
+
+export type ParentIdParam = z.infer<typeof parentIdParamSchema>;
+
+/**
+ * Body schema for POST /api/parents/[id]/account.
+ *
+ * An email address, and NOTHING else. Everything a caller might otherwise try
+ * to influence is absent by construction and the object is strict:
+ *
+ *   tenantId     — comes from the resolved tenant context
+ *   userId       — the account is created by the route
+ *   passwordHash — generated; a caller never chooses a password
+ *   role         — PARENT is a constant in the route
+ *
+ * The name is not accepted either: it is copied from the Parent record, so the
+ * account and the contact cannot describe two different people.
+ *
+ * Lowercased to match User's @@unique([tenantId, email]) and what the login
+ * route looks up, so one address cannot become two accounts.
+ */
+export const createParentAccountSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().pipe(z.email()),
+  })
+  .strict();
+
+export type CreateParentAccountInput = z.infer<typeof createParentAccountSchema>;

@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { ClipboardCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
@@ -42,7 +43,11 @@ export default async function StudentAttendancePage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your attendance" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="attendance records"
+          message={result.error}
+        />
       </>
     );
   }

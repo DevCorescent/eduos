@@ -2,7 +2,7 @@
 // OWNER  : Gauransh
 // MODULE : Platform — Update Subscription
 // FLOW   : Validates input, updates an existing subscription, returns updated data.
-// ACCESS : SUPER_ADMIN
+// ACCESS : PLATFORM_ADMIN (platform session — W1.2)
 // BACKEND: Uses existing Prisma Subscription model.
 // PURPOSE: Manage platform SaaS subscriptions.
 // ============================================================================
@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
-import { requireRole } from "@/lib/middleware/requireRole";
+import { requirePlatformAdmin } from "@/lib/middleware/requirePlatformAdmin";
 import { serialize } from "@/lib/utils/serialize";
 import { subscriptionIdParamSchema, updateSubscriptionSchema } from "@/lib/validations/platform";
 import { ok, fail } from "@/types";
@@ -20,7 +20,7 @@ import { validationDetails } from "@/lib/utils/validation-error";
 const RECORD_NOT_FOUND = "P2025";
 
 // PATCH
-// ACCESS     : SUPER_ADMIN
+// ACCESS     : PLATFORM_ADMIN (platform session — W1.2)
 // VALIDATION : subscriptionIdParamSchema for the [id] segment,
 //              updateSubscriptionSchema for the body. Every field optional but
 //              at least one required. tenantId is not accepted — re-parenting a
@@ -44,7 +44,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("SUPER_ADMIN");
+    const guard = await requirePlatformAdmin();
     if (!guard.authorized) return guard.response;
 
     // Route params resolve asynchronously in this Next.js version.

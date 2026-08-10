@@ -26,7 +26,7 @@ export default function LoginPage() {
 /** Matches the form's card dimensions so the layout does not shift on swap. */
 function LoginFormFallback() {
   return (
-    <div className="w-full max-w-sm rounded-lg border border-border bg-surface p-8 shadow-sm">
+    <div className="glass w-full rounded-xl p-8">
       <Skeleton height="1.5rem" width="60%" />
       <Skeleton height="1rem" width="85%" className="mt-2" />
 

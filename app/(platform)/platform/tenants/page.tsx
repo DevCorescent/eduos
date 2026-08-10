@@ -3,11 +3,13 @@ import Link from "next/link";
 import { Building2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { buttonStyles } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
 import { Table, type TableColumn } from "@/components/ui/Table";
@@ -19,7 +21,30 @@ import {
 } from "@/constants/labels";
 import { INSTITUTION_TYPE_VALUES, TENANT_STATUS_VALUES, type Tenant } from "@/types";
 import { formatDate } from "@/utils/format";
-import { OnboardTenantButton } from "./OnboardTenantButton";
+/**
+ * The onboarding control, as a link rather than a modal trigger (W1.4).
+ *
+ * Provisioning now creates a university, its subscription and its first
+ * administrator together, and can end by disclosing a one-time password — more
+ * than a dialog above a list should carry, so it has its own page.
+ */
+function ProvisionLink() {
+  return (
+    <Link href="/platform/tenants/new" className={buttonStyles({})}>
+      Provision university
+    </Link>
+  );
+}
+
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = {
   title: "Tenants",
@@ -62,15 +87,31 @@ export default async function TenantsPage({ searchParams }: { searchParams: Sear
     <PageHeader
       title="Tenants"
       subtitle="Every institution onboarded to the platform."
-      action={<OnboardTenantButton />}
+      action={<ProvisionLink />}
     />
+  );
+
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Tenants" subtitle="Every institution onboarded to the platform." />
   );
 
   if (!result.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load tenants" description={result.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="tenants"
+          message={result.error}
+        />
       </>
     );
   }
@@ -83,11 +124,13 @@ export default async function TenantsPage({ searchParams }: { searchParams: Sear
       {header}
 
       <ListToolbar
-        search={<ListSearch placeholder="Search by name or code…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name or code…" />}
         filters={
           <>
             <ListFilter
               paramKey="status"
+              unsupported={UNSUPPORTED_FILTER}
               label="Status"
               hideLabel
               allLabel="All statuses"
@@ -98,6 +141,7 @@ export default async function TenantsPage({ searchParams }: { searchParams: Sear
             />
             <ListFilter
               paramKey="type"
+              unsupported={UNSUPPORTED_FILTER}
               label="Type"
               hideLabel
               allLabel="All types"
@@ -130,7 +174,7 @@ export default async function TenantsPage({ searchParams }: { searchParams: Sear
                 icon={<Building2 />}
                 title="No institutions yet"
                 description="Onboard the first university to get started."
-                action={<OnboardTenantButton />}
+                action={<ProvisionLink />}
               />
             )
           }

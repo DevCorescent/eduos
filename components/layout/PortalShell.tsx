@@ -23,6 +23,15 @@ export interface PortalShellProps {
   homeHref: string;
   /** Label for the breadcrumb's first entry. @default "Dashboard" */
   homeLabel?: string;
+  /**
+   * Rendered in the top bar, left of the user menu — the notification bell.
+   *
+   * Passed in rather than rendered here because this component is the client
+   * boundary and the bell reads the API on the server. The layout above is a
+   * Server Component, so it can render the bell and hand the finished element
+   * down through this slot, keeping the fetch off the browser entirely.
+   */
+  topbarActions?: ReactNode;
   children: ReactNode;
 }
 
@@ -60,6 +69,7 @@ export function PortalShell({
   portalName,
   homeHref,
   homeLabel = "Dashboard",
+  topbarActions,
   children,
 }: PortalShellProps) {
   const router = useRouter();
@@ -93,7 +103,7 @@ export function PortalShell({
   return (
     // h-dvh, not h-screen: on mobile browsers 100vh includes the address bar
     // that is not actually visible, pushing the bottom of the page off-screen.
-    <div className="flex h-dvh overflow-hidden bg-background">
+    <div className="flex h-dvh gap-0 overflow-hidden bg-background lg:gap-5 lg:p-5">
       {/* Skip link. Visually hidden until focused, so it costs sighted users
           nothing — but without it a keyboard user tabs through seventeen
           sidebar links to reach the content on every single page. */}
@@ -122,7 +132,7 @@ export function PortalShell({
         )}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden lg:rounded-xl">
         <Topbar
           user={user}
           // Settings lives here rather than in the sidebar so every portal gets
@@ -132,6 +142,7 @@ export function PortalShell({
             { label: "Settings", href: "/settings" },
             { label: "Sign out", onClick: handleLogout, destructive: true },
           ]}
+          actions={topbarActions}
           center={<PortalBreadcrumb root={{ label: homeLabel, href: homeHref }} />}
           leading={
             <button

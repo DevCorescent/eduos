@@ -1,14 +1,32 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Building2, CheckCircle2, Clock, IndianRupee } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  Clock,
+  CreditCard,
+  Gauge,
+  IndianRupee,
+  Sparkles,
+} from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { listTenants } from "@/services/tenants";
+import { listSubscriptions } from "@/services/subscriptions";
+import { getPortalSession } from "@/services/session";
+import { buttonStyles } from "@/components/ui/Button";
+import { displayNameFromEmail } from "@/utils/user";
+import { formatCurrency } from "@/utils/format";
+import { HeroBanner } from "./HeroBanner";
+import { UnavailablePanel } from "./UnavailablePanel";
 import { TENANT_STATUS_LABELS, TENANT_STATUS_VARIANTS, INSTITUTION_TYPE_LABELS } from "@/constants/labels";
 import { formatDate, formatNumber } from "@/utils/format";
 import type { Tenant } from "@/types";
@@ -36,13 +54,23 @@ const RECENT_LIMIT = 8;
 export default async function PlatformDashboardPage() {
   // limit is capped at 100 by the backend's own validation, so this is the
   // widest single page the contract permits.
-  const result = await listTenants({ page: 1, limit: 100 });
+  // Issued together — neither depends on the other, and awaiting them in
+  // sequence would put a second round trip on first paint.
+  const [session, result, subscriptionsResult] = await Promise.all([
+    getPortalSession(),
+    listTenants({ page: 1, limit: 100 }),
+    listSubscriptions({ page: 1, limit: 100 }),
+  ]);
 
   if (!result.success) {
     return (
       <>
         <PageHeader title="Dashboard" subtitle="Platform-wide overview across all tenants." />
-        <ErrorState title="Couldn't load the dashboard" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="the dashboard"
+          message={result.error}
+        />
       </>
     );
   }
@@ -56,18 +84,54 @@ export default async function PlatformDashboardPage() {
   // Revenue is not derivable from the tenant list. Rather than invent a figure,
   // the card reports what is actually known — how many institutions are on a
   // paid footing — and the subscriptions screen owns the money.
-  const payingCount = activeCount;
-
   const recent = tenants.slice(0, RECENT_LIMIT);
+
+  const subscriptions = subscriptionsResult.success ? subscriptionsResult.data.items : [];
+
+  // Monthly recurring revenue, normalised to a month so annual and monthly
+  // plans are comparable. Only subscriptions that are actually billing count —
+  // a TRIAL is not revenue, and counting it would overstate the figure the
+  // platform is judged on. Null when nothing could be read, never zero.
+  const mrr = subscriptionsResult.success
+    ? subscriptions
+        .filter((s) => s.status === "ACTIVE")
+        .reduce((total, s) => {
+          const price = Number(s.pricePerMonth ?? 0);
+          if (!Number.isFinite(price)) return total;
+          return total + (s.billingCycle === "ANNUAL" ? price / 12 : price);
+        }, 0)
+    : null;
+
+  const planCounts = subscriptions.reduce<Record<string, number>>((acc, s) => {
+    acc[s.plan] = (acc[s.plan] ?? 0) + 1;
+    return acc;
+  }, {});
 
   return (
     <>
       <PageHeader
-        title="Dashboard"
-        subtitle="Platform-wide overview across all tenants."
+        title="Platform Overview"
+        subtitle="Every institution on the platform, at a glance."
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <HeroBanner
+        title={`Welcome back, ${session ? displayNameFromEmail(session.email) : "Admin"}`}
+        description={
+          <>
+            {formatNumber(totalCount)} institution{totalCount === 1 ? "" : "s"} onboarded,
+            {" "}
+            {formatNumber(activeCount)} active and {formatNumber(trialCount)} on trial.
+          </>
+        }
+        action={
+          <Link href="/platform/tenants" className={buttonStyles({ variant: "primary" })}>
+            <ArrowRight className="size-4" aria-hidden="true" />
+            Manage institutions
+          </Link>
+        }
+      />
+
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Total Institutions"
           value={formatNumber(totalCount)}
@@ -84,14 +148,19 @@ export default async function PlatformDashboardPage() {
           icon={<Clock className="size-5" />}
         />
         <StatCard
-          label="Paying Accounts"
-          value={formatNumber(payingCount)}
+          label="Monthly Revenue"
+          // Null renders as an em dash. Zero would assert that the platform
+          // earns nothing, which is a different and much stronger claim than
+          // "the subscription list could not be read".
+          value={mrr === null ? "—" : formatCurrency(mrr)}
           icon={<IndianRupee className="size-5" />}
+          caption={mrr === null ? undefined : "Normalised to a month"}
         />
       </div>
 
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
       <Card
-        className="mt-6"
+        className="lg:col-span-2"
         noPadding
         header={
           <div className="flex items-center justify-between gap-4">
@@ -118,6 +187,63 @@ export default async function PlatformDashboardPage() {
           }
         />
       </Card>
+
+      <div className="flex flex-col gap-6">
+        <Card
+          header={
+            <div className="flex items-center gap-2">
+              <CreditCard className="size-4 text-muted-foreground" aria-hidden="true" />
+              <h2 className="text-sm font-semibold text-heading">Subscriptions</h2>
+            </div>
+          }
+        >
+          {!subscriptionsResult.success ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              Could not be read: {subscriptionsResult.error}
+            </p>
+          ) : subscriptions.length === 0 ? (
+            <p className="py-4 text-sm text-muted-foreground">
+              No subscription has been created yet.
+            </p>
+          ) : (
+            <dl className="space-y-3">
+              {Object.entries(planCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([plan, count]) => (
+                  <div key={plan} className="flex items-center justify-between gap-3">
+                    <dt className="truncate text-sm text-foreground">{plan}</dt>
+                    <dd className="shrink-0 rounded-full bg-primary-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-800">
+                      {formatNumber(count)}
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+          )}
+        </Card>
+
+        <UnavailablePanel
+          title="Resource Usage"
+          subtitle="Current platform load"
+          icon={<Gauge className="size-5" />}
+          reason="No metrics endpoint exists yet. CPU, memory and storage figures need a platform telemetry source before they can be shown."
+        />
+      </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <UnavailablePanel
+          title="System Health"
+          subtitle="Uptime and incidents"
+          icon={<Activity className="size-5" />}
+          reason="No health or status endpoint is implemented. Uptime cannot be reported without one, and an assumed figure on this page would be worse than none."
+        />
+        <UnavailablePanel
+          title="AI Insights"
+          subtitle="Predictive analytics"
+          icon={<Sparkles className="size-5" />}
+          reason="The AI routes answer questions within a single tenant. Platform-wide insight needs a cross-tenant analytics endpoint, which does not exist yet."
+        />
+      </div>
     </>
   );
 }

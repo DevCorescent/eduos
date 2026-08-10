@@ -115,6 +115,12 @@ function codeForStatus(status: number): ApiErrorCode {
       return "NOT_FOUND";
     case 409:
       return "CONFLICT";
+    // Distinguished from SERVER_ERROR so the UI can say "too many requests"
+    // and hold off, rather than offering a Retry button that makes a rate
+    // limit worse. No route rate-limits today; this is here so the client is
+    // already correct when one does.
+    case 429:
+      return "RATE_LIMITED";
     default:
       return "SERVER_ERROR";
   }

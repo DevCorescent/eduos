@@ -27,6 +27,28 @@ model Tenant {
   accreditationNo   String?
   establishedYear   Int?
   settings          Json?
+
+  /// PRD §5.1 "Assign support manager" — the platform operator who owns this
+  /// university's onboarding and support.
+  ///
+  /// A nullable FK to PlatformUser rather than a free-text name: the support
+  /// manager is an EduOS operator, and PlatformUser is where operators live.
+  /// §5.1 names the capability and defines no other field, so nothing else is
+  /// modelled here.
+  ///
+  /// onDelete: SetNull — an operator leaving the platform must not cascade
+  /// their universities away, and a dangling id would be worse than none.
+  supportManagerId  String?
+  supportManager    PlatformUser?         @relation("TenantSupportManager", fields: [supportManagerId], references: [id], onDelete: SetNull)
+
+  /// W1.5 — when the university was archived, and by which platform operator.
+  ///
+  /// Kept as their own columns rather than inferred from `status`, because
+  /// status can move away from ARCHIVED and the record of the archival should
+  /// survive that. Null while the university has never been archived.
+  archivedAt        DateTime?
+  archivedBy        String?
+
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   academicYears     AcademicYear[]
@@ -42,20 +64,115 @@ model Tenant {
   users             User[]
   evaluationSchemes EvaluationScheme[]
   gradeScales       GradeScale[]
+  onboardingSteps   TenantOnboardingStep[]
+  /// W3 — admission applications.
+  applications      Application[]
 
   @@index([slug])
   @@index([status])
+  @@index([supportManagerId])
+}
+
+/// PRD §49.1 — the University Onboarding Workflow, verbatim and in order.
+///
+/// These twelve values are the PRD's own arrow-chain, not a workflow invented
+/// here: "University Enquiry → Commercial Approval → Tenant Creation → Domain
+/// Configuration → Branding Configuration → Module Selection → Academic Setup
+/// → Data Import → User Creation → Training → UAT → Go Live".
+///
+/// They are what §5.1 "Track onboarding progress" tracks and what §5.1
+/// "University readiness checklist" lists. No stage is added, renamed or split.
+enum OnboardingStage {
+  UNIVERSITY_ENQUIRY
+  COMMERCIAL_APPROVAL
+  TENANT_CREATION
+  DOMAIN_CONFIGURATION
+  BRANDING_CONFIGURATION
+  MODULE_SELECTION
+  ACADEMIC_SETUP
+  DATA_IMPORT
+  USER_CREATION
+  TRAINING
+  UAT
+  GO_LIVE
+}
+
+/// One completed stage of one university's onboarding (PRD §5.1, §49.1).
+///
+/// WHY A ROW PER COMPLETED STAGE, NOT A POINTER ON Tenant
+///   A single `currentStage` column can express "we are at Academic Setup" but
+///   not the checklist §5.1 asks for: which stages are done, when, and by whom.
+///   It also cannot represent the real case where a later stage is finished
+///   before an earlier one — onboarding runs in parallel across teams, and the
+///   PRD's arrow-chain is the intended order, not a lock.
+///
+/// The composite primary key makes a stage completable exactly once per tenant,
+/// so "mark complete" is idempotent at the database rather than in a service.
+///
+/// This is the ONLY new model in W1.5. Every other §5.1 capability is written
+/// against Tenant, Subscription, Domain, Campus, School, AcademicYear or User,
+/// which already exist.
+model TenantOnboardingStep {
+  tenantId String
+  stage    OnboardingStage
+
+  completedAt DateTime @default(now())
+
+  /// The PlatformUser who marked it. No FK: an operator who later leaves the
+  /// platform must not take the onboarding record with them, and this column is
+  /// evidence rather than a relation anything traverses.
+  completedBy String?
+
+  /// PRD §55 Stage 3 "Reconciliation" — free-text context for a stage, such as
+  /// which records were reconciled. Optional and never required.
+  note String?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, stage])
+  @@index([tenantId])
 }
 
 model Domain {
-  id        String     @id @default(cuid())
-  tenantId  String
-  domain    String     @unique
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// The hostname, ALWAYS stored normalised: lower-cased, no port, no trailing
+  /// dot. Resolution normalises the request host the same way and compares
+  /// exactly, so "AKTU.Eduos.com:3000" and "aktu.eduos.com." both find this row
+  /// and nothing else does. The global unique constraint is what stops one
+  /// hostname pointing at two tenants — the worst failure this table can have.
+  domain String @unique
+
   type      DomainType @default(SUBDOMAIN)
-  verified  Boolean    @default(false)
-  isPrimary Boolean    @default(false)
-  createdAt DateTime   @default(now())
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// Whether the institution has proven control of this hostname.
+  ///
+  /// An unverified domain does NOT resolve — see resolveTenantByHost. PRD §5.2
+  /// asks for "Automated DNS verification" but names no mechanism, no token
+  /// format and no schedule, and this stack has no worker to poll with. So the
+  /// FLAG is honoured and the automation is deferred rather than guessed at;
+  /// today it is set by the platform operator. The column needs no change
+  /// whichever mechanism is chosen later.
+  verified Boolean @default(false)
+
+  /// A retired domain stops resolving without being deleted.
+  ///
+  /// Deleting is not the same thing: a removed row frees the hostname for
+  /// another tenant to claim, and any link still pointing at it would then
+  /// resolve to somebody else's institution.
+  isActive Boolean @default(true)
+
+  /// PRD §5.2 "Canonical domain configuration".
+  ///
+  /// At most one per tenant, enforced by the partial unique index below rather
+  /// than by application code — two canonical domains is a state no amount of
+  /// careful service logic can prevent under concurrency.
+  isPrimary Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([domain])
@@ -73,9 +190,26 @@ model Subscription {
   maxStudents   Int?
   maxFaculty    Int?
   maxStorage    BigInt?
+
+  /// PRD §5.1 "Set limits for users, storage and courses".
+  ///
+  /// Users and storage were already representable through maxStudents,
+  /// maxFaculty and maxStorage; courses had no column at all, so the third
+  /// limit the PRD names could not be set. Nullable like its siblings, and
+  /// nullable means "no limit" exactly as they do.
+  maxCourses    Int?
   features      Json?
   pricePerMonth Decimal?           @db.Decimal(10, 2)
   currency      String             @default("INR")
+
+  /// PRD §5.3 pricing basis. Defaults to FLAT_PLAN, which is what every row
+  /// created before W1.5 already was, so no stored subscription changes meaning.
+  pricingModel  PricingModel       @default(FLAT_PLAN)
+
+  /// PRD §5.3 "Auto-renewal management". A boolean is the whole of what the
+  /// PRD defines — it names the capability and no renewal window, no notice
+  /// period and no reminder schedule, so none is modelled.
+  autoRenew     Boolean            @default(true)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
   invoices      PlatformInvoice[]
@@ -119,6 +253,22 @@ model User {
   avatarUrl    String?
   isActive     Boolean        @default(true)
   isVerified   Boolean        @default(false)
+
+  /// W1.4 — the account holds a password it did not choose.
+  ///
+  /// The tenant-side counterpart of PlatformUser.mustChangePassword, and
+  /// deliberately the same mechanism rather than a second one: an initial
+  /// University Admin provisioned by a platform operator is in exactly the
+  /// position a platform operator created by another one is — somebody else has
+  /// seen the plaintext, so it is a shared secret until its owner replaces it.
+  ///
+  /// requireAuth refuses every tenant API while this is set, so it is a gate
+  /// rather than a hint the UI may choose to honour. The single exception is
+  /// POST /api/auth/change-password, which is the act that clears it.
+  ///
+  /// Defaults to false so every pre-W1.4 user keeps working unchanged.
+  mustChangePassword Boolean @default(false)
+
   lastLoginAt  DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
@@ -126,6 +276,8 @@ model User {
   faculty      FacultyMember?
   sessions     Session[]
   student      Student?
+  /// W2 — back-relation for the parent portal. Emits no column on User.
+  parent       Parent?
   tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   userRoles    UserRole[]
 
@@ -142,6 +294,23 @@ model User {
 
   // Phase 20 — back-relation for FeedbackForm authorship attribution.
   feedbackFormsCreated FeedbackForm[]
+
+  // Phase 22-27 back-relations. All virtual: they emit no DDL against User and
+  // change nothing Phases 1-20 rely on.
+  attendanceLocksLocked   AttendanceLock[] @relation("AttendanceLockLockedBy")
+  attendanceLocksUnlocked AttendanceLock[] @relation("AttendanceLockUnlockedBy")
+
+  internalAssessmentsGenerated InternalAssessmentSuggestion[] @relation("InternalAssessmentGeneratedBy")
+  internalAssessmentsDecided   InternalAssessmentSuggestion[] @relation("InternalAssessmentDecidedBy")
+
+  examResourcesUploaded ExamResource[] @relation("ExamResourceUploadedBy")
+  examResourcesVerified ExamResource[] @relation("ExamResourceVerifiedBy")
+
+  announcementsCreated Announcement[]
+  announcementReads    AnnouncementRead[]
+
+  // Phase 27 — the foreign key Notification.userId never had. See the model.
+  notifications Notification[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -266,6 +435,10 @@ model Department {
 
   openElectiveOfferings OpenElectiveOffering[]
 
+  /// Phase 26 · Phase 27 back-relations. Virtual — no DDL against Department.
+  examResources ExamResource[]
+  announcements Announcement[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([campusId])
@@ -288,6 +461,8 @@ model Programme {
   updatedAt           DateTime             @updatedAt
   batches             Batch[]
   curricula           Curriculum[]
+  /// W3 — back-relation for admission programme preferences. Emits no column.
+  applicationPreferences ApplicationPreference[]
   department          Department           @relation(fields: [departmentId], references: [id])
   specialisations     Specialisation[]
   courseRegistrations CourseRegistration[]
@@ -355,6 +530,12 @@ model Semester {
 
   feedbackSubmissions FeedbackSubmission[]
 
+  /// Phase 22 · Phase 25 · Phase 26 back-relations. Virtual — no DDL against
+  /// Semester.
+  attendanceLocks               AttendanceLock[]
+  internalAssessmentSuggestions InternalAssessmentSuggestion[]
+  examResources                 ExamResource[]
+
   @@unique([academicYearId, semesterNumber])
   @@index([tenantId])
 }
@@ -372,6 +553,9 @@ model Batch {
   programme      Programme    @relation(fields: [programmeId], references: [id])
   sections       Section[]
   students       Student[]
+
+  /// Phase 27 back-relation. Virtual — no DDL against Batch.
+  announcements Announcement[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -393,6 +577,10 @@ model Section {
   timetables          Timetable[]
   courseRegistrations CourseRegistration[]
   assessmentEvents    AssessmentEvent[]
+
+  /// Phase 22 · Phase 27 back-relations. Virtual — no DDL against Section.
+  attendanceLocks AttendanceLock[]
+  announcements   Announcement[]
 
   @@unique([batchId, semesterId, name])
   @@index([tenantId])
@@ -456,6 +644,13 @@ model Course {
 
   feedbackSubmissions FeedbackSubmission[]
 
+  /// Phase 22 · Phase 25 · Phase 26 back-relations. Virtual in Prisma — they
+  /// emit no DDL against this table and leave every existing column, index and
+  /// constraint on Course exactly as Phases 1-20 left them.
+  attendanceLocks             AttendanceLock[]
+  internalAssessmentSuggestions InternalAssessmentSuggestion[]
+  examResources               ExamResource[]
+
   @@unique([tenantId, code])
   @@index([tenantId])
   @@index([departmentId])
@@ -491,11 +686,16 @@ model Student {
   personal            StudentPersonal?
   courseRegistrations CourseRegistration[]
   achievements        Achievement[]
+  /// W3 — the application this student was converted from, if any.
+  application         Application?
 
   openElectivePreferences OpenElectivePreference[]
   openElectiveAllocations OpenElectiveAllocation[]
 
   feedbackSubmissions FeedbackSubmission[]
+
+  /// Phase 25 back-relation. Virtual — no DDL against Student.
+  internalAssessmentSuggestions InternalAssessmentSuggestion[]
 
   @@unique([tenantId, enrollmentNo])
   @@index([tenantId])
@@ -542,6 +742,24 @@ model StudentDocument {
 model Parent {
   id           String          @id @default(cuid())
   tenantId     String
+
+  /// W2 — the sign-in account for this parent, when one has been created.
+  ///
+  /// NULLABLE because Parent has always been, and remains, a CONTACT record:
+  /// every row that exists today was created by POST /api/parents as guardian
+  /// information on a student, with no account behind it. Requiring a user
+  /// would invalidate all of them.
+  ///
+  /// UNIQUE because one account is one parent. It mirrors Student.userId,
+  /// FacultyMember.userId and Employee.userId exactly rather than introducing a
+  /// second way to attach a person to an account.
+  ///
+  /// This column is the ONLY source of truth for parent authorization. The
+  /// email column above is optional and not unique, so it can never be used to
+  /// decide who a signed-in parent is.
+  userId       String?         @unique
+  user         User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   firstName    String
   lastName     String
   email        String?
@@ -857,6 +1075,18 @@ model FacultyMember {
   qualification     String?
   specialization    String?
   experience        Int?
+
+  /// Phase 23 — "Professional Photo".
+  ///
+  /// A URL, not bytes. The project stores no file anywhere: StudentDocument,
+  /// Certificate.pdfUrl and AssignmentSubmission.attachments all hold
+  /// client-supplied locations, and no upload, R2 client or object-storage code
+  /// exists in the repository. This column follows that established precedent
+  /// rather than introducing a second, incompatible convention.
+  ///
+  /// Nullable because every faculty row that exists today has no photo, and a
+  /// required column would fail to apply against live data.
+  photoUrl          String?
   status            EmployeeStatus            @default(ACTIVE)
   joinDate          DateTime
   createdAt         DateTime                  @default(now())
@@ -869,6 +1099,12 @@ model FacultyMember {
   assessmentEvents  AssessmentEvent[]
 
   feedbackSubmissions FeedbackSubmission[]
+
+  /// Phase 23 — the three profile histories the README names. Virtual
+  /// back-relations; the tables themselves are new.
+  publications   FacultyPublication[]
+  certifications FacultyCertification[]
+  education      FacultyEducation[]
 
   @@unique([tenantId, employeeId])
   @@index([tenantId])
@@ -1021,6 +1257,12 @@ model AssignmentSubmission {
   updatedAt    DateTime         @updatedAt
   assignment   Assignment       @relation(fields: [assignmentId], references: [id])
   student      Student          @relation(fields: [studentId], references: [id])
+
+  /// Phase 24 — "Submission History". Virtual back-relation; the version table
+  /// is new. @@unique([assignmentId, studentId]) above is DELIBERATELY LEFT
+  /// INTACT: this row stays the single CURRENT submission every Phase 10 query
+  /// already assumes, and superseded attempts live in the child table.
+  versions AssignmentSubmissionVersion[]
 
   @@unique([assignmentId, studentId])
   @@index([studentId])
@@ -2326,6 +2568,15 @@ model NotificationTemplate {
   @@index([tenantId])
 }
 
+/// Phase 13 model, extended by Phase 27 with the four things a Notification
+/// Center needs and Phase 13 had no reason to store.
+///
+/// EVERY ADDITION IS NULLABLE AND ADDITIVE. No Phase 13 column changes type,
+/// nullability or default, and `POST /api/notifications/send` continues to
+/// write exactly the columns it wrote before. An existing row simply has NULL
+/// in the new columns, which reads as "uncategorised, not archived, not
+/// deleted" — the correct interpretation of a row written before the concept
+/// existed.
 model Notification {
   id         String                @id @default(cuid())
   tenantId   String
@@ -2340,11 +2591,56 @@ model Notification {
   status     String                @default("PENDING")
   error      String?
   createdAt  DateTime              @default(now())
+
+  /// Phase 27 — WHAT the notification is about.
+  ///
+  /// A SECOND AXIS, NOT A REPLACEMENT FOR `type`. The pre-existing
+  /// NotificationType is a DELIVERY CHANNEL (EMAIL · SMS · PUSH · IN_APP);
+  /// the README's "Notification Categories" list (Academic, Attendance,
+  /// Assignments, Results, Fees, ...) is subject matter. The two are
+  /// independent — an EMAIL about attendance and an IN_APP about attendance
+  /// share a category and differ in channel — so overloading `type` would have
+  /// made "all my fee notifications" unanswerable without also constraining
+  /// how they were delivered.
+  ///
+  /// Nullable because every row Phase 13 has already written predates the
+  /// concept and no category can be inferred for it.
+  category NotificationCategory?
+
+  /// Phase 27 — "Archive Notification". Set once; the row leaves the default
+  /// list and remains readable under ?archived=true.
+  archivedAt DateTime?
+
+  /// Phase 27 — "Delete Notification", as a SOFT delete.
+  ///
+  /// A notification is a record that something was communicated to someone. A
+  /// recipient dismissing it from their bell is a display preference, not
+  /// grounds to destroy the institution's evidence that the message was sent —
+  /// the same reasoning that makes Certificate revocation a flag rather than a
+  /// DELETE. Every read path filters on this being NULL.
+  deletedAt DateTime?
+
   template   NotificationTemplate? @relation(fields: [templateId], references: [id])
   tenant     Tenant                @relation(fields: [tenantId], references: [id])
 
+  /// Phase 27 — the foreign key this column never had.
+  ///
+  /// `userId` was a bare unconstrained string (the TD-C / TD-C41 family). The
+  /// Notification Center reads exclusively by recipient, so an id pointing at
+  /// no one is a row no user can ever see and no query can ever explain.
+  /// SetNull rather than Cascade: DELETE /api/users/[id] is a hard delete, and
+  /// a tenant-wide broadcast row must survive one recipient being removed.
+  ///
+  /// The migration nulls any already-dangling value before adding the
+  /// constraint — see the migration file for why that is the only safe order.
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
   @@index([tenantId])
   @@index([userId])
+  /// The Notification Center's one hot read: this user's live notifications,
+  /// newest first. Composite because it is a NEW index on an existing table and
+  /// serves the query the bell makes on every page load.
+  @@index([userId, deletedAt, archivedAt, createdAt])
 }
 
 model AuditLog {
@@ -2358,19 +2654,146 @@ model AuditLog {
   after      Json?
   ipAddress  String?
   userAgent  String?
-  createdAt  DateTime @default(now())
-  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+
+  /// PRD 47 "Failed action logs".
+  ///
+  /// Without this column a refused action is indistinguishable from one that
+  /// never happened, and a rejected privilege escalation leaves no trace at
+  /// all — which is precisely the event an investigator is looking for. A
+  /// FAILURE row is written OUTSIDE the transaction that failed, because
+  /// anything written inside it rolls back with it.
+  status AuditStatus @default(SUCCESS)
+
+  /// Ties every entry produced by one request together.
+  ///
+  /// A single admission writes an identifier issue, a user creation and a
+  /// student creation. Without a shared handle an investigator reconstructing
+  /// that from timestamps alone has to guess which rows belong together, and
+  /// guesses wrong the moment two clerks work at once.
+  correlationId String?
+
+  createdAt DateTime @default(now())
+  tenant    Tenant   @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
   @@index([userId])
   @@index([resource, resourceId])
   @@index([createdAt])
+  /// The viewer's default read: one tenant, newest first.
+  @@index([tenantId, createdAt])
+  @@index([correlationId])
+}
+
+/// PRD 47 — whether the audited action succeeded.
+enum AuditStatus {
+  SUCCESS
+  FAILURE
+}
+
+/// ============================================================================
+/// PLATFORM IDENTITY (W1.2)
+///
+/// The EduOS platform's own operators. Deliberately SEPARATE from User/Role/
+/// UserRole, which are tenant-owned.
+///
+/// WHY A SECOND SET OF TABLES RATHER THAN A FLAG ON User
+///   Before W1.2, platform authority was a tenant Role named "SUPER_ADMIN".
+///   Role is @@unique([tenantId, name]) — a per-tenant row — and requireRole
+///   compared role NAMES taken from the JWT. So a university admin could grant
+///   themselves that role through the ordinary role-assignment API and read
+///   every tenant on the platform. Reproduced live in the W1.1 audit.
+///
+///   The vulnerability existed because platform authority was expressed as a
+///   value inside data that tenants are allowed to write. No amount of
+///   validation on that value fixes it: deny-listing the name leaves the next
+///   tenant free to mint its own, and an isSystem flag is still a tenant-owned
+///   column.
+///
+///   These tables carry NO tenantId. There is no column a tenant can write that
+///   grants membership, so the escalation is not blocked — it is unrepresentable.
+/// ============================================================================
+model PlatformUser {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  isActive     Boolean @default(true)
+
+  /// W1.3 — the account holds a password it did not choose.
+  ///
+  /// Set when an operator is created by another operator, and when their
+  /// password is reset for them: in both cases a second person has seen the
+  /// plaintext, so it is a shared secret until the owner replaces it. While
+  /// this is true the account can sign in and do exactly one thing — change its
+  /// password. requirePlatformAdmin refuses everything else, so the flag is an
+  /// actual gate rather than a hint the UI may choose to honour.
+  ///
+  /// Defaults to false so every pre-W1.3 row keeps working unchanged.
+  mustChangePassword Boolean @default(false)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  platformUserRoles PlatformUserRole[]
+
+  /// PRD §5.1 "Assign support manager". Back-relation only — emits no column on
+  /// PlatformUser; the FK lives on Tenant.
+  supportedTenants Tenant[] @relation("TenantSupportManager")
+
+  @@index([email])
+}
+
+/// A platform-level role. W1.2 defines exactly one: PLATFORM_ADMIN.
+///
+/// PRD §4.1 lists ~13 platform roles, but defines no permissions for any of
+/// them. Seeding twelve roles that grant nothing and gate nothing would be
+/// inventing an authorization model the PRD does not describe, so they are
+/// recorded as deferred until their semantics exist.
+model PlatformRole {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  platformUserRoles PlatformUserRole[]
+}
+
+/// Membership. Composite primary key, so a role cannot be granted twice.
+model PlatformUserRole {
+  platformUserId String
+  platformRoleId String
+  grantedAt      DateTime @default(now())
+
+  platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
+  platformRole PlatformRole @relation(fields: [platformRoleId], references: [id], onDelete: Cascade)
+
+  @@id([platformUserId, platformRoleId])
+  @@index([platformUserId])
 }
 
 model IdSequence {
-  id             String        @id @default(cuid())
-  tenantId       String
-  entityType     String
+  id         String @id @default(cuid())
+  tenantId   String
+  entityType String
+
+  /// PRD 9.3 "Reset sequence by campus" and "by programme".
+  ///
+  /// The counter dimension BELOW tenant + entityType. Empty string means the
+  /// tenant keeps one counter for this entity; a campus or programme id means
+  /// one counter per campus or per programme, which is what lets
+  /// EMP-JPR-ADM-00125 and EMP-DEL-ADM-00125 both be 125 within their own
+  /// campus.
+  ///
+  /// Empty rather than null because a null would make the unique index below
+  /// stop constraining anything: Postgres treats every NULL as distinct, so two
+  /// unscoped sequences for the same entity could be created and each would
+  /// hand out the same numbers.
+  scopeKey String @default("")
+
   prefix         String?
   suffix         String?
   format         String        @default("{PREFIX}{YEAR}{SEQ}")
@@ -2379,11 +2802,24 @@ model IdSequence {
   resetCycle     SequenceReset @default(YEARLY)
   lastResetYear  Int?
   lastResetMonth Int?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, entityType])
+  /// A retired sequence stops issuing without being deleted.
+  ///
+  /// Deleting one would lose lastSequence, and a sequence recreated at zero
+  /// would reissue numbers already printed on certificates and ID cards. The
+  /// generator refuses an inactive row rather than falling back to a default,
+  /// so switching this off is a deliberate, visible stop.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  /// The counter identity. This index is what makes concurrent generation safe:
+  /// the single UPDATE ... RETURNING that issues a number locks exactly one row,
+  /// so two simultaneous requests serialise on it rather than both reading the
+  /// same lastSequence.
+  @@unique([tenantId, entityType, scopeKey])
   @@index([tenantId])
 }
 
@@ -2399,6 +2835,41 @@ enum TenantStatus {
   SUSPENDED
   TRIAL
   CANCELLED
+
+  /// W1.5 — PRD §5.1 "Tenant deletion and data archival", non-destructively.
+  ///
+  /// The PRD names the capability, and §46.3 names "Data-retention policies"
+  /// and "Data-deletion workflows" — but defines no retention period, no
+  /// archive format and no restore procedure anywhere. So this is the half the
+  /// PRD DOES define: the university stops serving traffic and every row it
+  /// owns is kept.
+  ///
+  /// Deliberately NOT a hard delete. Deleting a Tenant cascades its users,
+  /// roles, campuses, subscriptions, students and results away, and no
+  /// requirement asks for that. ARCHIVED blocks access exactly as SUSPENDED
+  /// and CANCELLED already do — both the login route and tenant resolution
+  /// refuse anything that is not ACTIVE or TRIAL — and is reversible.
+  ARCHIVED
+}
+
+/// PRD §5.3 — the pricing bases the PRD enumerates for a subscription.
+///
+/// Verbatim from "5.3 Subscription and Billing": "Module-based pricing",
+/// "Per-student pricing", "Per-active-user pricing", "Per-course pricing",
+/// "Storage-based pricing". FLAT_PLAN is the sixth: §5.3's own "University
+/// subscription plans" line, which is what every existing Subscription row
+/// already is, and is the default so no stored row changes meaning.
+///
+/// What §5.1 calls "Configure payment terms" is only PARTLY this. The PRD
+/// defines the pricing BASIS and the billing CYCLE and nothing about terms —
+/// no due day, no net period, no advance or grace. Those are not modelled.
+enum PricingModel {
+  FLAT_PLAN
+  MODULE_BASED
+  PER_STUDENT
+  PER_ACTIVE_USER
+  PER_COURSE
+  STORAGE_BASED
 }
 
 enum DomainType {
@@ -3396,4 +3867,713 @@ enum FeedbackCategory {
 enum FeedbackSubmissionStatus {
   DRAFT
   SUBMITTED
+}
+
+// ============================================================================
+// PHASES 21-27 — Student Permissions, Attendance Lock, Faculty Analytics,
+//                Assignment Enhancement, AI Internal Assessment, Exam Resource
+//                Repository, Notification Center & Announcements.
+//
+// PHASE 21 DECLARES NO MODEL AND THAT IS THE DESIGN.
+//   The student permission matrix is a FIXED, README-derived constant living in
+//   lib/constants/studentPermissions.ts, not a table. Nothing in the README
+//   describes a university editing it, and a stored matrix would be a second
+//   source of truth able to drift from the route guards that actually enforce
+//   access — the enforcement is requireRole plus ownership checks, and this
+//   endpoint only DESCRIBES it.
+// ============================================================================
+
+
+/// Phase 22 — whether a lock is currently in force.
+///
+/// Two members, not three. An "unlocked" row is a lock that WAS taken and has
+/// since been released; the absence of a row is the never-locked case. Keeping
+/// the released row is what gives the audit endpoint its history, and what lets
+/// lockedBy and unlockedBy both stay attributable on one record.
+enum AttendanceLockStatus {
+  LOCKED
+  UNLOCKED
+}
+
+/// Phase 22 — a finalisation over one teaching unit's attendance.
+///
+/// THE SCOPE, AND WHY THIS ONE.
+///   A lock keys on (course, section, semester) because that triple is exactly
+///   what one faculty member is responsible for marking — the same tuple
+///   FacultyCourseAssignment and Timetable already use to describe a teaching
+///   duty. Locking per-student would be unenforceable in bulk marking, and
+///   locking per-semester alone would freeze a department's finished courses
+///   and its unfinished ones together.
+///
+/// "SEMESTER LOCK" AND "ATTENDANCE FREEZE" ARE THE SAME MECHANISM.
+///   fromDate and toDate are both nullable. Null-null means the whole semester
+///   — the README's "Semester Lock". A supplied range is the README's partial
+///   "Attendance Freeze". One model, one enforcement predicate, no second
+///   concept that could disagree with the first.
+///
+/// THE ROW IS UNIQUE, THE HISTORY IS NOT.
+///   The unique key means one lock state per teaching unit — locking twice
+///   updates rather than duplicating. Every transition is written to AuditLog
+///   by the service, which is where the audit endpoint reads from; this table
+///   holds only the CURRENT state.
+model AttendanceLock {
+  id       String @id @default(cuid())
+  tenantId String
+
+  courseId   String
+  sectionId  String
+  semesterId String
+
+  /// Inclusive lower bound of the frozen window. NULL = from the beginning of
+  /// the semester. @db.Date to match Attendance.date, which is also a bare
+  /// date — comparing a timestamp against it would make the boundary depend on
+  /// the server's timezone.
+  fromDate DateTime? @db.Date
+
+  /// Inclusive upper bound. NULL = to the end of the semester.
+  toDate DateTime? @db.Date
+
+  status AttendanceLockStatus @default(LOCKED)
+
+  /// Why the lock was taken. Optional, and deliberately present: TD-008 and
+  /// TD-C20 both record that a consequential state change with no reason column
+  /// is unattributable after the fact. This phase does not repeat that.
+  reason String?
+
+  lockedById String?
+  lockedAt   DateTime @default(now())
+
+  unlockedById String?
+  unlockedAt   DateTime?
+  unlockReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course   Course   @relation(fields: [courseId], references: [id])
+  section  Section  @relation(fields: [sectionId], references: [id])
+  semester Semester @relation(fields: [semesterId], references: [id])
+
+  /// SetNull on both actors: DELETE /api/users/[id] is a hard delete, and a
+  /// Restrict here would start rejecting it. AuditLog holds the permanent,
+  /// actor-preserving record of who locked what.
+  lockedBy   User? @relation("AttendanceLockLockedBy", fields: [lockedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  unlockedBy User? @relation("AttendanceLockUnlockedBy", fields: [unlockedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// One lock state per teaching unit.
+  @@unique([tenantId, courseId, sectionId, semesterId])
+  /// The enforcement read, performed on EVERY attendance write: is this unit
+  /// locked right now?
+  @@index([tenantId, status])
+  @@index([courseId])
+  @@index([sectionId])
+  @@index([semesterId])
+}
+
+
+/// Phase 23 — one research publication on a faculty profile.
+///
+/// A TABLE RATHER THAN A JSON COLUMN. The README treats publications as a
+/// countable, listable part of a profile, and TD-C04 already records what an
+/// unstructured Json blob costs: nothing can validate it, nothing can query it,
+/// and the mismatch surfaces at render time. Achievement (Phase 18) set the
+/// precedent for modelling this kind of list relationally.
+model FacultyPublication {
+  id        String @id @default(cuid())
+  tenantId  String
+  facultyId String
+
+  title String
+  /// Journal, conference or publisher name.
+  publisher String?
+  /// DOI, ISBN or an arbitrary reference string the institution recognises.
+  identifier String?
+  url        String?
+
+  publishedOn DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  faculty FacultyMember @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+
+  /// The profile read: one faculty member's publications, newest first.
+  @@index([tenantId, facultyId, publishedOn])
+  /// Supports the cascade. PostgreSQL does not index a foreign key
+  /// automatically, and without this a faculty deletion sequentially scans.
+  @@index([facultyId])
+}
+
+/// Phase 23 — one professional certification held by a faculty member.
+model FacultyCertification {
+  id        String @id @default(cuid())
+  tenantId  String
+  facultyId String
+
+  name   String
+  issuer String?
+  url    String?
+
+  issuedOn DateTime?
+
+  /// Nullable because many certifications never expire. Nothing in this phase
+  /// compares it to the current time — reporting an expiry the caller
+  /// interprets is the same choice Certificate.expiresAt made (TD-C32), stated
+  /// here so it is a decision rather than an omission.
+  expiresOn DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  faculty FacultyMember @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, facultyId, issuedOn])
+  @@index([facultyId])
+}
+
+/// Phase 23 — one entry in a faculty member's education history.
+///
+/// Distinct from FacultyMember.qualification, which is a single free-text
+/// summary Phase 7 already stores and this phase does not touch. That column
+/// answers "what is their highest qualification"; these rows answer "where did
+/// they study, and when".
+model FacultyEducation {
+  id        String @id @default(cuid())
+  tenantId  String
+  facultyId String
+
+  degree       String
+  institution  String
+  fieldOfStudy String?
+
+  /// Years rather than dates: an education record is conventionally stated in
+  /// years, and storing a fabricated day-precision date would assert precision
+  /// the source never had.
+  startYear Int?
+  endYear   Int?
+
+  grade String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  faculty FacultyMember @relation(fields: [facultyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, facultyId, endYear])
+  @@index([facultyId])
+}
+
+
+/// Phase 24 — a superseded assignment submission attempt.
+///
+/// WHY A CHILD TABLE AND NOT A RELAXED UNIQUE CONSTRAINT.
+///   AssignmentSubmission declares a unique key on (assignmentId, studentId)
+///   and every Phase 10 route — the grade path especially — is written against
+///   "one row per student". Dropping that constraint to get history would
+///   change the meaning of code this phase is not permitted to touch. Instead
+///   the parent row remains the CURRENT attempt, and each resubmission
+///   snapshots the outgoing state here first.
+///
+/// WHAT A ROW MEANS
+///   The submission AS IT STOOD before the attempt that replaced it, including
+///   any marks and feedback it had already received. A student who resubmits
+///   after grading therefore does not erase the grade that was given — it is
+///   preserved on the version, which is the point of an audit trail.
+model AssignmentSubmissionVersion {
+  id           String @id @default(cuid())
+  submissionId String
+
+  /// 1-based, monotonic within one submission, never reused. Assigned by the
+  /// service inside the same transaction as the update, so two concurrent
+  /// resubmissions cannot both claim the same number — the unique index below
+  /// is what makes that guarantee structural rather than hopeful.
+  attempt Int
+
+  status      SubmissionStatus
+  attachments Json?
+  submittedAt DateTime?
+
+  marks    Int?
+  feedback String?
+  gradedAt DateTime?
+  gradedBy String?
+
+  /// When this version was superseded — i.e. when the snapshot was taken. Not
+  /// the same as submittedAt, which is when the student originally sent it.
+  recordedAt DateTime @default(now())
+
+  submission AssignmentSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@unique([submissionId, attempt])
+  @@index([submissionId])
+}
+
+
+/// Phase 25 — one AI-generated internal-mark suggestion, and the faculty
+/// decision taken on it.
+///
+/// ONE ROW CARRIES BOTH, DELIBERATELY.
+///   The README frames this as "AI suggests, faculty decides". Splitting the
+///   suggestion and the override into two tables would make the ordinary
+///   question — what was proposed, what was awarded, and how far apart were
+///   they — a join, and would allow a decision to exist with no proposal behind
+///   it. Keeping them on one row makes the pairing structural.
+///
+/// THE MARKING RULES ARE NOT STORED HERE.
+///   The rules endpoint reads Phase 16's EvaluationComponent weightages for the
+///   active EvaluationScheme. No parallel rules model is declared: a university
+///   that has configured its internal components has already stated how
+///   internal marks are weighted, and a second store would be free to
+///   contradict it.
+///
+/// THE AUDIT TRAIL IS AuditLog, NOT A COLUMN HERE.
+///   Every generate and every override is written to AuditLog by the service,
+///   which is what the audit endpoint reads. This row holds current state;
+///   AuditLog holds the sequence of changes, exactly as Phase 22 does for
+///   attendance locks.
+model InternalAssessmentSuggestion {
+  id       String @id @default(cuid())
+  tenantId String
+
+  studentId  String
+  courseId   String
+  semesterId String
+
+  /// The Phase 16 EvaluationComponent this suggestion is FOR. A plain column
+  /// rather than a relation: EvaluationComponent is Phase 16's aggregate and
+  /// this phase adds no back-relation to it. The service validates that the
+  /// component exists, belongs to the tenant, and is an internal component.
+  componentId String
+
+  /// What the model proposed. Decimal(6,2) matching every other marks column in
+  /// the project (ExamResult.marksObtained, StudentComponentScore), so a
+  /// suggestion and an awarded mark are directly comparable with no conversion.
+  suggestedMarks Decimal? @db.Decimal(6, 2)
+
+  /// How much of the evidence the suggestion was actually based on, 0.000-1.000.
+  ///
+  /// DEFINED, NOT INVENTED. This is the DATA-COMPLETENESS ratio: the fraction
+  /// of the configured evidence inputs (attendance, assignments, quiz,
+  /// practical, prior performance) for which this student had any data at all.
+  /// It is NOT a claim about how likely the number is to be right, which
+  /// nothing in the README defines and nothing here could honestly compute.
+  /// lib/domain/internal-assessment/confidence.ts is the single definition.
+  confidence Decimal? @db.Decimal(4, 3)
+
+  /// The per-input evidence the suggestion was computed from, as the domain
+  /// layer assembled it. Stored so a suggestion can be explained months later
+  /// without re-reading attendance and assignment tables that have since moved.
+  factors Json?
+
+  /// The model's prose rationale, when one was produced. Nullable because a
+  /// suggestion generated with no AI provider configured is still a valid
+  /// deterministic suggestion — see the service.
+  rationale String?
+
+  /// Which Groq model produced it, so a suggestion is reproducible and a
+  /// provider change is visible in the data.
+  aiModel String?
+
+  generatedById String?
+  generatedAt   DateTime @default(now())
+
+  /// What the faculty member actually awarded. NULL until a decision is taken.
+  finalMarks Decimal? @db.Decimal(6, 2)
+
+  /// Required by the service whenever finalMarks differs from suggestedMarks.
+  /// The schema cannot express "required only when they differ", so the rule
+  /// lives in the service and this column stays nullable — stated so the gap is
+  /// a known one rather than an oversight.
+  overrideReason String?
+
+  decidedById String?
+  decidedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student  Student  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course   Course   @relation(fields: [courseId], references: [id])
+  semester Semester @relation(fields: [semesterId], references: [id])
+
+  generatedBy User? @relation("InternalAssessmentGeneratedBy", fields: [generatedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  decidedBy   User? @relation("InternalAssessmentDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// One suggestion per student per component per course-semester. Regenerating
+  /// updates in place rather than accumulating proposals nothing distinguishes.
+  @@unique([tenantId, studentId, courseId, semesterId, componentId])
+  /// The faculty read: everyone in this course-semester, for review in bulk.
+  @@index([tenantId, courseId, semesterId])
+  @@index([studentId])
+}
+
+
+/// Phase 26 — what kind of examination resource a row holds.
+///
+/// Exactly the six the README's faculty upload list names, and no others.
+enum ExamResourceType {
+  QUESTION_PAPER
+  SOLUTION
+  MARKING_SCHEME
+  ANSWER_KEY
+  REFERENCE_MATERIAL
+  FORMULA_SHEET
+}
+
+/// Phase 26 — publication lifecycle of a resource.
+///
+/// DRAFT     — uploaded, visible to its uploader and the department, never to a
+///             student. The README's "Draft Mode".
+/// PUBLISHED — released. Student visibility ALSO requires any scheduled time to
+///             have elapsed; see ExamResource.scheduledPublishAt.
+/// ARCHIVED  — withdrawn. Retained and readable by staff, never listed to a
+///             student. Not a delete: previous-year papers are the point of the
+///             repository, so nothing here destroys one.
+enum ExamResourceStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// Phase 26 — one question paper, solution, marking scheme or reference file.
+///
+/// THIS MODEL STORES A LOCATION, NOT A FILE.
+///   No upload, R2 client, presigned-URL helper or multipart handler exists
+///   anywhere in this repository — verified before this model was written.
+///   StudentDocument, Certificate.pdfUrl and AssignmentSubmission.attachments
+///   all store a client-supplied URL, and the Phase 17 download route returns
+///   JSON rather than bytes. Phase 26 follows that precedent exactly rather
+///   than inventing a second file convention this project cannot serve.
+///
+/// SCHEDULED PUBLICATION IS EVALUATED ON READ.
+///   The project has no cron, queue or job runner. scheduledPublishAt is
+///   therefore a stored instant that every student-facing query compares
+///   against now(); nothing flips a column on a timer. This makes the feature
+///   real with no infrastructure that does not exist, at the cost of a resource
+///   remaining PUBLISHED-but-not-yet-visible rather than transitioning.
+///
+/// VERIFICATION IS ORTHOGONAL TO PUBLICATION.
+///   The README gives HOD "Verify Uploads" AND "Publish/Unpublish" as separate
+///   capabilities, so isVerified is a separate flag and does NOT gate student
+///   visibility. A published-but-unverified resource is visible; verification
+///   is a quality signal reported alongside it.
+model ExamResource {
+  id       String @id @default(cuid())
+  tenantId String
+
+  courseId   String
+  semesterId String
+
+  /// Denormalised from the course for the README's "Department Repository"
+  /// read, which lists everything a department has produced without joining
+  /// through every course. Written by the service from the course's own
+  /// department, never accepted from the client.
+  departmentId String?
+
+  /// Optional link to the examination the paper was set for. Nullable because
+  /// reference material and formula sheets belong to a course, not a sitting.
+  /// A plain column with no relation: Examination is Phase 10's aggregate and
+  /// this phase adds no back-relation to it.
+  examinationId String?
+
+  type  ExamResourceType
+  title String
+
+  description String?
+
+  /// The academic year the resource belongs to, e.g. "2024-25". A string
+  /// because that is how an institution writes it and how the README's
+  /// "Previous Year Question Papers" filter reads; AcademicYear rows exist but
+  /// a paper may predate the tenant's records entirely.
+  academicYear String?
+
+  fileName String
+  fileUrl  String
+  fileSize Int?
+  mimeType String?
+
+  status ExamResourceStatus @default(DRAFT)
+
+  /// When the resource becomes student-visible. NULL means "as soon as it is
+  /// PUBLISHED". Compared to now() on every student read — nothing mutates it.
+  scheduledPublishAt DateTime?
+
+  publishedAt DateTime?
+  archivedAt  DateTime?
+
+  isVerified   Boolean   @default(false)
+  verifiedById String?
+  verifiedAt   DateTime?
+
+  uploadedById String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course     Course      @relation(fields: [courseId], references: [id])
+  semester   Semester    @relation(fields: [semesterId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  /// Restrict on the uploader, SetNull on the verifier. The two differ on
+  /// purpose: a resource with no uploader is unattributable provenance for a
+  /// document students rely on, whereas a verification is a review event whose
+  /// permanent record is AuditLog.
+  uploadedBy User  @relation("ExamResourceUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  verifiedBy User? @relation("ExamResourceVerifiedBy", fields: [verifiedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// The student read: published resources for a course in a semester.
+  @@index([tenantId, status, courseId, semesterId])
+  /// The department repository read.
+  @@index([tenantId, departmentId, status])
+  /// Previous-year browsing.
+  @@index([tenantId, academicYear])
+  @@index([courseId])
+  @@index([semesterId])
+  @@index([uploadedById])
+}
+
+
+/// Phase 27 — WHAT a notification or announcement is about.
+///
+/// Exactly the eleven the README's "Notification Categories" list names.
+/// Independent of NotificationType, which is the delivery CHANNEL — see the
+/// note on Notification.category for why conflating them was rejected.
+enum NotificationCategory {
+  ACADEMIC
+  ATTENDANCE
+  ASSIGNMENT
+  RESULT
+  FEE
+  CERTIFICATE
+  TIMETABLE
+  AI
+  FINANCE
+  ANNOUNCEMENT
+  EMERGENCY
+}
+
+/// Phase 27 — who an announcement is addressed to.
+///
+/// The four the README names, in widening-to-narrowing order. Each member
+/// implies exactly one nullable target column on Announcement; the service
+/// refuses a mismatch (DEPARTMENT with no departmentId, INSTITUTION with one).
+enum AnnouncementAudience {
+  INSTITUTION
+  DEPARTMENT
+  BATCH
+  SECTION
+}
+
+/// Phase 27 — publication lifecycle of an announcement.
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+/// Phase 27 — one announcement, addressed to an audience rather than a person.
+///
+/// RESOLVED ON READ, NEVER FANNED OUT.
+///   Publishing does NOT write one Notification per recipient. A batch-wide
+///   announcement in a large university would be tens of thousands of rows per
+///   post; editing one would then have to find and rewrite all of them, and
+///   deleting one would leave orphans. Instead the audience is stored on the
+///   single row and the list endpoint resolves what the CALLER is entitled to
+///   see at query time. One row, one edit, one delete.
+///
+/// SCHEDULING, LIKE PHASE 26, IS EVALUATED ON READ.
+///   publishAt is compared to now() by the visibility predicate. No job runner
+///   exists to flip a status column, and inventing one is outside this phase.
+model Announcement {
+  id       String @id @default(cuid())
+  tenantId String
+
+  title String
+  body  String
+
+  category NotificationCategory @default(ANNOUNCEMENT)
+
+  audience AnnouncementAudience @default(INSTITUTION)
+
+  /// Exactly one of these is set, matching audience; all three are NULL for
+  /// INSTITUTION. The schema cannot express that exclusivity, so the service
+  /// enforces it — recorded here as a known structural gap rather than left
+  /// implicit.
+  departmentId String?
+  batchId      String?
+  sectionId    String?
+
+  status AnnouncementStatus @default(DRAFT)
+
+  /// The README's "Pinned Announcements". Ordering key, not a visibility rule:
+  /// a pinned announcement sorts first and is otherwise ordinary.
+  isPinned Boolean @default(false)
+
+  /// The README's "Scheduled Announcements". NULL = visible as soon as it is
+  /// PUBLISHED.
+  publishAt DateTime?
+
+  /// After this instant the announcement stops being listed. Nullable; nothing
+  /// deletes on expiry.
+  expiresAt DateTime?
+
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department? @relation(fields: [departmentId], references: [id])
+  batch      Batch?      @relation(fields: [batchId], references: [id])
+  section    Section?    @relation(fields: [sectionId], references: [id])
+
+  createdBy User? @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  reads AnnouncementRead[]
+
+  /// The list read: what is live in this tenant, pinned first, newest first.
+  @@index([tenantId, status, isPinned, publishAt])
+  @@index([departmentId])
+  @@index([batchId])
+  @@index([sectionId])
+}
+
+/// Phase 27 — that one user has read one announcement.
+///
+/// A JOIN TABLE RATHER THAN A COLUMN, because read state is per-VIEWER and an
+/// announcement has many. Its absence means unread, so nothing has to be
+/// written when an announcement is published — only when someone reads it.
+model AnnouncementRead {
+  id             String @id @default(cuid())
+  announcementId String
+  userId         String
+
+  readAt DateTime @default(now())
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// One read record per user per announcement. Marking read twice is
+  /// idempotent rather than a second row.
+  @@unique([announcementId, userId])
+  @@index([userId])
+}
+
+/// ============================================================================
+/// ADMISSIONS (W3 — PRD §8.2, §8.5, §9.1, §49.2)
+///
+/// One model, plus a preference join. Nothing here duplicates Student, User or
+/// Parent: an Application is the record of somebody who is NOT yet a student,
+/// and it points at the Student it became once §8.5 conversion has run.
+/// ============================================================================
+
+/// PRD §49.2 — the Student Admission Workflow, verbatim and in order.
+///
+/// These twelve values are the PRD's own arrow-chain: "Lead → Counselling →
+/// Application → Document Verification → Eligibility Check → Entrance
+/// Examination → Merit or Selection → Offer Letter → Fee Payment → Student ID
+/// Generation → Course Allocation → Portal Activation". No stage is added,
+/// renamed, split or reordered, and no status outside this list exists —
+/// §8 defines none.
+enum AdmissionStage {
+  LEAD
+  COUNSELLING
+  APPLICATION
+  DOCUMENT_VERIFICATION
+  ELIGIBILITY_CHECK
+  ENTRANCE_EXAMINATION
+  MERIT_OR_SELECTION
+  OFFER_LETTER
+  FEE_PAYMENT
+  STUDENT_ID_GENERATION
+  COURSE_ALLOCATION
+  PORTAL_ACTIVATION
+}
+
+/// An admission application (PRD §8.2).
+model Application {
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// PRD §9.1 "Applicant ID" and "Application number".
+  ///
+  /// Both, because §9.1 names both. They are issued by the EXISTING identifier
+  /// engine (PRD §9) and never by this model — no default, no autoincrement.
+  applicantNo   String
+  applicationNo String
+
+  /// Applicant details (§8.2).
+  firstName   String
+  lastName    String
+  email       String
+  phone       String?
+  dateOfBirth DateTime?
+
+  /// Guardian information (§8.2).
+  ///
+  /// Held on the application rather than as a Parent row: an applicant is not
+  /// yet a student, so there is no Student for StudentParent to join to.
+  /// Conversion is where a Parent record would be created, and §8.5 does not
+  /// ask for one — recorded as a gap rather than guessed at.
+  guardianName     String?
+  guardianRelation String?
+  guardianPhone    String?
+  guardianEmail    String?
+
+  /// Education and work history (§8.2 "Education history",
+  /// "Work-experience history").
+  ///
+  /// UNTYPED JSON, deliberately. §8.2 names both and defines no field for
+  /// either — no institution, no year, no grade, no employer. Imposing a shape
+  /// would be inventing the requirement, so the column stores what is supplied
+  /// and the validator bounds only its size and depth. Same treatment as
+  /// Tenant.address and Tenant.settings.
+  educationHistory Json?
+  workHistory      Json?
+
+  /// PRD §49.2. Every application starts at the first stage.
+  stage AdmissionStage @default(LEAD)
+
+  /// PRD §8.5 — the Student this application became, once converted.
+  ///
+  /// Nullable because most applications have not converted, and @unique so one
+  /// application can produce at most one student. This column is what makes
+  /// duplicate conversion impossible at the database rather than in a service.
+  studentId   String?   @unique
+  convertedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student     Student?                @relation(fields: [studentId], references: [id])
+  preferences ApplicationPreference[]
+
+  /// Both identifiers are unique per tenant, matching every other identifier in
+  /// this schema. The email is unique per tenant too: §8.3 asks for "Duplicate
+  /// application detection", and one address applying twice to one university
+  /// is what that means in the terms this model has.
+  @@unique([tenantId, applicationNo])
+  @@unique([tenantId, applicantNo])
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([tenantId, stage])
+}
+
+/// PRD §8.2 "Multiple programme preferences".
+///
+/// A join rather than a column, because "multiple" is the requirement. The
+/// composite key stops one programme being listed twice for one application.
+model ApplicationPreference {
+  applicationId String
+  programmeId   String
+
+  /// 1 is the applicant's first choice. Ordering is the whole point of a
+  /// preference list, so it is stored rather than inferred from insert order.
+  priority Int
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  programme   Programme   @relation(fields: [programmeId], references: [id])
+
+  @@id([applicationId, programmeId])
+  @@index([applicationId])
 }

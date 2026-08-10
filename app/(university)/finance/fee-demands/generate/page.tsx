@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { listFeeStructures } from "@/services/finance";
 import { listAcademicYears, listBatches, listSemesters } from "@/services/calendar";
 import { listProgrammes } from "@/services/setup";
@@ -54,9 +55,10 @@ export default async function GenerateDemandsPage() {
     return (
       <>
         {header}
-        <ErrorState
-          title="Couldn't load fee structures"
-          description={structuresResult.error}
+        <StateView
+          state={resolveFailureState(structuresResult)}
+          subject="fee structures"
+          message={structuresResult.error}
         />
       </>
     );

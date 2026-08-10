@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getPortalSession } from "@/services/session";
 import { PortalShell } from "@/components/layout/PortalShell";
+import { NotificationBell } from "@/components/shared/NotificationBell";
 import {
   FACULTY_NAV,
   PLATFORM_NAV,
@@ -58,6 +59,7 @@ export default async function AccountLayout({ children }: { children: ReactNode 
 
   return (
     <PortalShell
+      topbarActions={<NotificationBell />}
       sections={filterNav(nav, session.roles)}
       user={topbarUserFromSession(session)}
       portalName={portalName}

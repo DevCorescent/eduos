@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { listCertificateTemplates } from "@/services/finance";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { listStudents } from "@/services/students";
 import { CERTIFICATE_TYPE_LABELS } from "@/constants/labels";
 import { IssueCertificateForm } from "./IssueCertificateForm";
@@ -15,7 +17,7 @@ export default async function IssueCertificatePage() {
     listCertificateTemplates({ page: 1, limit: 100 }),
     // Active students only: a certificate attesting to current standing should
     // not be issued against a withdrawn record without a deliberate override.
-    listStudents({ page: 1, limit: 200, status: "ACTIVE" }),
+    listStudents({ page: 1, limit: MAX_LIST_LIMIT, status: "ACTIVE" }),
   ]);
 
   const header = (
@@ -38,7 +40,11 @@ export default async function IssueCertificatePage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load templates" description={templatesResult.error} />
+        <StateView
+          state={resolveFailureState(templatesResult)}
+          subject="certificate issuing"
+          message={templatesResult.error}
+        />
       </>
     );
   }

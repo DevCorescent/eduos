@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Wallet } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -14,6 +15,15 @@ import { listProgrammes } from "@/services/setup";
 import { FEE_TYPE_LABELS } from "@/constants/labels";
 import { formatCurrency } from "@/utils/format";
 import type { FeeComponent } from "@/types";
+
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
 
 export const metadata: Metadata = { title: "Fee Structures" };
 
@@ -42,7 +52,11 @@ export default async function FeeStructuresPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load fee structures" description={structuresResult.error} />
+        <StateView
+          state={resolveFailureState(structuresResult)}
+          subject="fee structures"
+          message={structuresResult.error}
+        />
       </>
     );
   }
@@ -101,7 +115,8 @@ export default async function FeeStructuresPage({
     <>
       {header}
 
-      <ListToolbar search={<ListSearch placeholder="Search fee structures…" />} />
+      <ListToolbar search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search fee structures…" />} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card

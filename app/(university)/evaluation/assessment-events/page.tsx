@@ -3,7 +3,8 @@ import Link from "next/link";
 import { CalendarCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Badge } from "@/components/ui/Badge";
@@ -65,7 +66,11 @@ export default async function AssessmentEventsPage({
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load assessment events" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="assessment events"
+          message={result.error}
+        />
       </>
     );
   }

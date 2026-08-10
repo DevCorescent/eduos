@@ -5,7 +5,7 @@
 //          validated by Zod → GET returns one transactional page + count,
 //          POST checks slug uniqueness and creates the Tenant → both reply in
 //          the existing ok() / fail() envelope.
-// ACCESS : SUPER_ADMIN
+// ACCESS : PLATFORM_ADMIN (platform session — W1.2)
 // BACKEND: Reads and writes ONLY the existing Tenant model via lib/db/prisma.
 //          No User, Role, Domain or Subscription is touched. No schema change.
 // PURPOSE: Back the platform tenant directory and university onboarding
@@ -14,17 +14,17 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { Prisma } from "@/app/generated/prisma/client";
-import { requireRole } from "@/lib/middleware/requireRole";
-import { createTenantSchema, listTenantsQuerySchema } from "@/lib/validations/platform";
+import { requirePlatformAdmin } from "@/lib/middleware/requirePlatformAdmin";
+import { provisionTenantSchema, listTenantsQuerySchema } from "@/lib/validations/platform";
+import {
+  logProvisioningEvent,
+  provisionUniversity,
+} from "@/lib/services/universityProvisioning.service";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
-/** Prisma's unique-constraint violation code. */
-const UNIQUE_VIOLATION = "P2002";
-
 // GET
-// ACCESS     : SUPER_ADMIN
+// ACCESS     : PLATFORM_ADMIN (platform session — W1.2)
 // VALIDATION : listTenantsQuerySchema — ?page (default 1) and ?limit
 //              (default 20, max 100), both coerced from search params.
 // FLOW       : Authorise → validate query → read one page of tenants alongside
@@ -37,7 +37,7 @@ const UNIQUE_VIOLATION = "P2002";
 //              403 FORBIDDEN · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("SUPER_ADMIN");
+    const guard = await requirePlatformAdmin();
     if (!guard.authorized) return guard.response;
 
     const parsed = listTenantsQuerySchema.safeParse(
@@ -88,22 +88,37 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST
-// ACCESS     : SUPER_ADMIN
-// VALIDATION : createTenantSchema — slug and name required, every other Tenant
-//              scalar optional. status is not accepted; the schema default
-//              (TRIAL) applies and PATCH owns status changes.
-// FLOW       : Authorise → parse body → validate → reject a slug already in
-//              use → create the Tenant → return the created record.
-//              Tenant.slug is the only uniqueness the schema exposes here:
-//              Tenant has no code column, and Domain rows are out of scope, so
-//              neither can collide.
-// RESPONSE   : { success: true, data: <Tenant>, message: "Tenant created" }
+// POST — university provisioning (W1.4)
+// ACCESS     : PLATFORM_ADMIN (platform session — W1.2). This guard is the ONLY
+//              actor check: a tenant session, whatever roles it claims, never
+//              reaches this handler. Requirement "Super Admin must be the only
+//              actor allowed to provision a university" is that guard, not a
+//              role-name comparison.
+// VALIDATION : provisionTenantSchema — slug and name required, every other
+//              Tenant scalar optional, plus `status` (so a university can be
+//              onboarded directly as ACTIVE) and an OPTIONAL `admin` block.
+// FLOW       : Authorise → parse body → validate → the provisioning service
+//              creates Tenant + Subscription + (Role, User, UserRole) in ONE
+//              transaction → return the tenant, the administrator and the
+//              administrator's one-time password.
+//
+//              Tenant.slug is the only tenant-level uniqueness the schema
+//              exposes: Tenant has no separate code column — the slug IS the
+//              university code — and no Domain row is written here.
+//
+// RESPONSE   : { success: true, data: { tenant, admin, temporaryPassword },
+//                message } — `admin` and `temporaryPassword` are null when no
+//              administrator was requested.
 // STATUS     : 201 Created · 400 VALIDATION_ERROR · 401 UNAUTHORIZED
 //              403 FORBIDDEN · 409 CONFLICT · 500 SERVER_ERROR
+//
+// THE ADMINISTRATOR'S PASSWORD IS IN THIS RESPONSE ONCE, AND NOWHERE ELSE
+//   Same contract as W1.3: no mail transport exists, only the bcrypt hash is
+//   stored, and the account is created with mustChangePassword so the credential
+//   buys exactly one sign-in before its owner must replace it.
 export async function POST(request: NextRequest) {
   try {
-    const guard = await requireRole("SUPER_ADMIN");
+    const guard = await requirePlatformAdmin();
     if (!guard.authorized) return guard.response;
 
     // A malformed body is a client error, so it is caught here rather than
@@ -115,7 +130,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
     }
 
-    const parsed = createTenantSchema.safeParse(body);
+    const parsed = provisionTenantSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         {
@@ -128,36 +143,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { address, settings, ...scalars } = parsed.data;
+    const result = await provisionUniversity(parsed.data);
 
-    const existing = await prisma.tenant.findUnique({
-      where: { slug: scalars.slug },
-      select: { id: true },
-    });
-    if (existing) {
+    if (!result.ok) {
+      // SLUG_TAKEN is the only failure this path can produce: the tenant is new,
+      // so its administrator's address cannot clash with an existing user.
       return NextResponse.json(fail("Tenant slug already in use", "CONFLICT"), { status: 409 });
     }
 
-    // Single write — already atomic, so no transaction is warranted. The JSON
-    // columns are cast at this boundary because Zod infers unknown-valued
-    // records, which Prisma's InputJsonValue does not accept directly. Omitted
-    // keys stay undefined so the column default applies instead of a null.
-    const tenant = await prisma.tenant.create({
-      data: {
-        ...scalars,
-        address: address as Prisma.InputJsonValue | undefined,
-        settings: settings as Prisma.InputJsonValue | undefined,
-      },
-    });
+    const { tenant, admin, temporaryPassword } = result.value;
 
-    return NextResponse.json(ok(tenant, "Tenant created"), { status: 201 });
+    logProvisioningEvent("university-provisioned", guard.platformUserId, tenant.id, admin?.id);
+
+    return NextResponse.json(
+      ok(
+        { tenant, admin, temporaryPassword },
+        admin ? "University and administrator provisioned" : "Tenant created"
+      ),
+      { status: 201 }
+    );
   } catch (err) {
-    // The uniqueness pre-check above narrows the common case; this covers the
-    // race where a concurrent request inserted the same slug in between.
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === UNIQUE_VIOLATION) {
-      return NextResponse.json(fail("Tenant slug already in use", "CONFLICT"), { status: 409 });
-    }
-
     console.error("[POST /api/platform/tenants]", err);
     return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
   }

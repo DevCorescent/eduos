@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
@@ -22,6 +23,16 @@ import {
 } from "@/actions/academics";
 import { COURSE_TYPE_LABELS } from "@/constants/labels";
 import { COURSE_TYPE_VALUES, type Course } from "@/types";
+
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = { title: "Courses" };
 
@@ -111,11 +122,27 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Courses" subtitle="The course catalogue this university teaches from." />
+  );
+
   if (!result.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load courses" description={result.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="courses"
+          message={result.error}
+        />
       </>
     );
   }
@@ -200,11 +227,13 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
       {header}
 
       <ListToolbar
-        search={<ListSearch placeholder="Search by name or code…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name or code…" />}
         filters={
           <>
             <ListFilter
               paramKey="departmentId"
+              unsupported={UNSUPPORTED_FILTER}
               label="Department"
               hideLabel
               allLabel="All departments"
@@ -212,6 +241,7 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
             />
             <ListFilter
               paramKey="type"
+              unsupported={UNSUPPORTED_FILTER}
               label="Type"
               hideLabel
               allLabel="All types"

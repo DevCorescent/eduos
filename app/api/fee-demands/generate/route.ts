@@ -19,9 +19,34 @@ import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { generateFeeDemandSchema } from "@/lib/validations/fee-demand";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 student event "Fee Demand Generated". Emitted after commit.
+import {
+  findStudentUserIds,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
+
+/**
+ * Rows per INSERT.
+ *
+ * PostgreSQL's extended query protocol carries at most 65535 bind parameters in
+ * one statement. Each row written below supplies six — tenantId, studentId,
+ * semesterId, feeStructureId, dueDate, totalAmount — so a single createMany
+ * stops being valid at roughly 10,900 rows and the driver rejects the statement
+ * outright rather than running it slowly.
+ *
+ * A batch that large is not hypothetical at this product's scale: it is one
+ * intake year at one large university. Before this cap the endpoint answered
+ * 500 for exactly those tenants, every time, while working perfectly for small
+ * ones — so it looked like an intermittent fault rather than a hard ceiling.
+ *
+ * 2000 leaves a wide margin under the limit and keeps each statement small
+ * enough to be sent and parsed quickly.
+ */
+const DEMAND_INSERT_CHUNK = 2000;
 
 // POST
 // ACCESS     : UNIVERSITY_ADMIN only. A caller holding FACULTY, STUDENT or any
@@ -196,24 +221,65 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(ok({ count: 0 }, "Fee demands generated"), { status: 201 });
     }
 
-    // One statement, so the run is atomic and no partial set of demands can be
-    // observed. tenantId comes from the resolved tenant context and studentId
-    // from resolved batch membership, never from the request body. semesterId
-    // and feeStructureId are stored exactly as supplied, and totalAmount is
-    // copied unchanged into every row. status, paidAmount, waivedAmount,
-    // createdAt and updatedAt are omitted so the schema defaults apply.
-    const created = await prisma.feeDemand.createMany({
-      data: students.map((student) => ({
+    // tenantId comes from the resolved tenant context and studentId from
+    // resolved batch membership, never from the request body. semesterId and
+    // feeStructureId are stored exactly as supplied, and totalAmount is copied
+    // unchanged into every row. status, paidAmount, waivedAmount, createdAt and
+    // updatedAt are omitted so the schema defaults apply.
+    const rows = students.map((student) => ({
+      tenantId: tenant.id,
+      studentId: student.id,
+      semesterId,
+      feeStructureId,
+      dueDate,
+      totalAmount,
+    }));
+
+    // Chunked into several statements, but still ONE transaction — so the run
+    // remains atomic and no partial set of demands can be observed, which is
+    // the property this endpoint has always guaranteed. Chunking without the
+    // transaction would have traded a hard failure for a worse one: a half-
+    // billed batch that no retry could safely repeat.
+    const chunks: (typeof rows)[] = [];
+    for (let index = 0; index < rows.length; index += DEMAND_INSERT_CHUNK) {
+      chunks.push(rows.slice(index, index + DEMAND_INSERT_CHUNK));
+    }
+
+    const results = await prisma.$transaction(
+      chunks.map((chunk) => prisma.feeDemand.createMany({ data: chunk }))
+    );
+
+    // Summed across every chunk. Reading one chunk's count would under-report
+    // any batch above DEMAND_INSERT_CHUNK, and `count` is the whole response.
+    const count = results.reduce((total, result) => total + result.count, 0);
+
+    // PHASE 27 student event "Fee Demand Generated".
+    //
+    // AFTER the transaction has committed, and outside it. Emitting inside
+    // would make a bell entry able to roll back a billing run, which is the
+    // wrong trade in every direction.
+    //
+    // The whole block is wrapped rather than just the emission. The recipient
+    // lookup is a bare Prisma read, and this route has no unique constraint to
+    // fall back on: a throw here would answer 500 for demands that are already
+    // in the database, and an operator who retried would bill the batch twice.
+    // See notifyAfterCommit for why the emitter's own guarantee stops short of
+    // covering this.
+    await notifyAfterCommit("POST /api/fee-demands/generate", async () => {
+      await notificationEmitter.feeDemandGenerated({
         tenantId: tenant.id,
-        studentId: student.id,
-        semesterId,
-        feeStructureId,
-        dueDate,
-        totalAmount,
-      })),
+        // ONE statement for the whole cohort, never one per demand. Bounded by
+        // the emitter's recipient cap, so a very large batch notifies the first
+        // N — the fee ledger itself has no such limit and remains complete.
+        recipientUserIds: await findStudentUserIds(
+          tenant.id,
+          students.map((student) => student.id)
+        ),
+        count,
+      });
     });
 
-    return NextResponse.json(ok({ count: created.count }, "Fee demands generated"), { status: 201 });
+    return NextResponse.json(ok({ count }, "Fee demands generated"), { status: 201 });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       // Currently unreachable — FeeDemand declares no unique constraint — but

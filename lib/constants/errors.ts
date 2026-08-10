@@ -22,6 +22,9 @@ export const ERROR_CODE = {
   FORBIDDEN: "FORBIDDEN",
   NOT_FOUND: "NOT_FOUND",
   CONFLICT: "CONFLICT",
+  // No route rate-limits today. The code exists so the taxonomy is complete
+  // and the UI already classifies a 429 correctly when one does.
+  RATE_LIMITED: "RATE_LIMITED",
   SERVER: "SERVER_ERROR",
 } as const satisfies Record<string, ApiErrorCode>;
 
@@ -34,6 +37,7 @@ export const HTTP_STATUS = {
   FORBIDDEN: 403,
   NOT_FOUND: 404,
   CONFLICT: 409,
+  TOO_MANY_REQUESTS: 429,
   SERVER_ERROR: 500,
 } as const;
 

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { FeedbackSummary } from "@/components/feedback/FeedbackSummary";
 import { getCurrentFaculty } from "@/services/portal";
 import { getPortalSession } from "@/services/session";
@@ -50,7 +52,11 @@ export default async function FacultyFeedbackPage() {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your feedback" description={result.error} />
+        <StateView
+          state={resolveFailureState(result)}
+          subject="feedback"
+          message={result.error}
+        />
       </>
     );
   }

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono } from "next/font/google";
 import { ToastProvider } from "@/providers/ToastProvider";
+import { resolveTenantForRequest } from "@/lib/services/tenant";
+import { brandingCssVariables, isSafeAssetUrl } from "@/lib/domain/tenant/branding";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const interSans = Inter({
+  variable: "--font-geist-sans",  // token name kept: globals.css maps it
   subsets: ["latin"],
 });
 
@@ -13,26 +15,76 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata: Metadata = {
-  // The template makes every page title read "… | eduOS" without each one
-  // restating the suffix.
-  title: {
-    default: "eduOS",
-    template: "%s | eduOS",
-  },
-  description: "Multi-University Digital Education Operating System",
-};
+/**
+ * PRD §5.2 "Custom favicon and social preview" and §45 white-label branding.
+ *
+ * A FUNCTION, NOT A CONSTANT, AND THAT MATTERS FOR CORRECTNESS
+ *   A static `metadata` export is evaluated once and reused. On a multi-tenant
+ *   product served from many hostnames that is not a performance detail — it is
+ *   a correctness bug: AKTU's favicon and title would be served on IPU's
+ *   domain, whichever tenant happened to render first.
+ *
+ *   generateMetadata reads the tenant per request. Because it calls
+ *   resolveTenantForRequest, which reads headers(), this route segment is
+ *   dynamic — which is what makes tenant-specific output correct rather than
+ *   cached across tenants. Caching is not disabled anywhere; the dependency on
+ *   headers() is what opts this segment out, and only this segment.
+ *
+ *   The tenant lookup itself is memoised per request by requestScoped, so the
+ *   metadata generator and the layout body below share ONE database read.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const tenant = await resolveTenantForRequest();
 
-export default function RootLayout({
+  // No tenant — the platform root, or an unrecognised host. The product's own
+  // identity is the honest answer; borrowing a university's would be worse.
+  if (!tenant) {
+    return {
+      title: { default: "eduOS", template: "%s | eduOS" },
+      description: "Multi-University Digital Education Operating System",
+    };
+  }
+
+  const { name, faviconUrl } = tenant.branding;
+
+  return {
+    // The institution's own name, so a bookmark and a browser tab read as
+    // theirs rather than as their vendor's.
+    title: { default: name, template: `%s | ${name}` },
+    description: `${name} — powered by eduOS`,
+    // Validated before it reaches a <link rel="icon">. An unvalidated value
+    // here would let a stored javascript: or data: URL into the document head.
+    ...(faviconUrl && isSafeAssetUrl(faviconUrl)
+      ? { icons: { icon: faviconUrl } }
+      : {}),
+  };
+}
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const tenant = await resolveTenantForRequest();
+
+  // Two custom properties at most, both validated to a strict hex pattern that
+  // cannot contain a brace, semicolon or parenthesis. The design system's forty
+  // generated steps are untouched: a tenant accents the product, it does not
+  // repaint it, so no combination of stored values can produce an unreadable
+  // screen. See lib/domain/tenant/branding.ts for the injection this prevents.
+  const brandVariables = tenant ? brandingCssVariables(tenant.branding) : "";
+
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${interSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      {brandVariables && (
+        // Server-rendered, so the brand colours are present in the first paint
+        // rather than applied by JavaScript after it. Scoped to :root so the
+        // tokens cascade exactly like the design system's own.
+        <style>{`:root{${brandVariables}}`}</style>
+      )}
       {/* ToastProvider is the one client boundary in the root layout. It wraps
           `children` rather than replacing the tree, so every page below stays a
           Server Component — only the toast viewport itself ships JS. */}

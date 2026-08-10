@@ -15,8 +15,18 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createStudentSchema, listStudentsQuerySchema } from "@/lib/validations/student";
+import { generateIdentifier } from "@/lib/services/identifier.service";
+import { recordAudit } from "@/lib/services/audit.service";
+import { readRequestOrigin } from "@/lib/utils/requestOrigin";
+import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@/lib/constants/audit";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 administration event "New Admission". Emitted after commit.
+import {
+  findAdminUserIds,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -212,12 +222,17 @@ export async function POST(request: NextRequest) {
         where: { userId: input.userId },
         select: { id: true },
       }),
-      prisma.student.findUnique({
-        where: {
-          tenantId_enrollmentNo: { tenantId: tenant.id, enrollmentNo: input.enrollmentNo },
-        },
-        select: { id: true },
-      }),
+      // Nothing to pre-check when the engine will issue it: a generated value
+      // is unique by construction, and the unique index remains the real guard
+      // either way.
+      input.enrollmentNo === undefined
+        ? Promise.resolve(null)
+        : prisma.student.findUnique({
+            where: {
+              tenantId_enrollmentNo: { tenantId: tenant.id, enrollmentNo: input.enrollmentNo },
+            },
+            select: { id: true },
+          }),
       input.programmeId === undefined
         ? Promise.resolve(null)
         : prisma.programme.findFirst({
@@ -283,12 +298,73 @@ export async function POST(request: NextRequest) {
 
     // Single write — already atomic, so no transaction is warranted. tenantId
     // comes from the resolved tenant context, never from the request body.
-    const student = await prisma.student.create({
-      data: {
-        ...input,
+        // PRD §9 — the identifier engine issues enrollmentNo when the caller omits it.
+    //
+    // The field stays OPTIONAL rather than becoming generated-only: an
+    // institution that has not configured a sequence must keep working exactly
+    // as before, and a migration importing legacy records must be able to carry
+    // their existing numbers across. A supplied value always wins, so this is a
+    // widening of the contract and breaks no existing client.
+    //
+    // Generation happens INSIDE the transaction that creates the row, so a
+    // failed create rolls the counter back with it and leaves no gap.
+    // One actor for every entry this request writes, so the identifier issue
+    // and the record creation are findable together.
+    const actor = {
+      userId: guard.session.sub,
+      ...readRequestOrigin(request.headers),
+    };
+
+    const student = await prisma.$transaction(async (tx) => {
+      const enrollmentNo =
+        input.enrollmentNo ??
+        (await generateIdentifier(
+          { tenantId: tenant.id, entityType: "STUDENT", actor },
+          tx
+        ));
+
+      const created = await tx.student.create({
+        data: {
+          ...input,
+          enrollmentNo,
+          tenantId: tenant.id,
+        },
+        select: STUDENT_SELECT,
+      });
+
+      // PRD §47 "Data change logs". Same transaction as the row it describes,
+      // so evidence and record commit or roll back together.
+      await recordAudit(
+        {
+          tenantId: tenant.id,
+          actor,
+          action: AUDIT_ACTIONS.STUDENT_CREATED,
+          resource: AUDIT_RESOURCES.STUDENT,
+          resourceId: created.id,
+          // The identifier and the linked user, not the whole record. A
+          // creation snapshot of every column would copy personal data into a
+          // second table for no investigative gain.
+          after: { enrollmentNo, userId: created.userId },
+        },
+        tx
+      );
+
+      return created;
+    });
+
+        // PHASE 27 administration event "New Admission".
+    //
+    // After the student row exists, throwing nothing. Addressed to the tenant's
+    // administrators, resolved by ROLE NAME through UserRole — the same stable
+    // identifier requireRole itself compares on.
+    await notifyAfterCommit("POST /api/students", async () => {
+      await notificationEmitter.newAdmission({
         tenantId: tenant.id,
-      },
-      select: STUDENT_SELECT,
+        recipientUserIds: await findAdminUserIds(tenant.id),
+        studentName: student.enrollmentNo,
+        enrollmentNo: student.enrollmentNo,
+        studentId: student.id,
+      });
     });
 
     return NextResponse.json(ok(student, "Student created"), { status: 201 });

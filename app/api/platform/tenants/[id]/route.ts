@@ -3,7 +3,7 @@
 // MODULE : Platform — Get Tenant Details / Update Tenant
 // FLOW   : Validates the tenant id, then GET returns the requested tenant and
 //          PATCH applies a partial update and returns the updated record.
-// ACCESS : SUPER_ADMIN
+// ACCESS : PLATFORM_ADMIN (platform session — W1.2)
 // BACKEND: Uses existing Prisma Tenant model. No related model is read or
 //          written — no User, Role, Domain or Subscription.
 // PURPOSE: View and maintain a single university tenant.
@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
-import { requireRole } from "@/lib/middleware/requireRole";
+import { requirePlatformAdmin } from "@/lib/middleware/requirePlatformAdmin";
 import { tenantIdParamSchema, updateTenantSchema } from "@/lib/validations/platform";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -24,7 +24,7 @@ const UNIQUE_VIOLATION = "P2002";
 const RECORD_NOT_FOUND = "P2025";
 
 // GET
-// ACCESS     : SUPER_ADMIN
+// ACCESS     : PLATFORM_ADMIN (platform session — W1.2)
 // VALIDATION : tenantIdParamSchema — the [id] segment must be a non-empty
 //              string once trimmed.
 // FLOW       : Authorise → resolve and validate the route param → read the
@@ -41,7 +41,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("SUPER_ADMIN");
+    const guard = await requirePlatformAdmin();
     if (!guard.authorized) return guard.response;
 
     // Route params resolve asynchronously in this Next.js version.
@@ -74,7 +74,7 @@ export async function GET(
 }
 
 // PATCH
-// ACCESS     : SUPER_ADMIN
+// ACCESS     : PLATFORM_ADMIN (platform session — W1.2)
 // VALIDATION : tenantIdParamSchema for the [id] segment, updateTenantSchema for
 //              the body. Every field is optional but at least one is required.
 //              status is accepted here — creation defers to the schema default.
@@ -90,7 +90,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("SUPER_ADMIN");
+    const guard = await requirePlatformAdmin();
     if (!guard.authorized) return guard.response;
 
     const parsedParams = tenantIdParamSchema.safeParse(await params);

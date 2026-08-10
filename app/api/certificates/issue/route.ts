@@ -17,8 +17,18 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { issueCertificateSchema } from "@/lib/validations/certificate";
+import { generateIdentifier } from "@/lib/services/identifier.service";
+import { recordAudit } from "@/lib/services/audit.service";
+import { readRequestOrigin } from "@/lib/utils/requestOrigin";
+import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@/lib/constants/audit";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
+// PHASE 27 student event "Certificate Issued". Emitted after commit.
+import {
+  findStudentUserId,
+  notificationEmitter,
+  notifyAfterCommit,
+} from "@/lib/controllers/notificationEmitter.controller";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
@@ -107,13 +117,79 @@ export async function POST(request: NextRequest) {
     // database defaults stand. The JSON column is cast at this boundary because
     // Zod infers an unknown-valued record, which Prisma's InputJsonValue does not
     // accept directly.
-    const certificate = await prisma.certificate.create({
-      data: {
-        ...scalars,
-        data: data as Prisma.InputJsonValue | undefined,
+    // PRD §9 / §19.3 — the identifier engine issues certificateNo when the
+    // caller omits it.
+    //
+    // certificateNo carries a GLOBAL unique constraint, not a tenant-scoped
+    // one, because the number is quoted publicly at the verification endpoint
+    // and must identify one certificate across the whole platform. That makes
+    // the configured prefix load-bearing: two institutions whose sequences both
+    // render "CERT-2026-000001" will collide on the second issue. The engine
+    // cannot prevent that on its own, so the configuration screen warns, and
+    // the constraint answers 409 rather than letting a duplicate through.
+    //
+    // Generated inside the transaction, so a failed issue leaves no gap in a
+    // series an auditor may later have to account for.
+    // One actor for both entries this request writes — the number issued and
+    // the certificate issued — so they are findable together.
+    const actor = {
+      userId: guard.session.sub,
+      ...readRequestOrigin(request.headers),
+    };
+
+    const certificate = await prisma.$transaction(async (tx) => {
+      const certificateNo =
+        scalars.certificateNo ??
+        (await generateIdentifier(
+          { tenantId: tenant.id, entityType: "CERTIFICATE", actor },
+          tx
+        ));
+
+      const created = await tx.certificate.create({
+        data: {
+          ...scalars,
+          certificateNo,
+          data: data as Prisma.InputJsonValue | undefined,
+          tenantId: tenant.id,
+        },
+        select: CERTIFICATE_SELECT,
+      });
+
+      // PRD §47 "Certificate generation logs" — named explicitly in the PRD's
+      // audit list, and the one entry here most likely to be produced in
+      // evidence: a certificate is a public claim about a person.
+      await recordAudit(
+        {
+          tenantId: tenant.id,
+          actor,
+          action: AUDIT_ACTIONS.CERTIFICATE_ISSUED,
+          resource: AUDIT_RESOURCES.CERTIFICATE,
+          resourceId: created.id,
+          after: {
+            certificateNo: created.certificateNo,
+            type: created.type,
+            studentId: created.studentId,
+          },
+        },
+        tx
+      );
+
+      return created;
+    });
+
+        // PHASE 27 student event "Certificate Issued".
+    //
+    // After the certificate row exists, throwing nothing. Addressed to the
+    // student it was issued to, resolved Student -> User because a notification
+    // reaches a person rather than an enrolment.
+    await notifyAfterCommit("POST /api/certificates/issue", async () => {
+      await notificationEmitter.certificateIssued({
         tenantId: tenant.id,
-      },
-      select: CERTIFICATE_SELECT,
+        studentUserId: await findStudentUserId(tenant.id, certificate.studentId),
+        certificateType: certificate.type,
+        certificateNo: certificate.certificateNo,
+        certificateId: certificate.id,
+      });
     });
 
     return NextResponse.json(ok(certificate, "Certificate issued"), { status: 201 });

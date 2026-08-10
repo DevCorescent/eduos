@@ -3,7 +3,8 @@ import Link from "next/link";
 import { GraduationCap } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
+import { StateView } from "@/components/shared/StateView";
+import { resolveFailureState } from "@/lib/ui-state";
 import { EntityRowActions } from "@/components/shared/EntityCrud";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListSearch } from "@/components/shared/ListSearch";
@@ -22,6 +23,16 @@ import { EnrolStudentWizard } from "./EnrolStudentWizard";
 import { STUDENT_STATUS_LABELS, STUDENT_STATUS_VARIANTS } from "@/constants/labels";
 import { STUDENT_STATUS_VALUES, type StudentWithUser } from "@/types";
 import { formatDate } from "@/utils/format";
+
+/**
+ * The backend query schema for this collection accepts page and limit only —
+ * every other key is dropped by Zod before the handler sees it. The controls
+ * stay visible and disabled rather than being deleted, so the screen keeps its
+ * shape for when the parameters land.
+ */
+const UNSUPPORTED_SEARCH =
+  "Search will work once the backend adds a ?q parameter to this endpoint.";
+const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = { title: "Students" };
 
@@ -107,11 +118,27 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
     />
   );
 
+  /**
+   * The same header with its create/manage controls withheld.
+   *
+   * Rendered when the list request itself failed. A 403 there means this role
+   * has no access to the collection at all, so an "Invite user" button beside
+   * the refusal would offer an action the backend will reject — the control
+   * would be a claim the API does not honour.
+   */
+  const failureHeader = (
+    <PageHeader title="Students" subtitle="The enrolment register for this university." />
+  );
+
   if (!result.success) {
     return (
       <>
-        {header}
-        <ErrorState title="Couldn't load students" description={result.error} />
+        {failureHeader}
+        <StateView
+          state={resolveFailureState(result)}
+          subject="students"
+          message={result.error}
+        />
       </>
     );
   }
@@ -211,11 +238,13 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
       {header}
 
       <ListToolbar
-        search={<ListSearch placeholder="Search by name or enrolment number…" />}
+        search={<ListSearch
+              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name or enrolment number…" />}
         filters={
           <>
             <ListFilter
               paramKey="status"
+              unsupported={UNSUPPORTED_FILTER}
               label="Status"
               hideLabel
               allLabel="All statuses"
@@ -226,6 +255,7 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
             />
             <ListFilter
               paramKey="programmeId"
+              unsupported={UNSUPPORTED_FILTER}
               label="Programme"
               hideLabel
               allLabel="All programmes"
@@ -233,6 +263,7 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
             />
             <ListFilter
               paramKey="batchId"
+              unsupported={UNSUPPORTED_FILTER}
               label="Batch"
               hideLabel
               allLabel="All batches"

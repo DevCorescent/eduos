@@ -15,11 +15,23 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { assignRoleSchema, userIdParamSchema } from "@/lib/validations/user";
+import { recordAudit } from "@/lib/services/audit.service";
+import { readRequestOrigin } from "@/lib/utils/requestOrigin";
+import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@/lib/constants/audit";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
 /** Prisma's unique-constraint violation code. */
 const UNIQUE_VIOLATION = "P2002";
+
+/**
+ * The role name a tenant may not grant (W1.4).
+ *
+ * Spelled out here rather than imported from constants/roles.ts, which is a
+ * frontend vocabulary module: an authorization refusal should not depend on a
+ * presentation constant that somebody may reasonably edit for display reasons.
+ */
+const PLATFORM_RESERVED_ROLE = "SUPER_ADMIN";
 
 /**
  * Columns returned for an assignment.
@@ -133,7 +145,8 @@ export async function POST(
       }),
       prisma.role.findFirst({
         where: { id: roleId, tenantId: tenant.id },
-        select: { id: true },
+        // The name is selected for the W1.4 refusal below, not for the response.
+        select: { id: true, name: true },
       }),
       prisma.userRole.findUnique({
         where: { userId_roleId: { userId, roleId } },
@@ -153,6 +166,29 @@ export async function POST(
       return NextResponse.json(fail("Role not found", "NOT_FOUND"), { status: 404 });
     }
 
+    // W1.4 — a tenant role named SUPER_ADMIN may not be granted through this
+    // endpoint, whoever asks.
+    //
+    // THIS IS DEFENCE IN DEPTH, NOT THE MECHANISM. The W1.1 escalation is
+    // already dead: W1.2 moved platform authority onto PlatformUser and no
+    // platform guard reads tenant role names at all, so a tenant token claiming
+    // roles: ["SUPER_ADMIN"] is inert. TECHNICAL_DEBT.md correctly records a
+    // deny-list as insufficient ON ITS OWN, which is why it was not the fix.
+    //
+    // It earns its place now for a different reason: W1.4 onboards real
+    // universities, and a tenant row named SUPER_ADMIN existing at all is a
+    // trap for the next reader — it looks like platform authority, it appears
+    // in the tenant's own role screen, and somebody will eventually write a
+    // check against the name. Refusing the grant keeps the vocabulary honest.
+    // Checked by NAME because that is the only stable identifier across
+    // tenants; ids are per-row cuids.
+    if (role && role.name === PLATFORM_RESERVED_ROLE) {
+      return NextResponse.json(
+        fail("That role name is reserved by the platform and cannot be assigned", "FORBIDDEN"),
+        { status: 403 }
+      );
+    }
+
     if (existing) {
       return NextResponse.json(
         fail("Role is already assigned to this user", "CONFLICT"),
@@ -165,14 +201,40 @@ export async function POST(
     // session, never from the request body. The Json column is cast at this
     // boundary because Zod infers an unknown-valued record, which Prisma's
     // InputJsonValue does not accept directly.
-    const assignment = await prisma.userRole.create({
-      data: {
-        userId,
-        roleId,
-        grantedBy: guard.session.sub,
-        scope: scope as Prisma.InputJsonValue | undefined,
-      },
-      select: ASSIGNMENT_SELECT,
+    // PRD §47 "Role modification logs". Granting a role is the change most
+    // likely to be examined after an incident — it is how privilege moves — so
+    // the write and its evidence go in one transaction rather than two
+    // statements that can disagree.
+    const assignment = await prisma.$transaction(async (tx) => {
+      const created = await tx.userRole.create({
+        data: {
+          userId,
+          roleId,
+          grantedBy: guard.session.sub,
+          scope: scope as Prisma.InputJsonValue | undefined,
+        },
+        select: ASSIGNMENT_SELECT,
+      });
+
+      await recordAudit(
+        {
+          tenantId: tenantGuard.tenant.id,
+          actor: {
+            userId: guard.session.sub,
+            ...readRequestOrigin(request.headers),
+          },
+          action: AUDIT_ACTIONS.ROLE_ASSIGNED,
+          resource: AUDIT_RESOURCES.USER_ROLE,
+          // The SUBJECT of the grant, not the join row's own key. An
+          // investigator asks "what happened to this user", and resourceId is
+          // the column that question filters on.
+          resourceId: userId,
+          after: { userId, roleId, scope: scope ?? null },
+        },
+        tx
+      );
+
+      return created;
     });
 
     return NextResponse.json(ok(assignment, "Role assigned"), { status: 201 });

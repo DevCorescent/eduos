@@ -8,6 +8,16 @@ export interface ListSearchProps {
   paramKey?: string;
   placeholder?: string;
   className?: string;
+  /**
+   * Set when the backend cannot search this collection.
+   *
+   * The control stays on screen and stops working: it renders disabled with
+   * this text beside it. That is deliberate — a search box that accepts typing
+   * and silently returns the unfiltered list is worse than no search box,
+   * because the user believes they have searched and trusts the result. The
+   * string should name what is missing, not apologise.
+   */
+  unsupported?: string;
 }
 
 /**
@@ -32,8 +42,30 @@ export interface ListSearchProps {
  * <ListSearch placeholder="Search tenants by name or code…" />
  * ```
  */
-export function ListSearch({ paramKey = "q", placeholder, className }: ListSearchProps) {
+export function ListSearch({
+  paramKey = "q",
+  placeholder,
+  className,
+  unsupported,
+}: ListSearchProps) {
   const { get, setParam } = useListParams();
+
+  if (unsupported) {
+    return (
+      <div className={className}>
+        <SearchInput
+          disabled
+          defaultValue=""
+          onSearch={() => undefined}
+          placeholder={placeholder ?? "Search…"}
+          aria-describedby={`${paramKey}-unsupported`}
+        />
+        <p id={`${paramKey}-unsupported`} className="mt-1.5 text-xs text-muted-foreground">
+          {unsupported}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <SearchInput

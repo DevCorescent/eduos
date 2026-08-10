@@ -4,10 +4,13 @@ import { ClipboardCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { ErrorState } from "@/components/shared/ErrorState";
+import { UnavailableState } from "@/components/shared/UnavailableState";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
 import { getCurrentFaculty } from "@/services/portal";
+import { MAX_LIST_LIMIT } from "@/types/api";
+import { resolveUiState } from "@/lib/ui-state";
 import { getFacultyTimetable, getSessionAttendance } from "@/services/academics";
 import { listStudents } from "@/services/students";
 import { MarkAttendanceForm } from "@/app/(university)/attendance/mark/MarkAttendanceForm";
@@ -39,11 +42,29 @@ export default async function FacultyMarkAttendancePage({
     />
   );
 
+  // Two admin-only routes stand between a lecturer and this screen, both
+  // verified against the running server: the timetable that supplies the class
+  // list (403) and GET /api/students that supplies the roster to mark (403).
+  // Neither is a transient failure, so neither is an ErrorState.
+  if (resolveUiState(timetableResult) === "unavailable") {
+    return (
+      <>
+        {header}
+        <Card noPadding>
+          <UnavailableState
+            title="Marking attendance is not available yet"
+            description="Taking a register needs two things a lecturer cannot currently read: the timetable that lists your classes, and the student roster for a section. Both APIs are restricted to administrators today. Attendance you have already marked is still visible in the analytics."
+          />
+        </Card>
+      </>
+    );
+  }
+
   if (!timetableResult.success) {
     return (
       <>
         {header}
-        <ErrorState title="Couldn't load your schedule" description={timetableResult.error} />
+        <ErrorState title="Schedule service is currently unavailable" description={timetableResult.error} />
       </>
     );
   }
@@ -72,7 +93,7 @@ export default async function FacultyMarkAttendancePage({
 
   const [studentsResult, existingResult] = await Promise.all([
     selected
-      ? listStudents({ page: 1, limit: 200, sectionId: selected.sectionId, status: "ACTIVE" })
+      ? listStudents({ page: 1, limit: MAX_LIST_LIMIT, sectionId: selected.sectionId, status: "ACTIVE" })
       : Promise.resolve(null),
     selected
       ? getSessionAttendance(selected.sectionId, selected.courseId, selectedDate)
