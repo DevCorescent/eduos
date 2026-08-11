@@ -19,7 +19,9 @@
 // ============================================================================
 
 import type { PrismaClient } from "../app/generated/prisma/client";
-import { blocksSchema, type CmsBlocks } from "../lib/domain/cms/blocks";
+import type { CmsBlocks } from "../lib/domain/cms/blocks";
+import { applyInstitutionName } from "../lib/domain/cms/institution";
+import { defaultSiteChrome } from "../lib/domain/cms/defaults";
 
 /** The key onboarding looks the default template up by. */
 export const DEFAULT_LANDING_KEY = "default-landing";
@@ -55,6 +57,18 @@ const IMAGES = {
     "https://images.unsplash.com/photo-1540575467063-178a50c2df87?auto=format&fit=crop&w=800&q=70",
   event3:
     "https://images.unsplash.com/photo-1505373877841-8d25f7d46678?auto=format&fit=crop&w=800&q=70",
+  heroAdmissions:
+    "https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&w=1920&q=70",
+  heroResearch:
+    "https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=1920&q=70",
+  student1:
+    "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=70",
+  student2:
+    "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=600&q=70",
+  student3:
+    "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=70",
+  student4:
+    "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=70",
 } as const;
 
 /**
@@ -91,6 +105,17 @@ export function templateBlocks(): CmsBlocks {
       id: "hero",
       type: "hero",
       props: {
+        // A CAROUSEL BY DEFAULT, because the template's job is to show an
+        // operator what the block can do. An institution that wants one panel
+        // switches `layout` to "single" and keeps the other two on the shelf —
+        // which is exactly why layout is separate from the slide count.
+        layout: "carousel",
+        autoplaySeconds: 7,
+        align: "left",
+        height: "standard",
+
+        // Panel one is the block's own props. See the schema note: this is a
+        // compatibility decision, not a stylistic one.
         eyebrow: "Admissions open",
         heading: "Build a career worth the effort",
         subheading:
@@ -99,6 +124,26 @@ export function templateBlocks(): CmsBlocks {
         secondaryCta: { label: "Explore programmes", href: "#programmes" },
         imageUrl: IMAGES.campus,
         videoUrl: SAMPLE_VIDEO,
+
+        slides: [
+          {
+            eyebrow: "Intake 2026",
+            heading: "Applications close in March",
+            subheading:
+              "Start an application in a few minutes, save it, and come back when your documents are ready.",
+            primaryCta: { label: "Start your application", href: "/admissions" },
+            imageUrl: IMAGES.heroAdmissions,
+          },
+          {
+            eyebrow: "Research",
+            heading: "Work that leaves the laboratory",
+            subheading:
+              "Doctoral and masters research supervised by faculty who publish, patent and teach in the same week.",
+            primaryCta: { label: "Explore programmes", href: "#programmes" },
+            secondaryCta: { label: "Find your school", href: "#schools" },
+            imageUrl: IMAGES.heroResearch,
+          },
+        ],
       },
     },
     {
@@ -240,6 +285,61 @@ export function templateBlocks(): CmsBlocks {
       },
     },
     {
+      id: "placements",
+      type: "placements",
+      props: {
+        heading: "Impeccable Placements",
+        subheading: "Education that goes where your dreams will take you.",
+        stats: [
+          {
+            value: "94% placed",
+            body: "Graduates placed with recruiting partners across the last two cycles.",
+            icon: "trophy",
+          },
+          {
+            value: "180+ companies",
+            body: "National and global employers who return to campus every year.",
+            icon: "briefcase",
+          },
+        ],
+        partners: [
+          { name: "TCS" },
+          { name: "Amazon" },
+          { name: "HSBC" },
+          { name: "Adani" },
+          { name: "DXC" },
+        ],
+        students: [
+          {
+            name: "Aarav Mehta",
+            company: "Amazon",
+            programme: "B.Tech CSE",
+            imageUrl: IMAGES.student1,
+          },
+          {
+            name: "Isha Kapoor",
+            company: "TCS",
+            programme: "B.Tech IT",
+            imageUrl: IMAGES.student2,
+          },
+          {
+            name: "Rohan Desai",
+            company: "HSBC",
+            programme: "MBA",
+            imageUrl: IMAGES.student3,
+          },
+          {
+            name: "Ananya Rao",
+            company: "Adani",
+            programme: "B.Tech ECE",
+            imageUrl: IMAGES.student4,
+          },
+        ],
+        cta: { label: "View more placements", href: "/admissions" },
+        autoplaySeconds: 6,
+      },
+    },
+    {
       id: "testimonials",
       type: "testimonials",
       props: {
@@ -296,76 +396,11 @@ export function templateBlocks(): CmsBlocks {
   ];
 }
 
-/**
- * Substitute the institution's name into a copy of the template.
- *
- * Walks the block tree replacing `{{institution}}` in every string. Written
- * over JSON rather than field by field so a template edited in the CMS — with
- * blocks this function has never seen — is substituted just the same.
- */
-export function applyInstitutionName(blocks: CmsBlocks, institution: string): CmsBlocks {
-  const substituted = JSON.parse(
-    JSON.stringify(blocks).replaceAll("{{institution}}", institution)
-  );
-
-  // Re-validated after substitution: a long institution name could push a
-  // string past its schema bound, and a page that cannot be parsed cannot be
-  // rendered. Failing here, in a seed, is far better than failing on a live
-  // homepage.
-  return blocksSchema.parse(substituted);
-}
-
-/**
- * The default navigation, footer and contact block for a new university.
- *
- * EVERY href POINTS AT A ROUTE THAT EXISTS
- *   The reference sites carry a dozen menu items each. Seeding a menu of links
- *   to §7.1 pages nobody has built would make a working product look broken on
- *   the first click, so the menu is short and every entry resolves: "/" is this
- *   page, "/admissions" is the applicant route, "/verify" is public
- *   verification, "/login" is the portal.
- *
- *   An institution adds its own once those pages exist — that is what makes
- *   this navigation data rather than code.
- */
-export function defaultSiteChrome(institution: string) {
-  return {
-    navItems: [
-      { label: "Home", href: "/" },
-      { label: "Programmes", href: "#programmes" },
-      { label: "Admissions", href: "/admissions" },
-      { label: "Campus life", href: "#campus" },
-      { label: "Verify a certificate", href: "/verify" },
-    ],
-    footerColumns: [
-      {
-        heading: "Important links",
-        links: [
-          { label: "Apply now", href: "/admissions" },
-          { label: "Programmes offered", href: "#programmes" },
-          { label: "Campus life", href: "#campus" },
-        ],
-      },
-      {
-        heading: "Portals",
-        links: [
-          { label: "Student portal", href: "/login" },
-          { label: "Faculty portal", href: "/login" },
-          { label: "Parent portal", href: "/login" },
-        ],
-      },
-    ],
-    socialLinks: [
-      { platform: "facebook" as const, href: "https://facebook.com" },
-      { platform: "instagram" as const, href: "https://instagram.com" },
-      { platform: "linkedin" as const, href: "https://linkedin.com" },
-      { platform: "youtube" as const, href: "https://youtube.com" },
-    ],
-    contactAddress: `${institution}, Main Campus, Jaipur — 302017`,
-    contactPhone: "+91 90000 00000",
-    contactEmail: "admissions@example.edu",
-  };
-}
+// applyInstitutionName and defaultSiteChrome used to live here. They moved to
+// lib/domain/cms/{institution,defaults}.ts because the platform's template
+// PREVIEW needs both, and a preview that substitutes differently from
+// onboarding — or shows a menu onboarding would not produce — is a preview
+// nobody can act on. See those files.
 
 /**
  * Give one tenant its header and footer.
@@ -397,21 +432,35 @@ export async function seedTenantSiteChrome(
 export async function seedCmsTemplate(prisma: PrismaClient) {
   const blocks = templateBlocks();
 
+  // The chrome the template hands a new university. `{{institution}}` is not
+  // used here: the seeded contact line is genuinely institution-specific, so
+  // the template deliberately carries no contact details at all — see the
+  // TEMPLATE_CHROME_FIELDS note on why publishing a placeholder address is
+  // worse than publishing none.
+  const { navItems, footerColumns, socialLinks, enquireRail, typography } = defaultSiteChrome("");
+
+  const chrome = { navItems, footerColumns, socialLinks, enquireRail, typography };
+
   await prisma.cmsTemplate.upsert({
     where: { key: DEFAULT_LANDING_KEY },
     // Overwritten on every seed run so the template tracks this file. Tenant
-    // pages are NOT touched by that — they are copies.
-    update: { blocks, name: "Default landing page" },
+    // pages and tenant CmsSite rows are NOT touched by that — they are copies.
+    update: { blocks, name: "Default landing page", ...chrome },
     create: {
       key: DEFAULT_LANDING_KEY,
       name: "Default landing page",
       description:
         "The starting point copied into a new university's website during onboarding.",
       blocks,
+      ...chrome,
     },
   });
 
-  return { key: DEFAULT_LANDING_KEY, blockCount: blocks.length };
+  return {
+    key: DEFAULT_LANDING_KEY,
+    blockCount: blocks.length,
+    navItemCount: navItems.length,
+  };
 }
 
 /**

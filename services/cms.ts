@@ -17,7 +17,7 @@
 
 import type { ApiResponse } from "@/types";
 import type { CmsBlocks } from "@/lib/domain/cms/blocks";
-import type { SaveCmsSiteInput } from "@/lib/validations/cms";
+import type { SaveCmsSiteInput, SaveCmsTemplateInput } from "@/lib/validations/cms";
 import { apiRequest } from "./client";
 
 /** A page as the editor holds it. */
@@ -77,14 +77,26 @@ export interface CmsTemplateDto {
   name: string;
   description: string | null;
   blocks: unknown;
+  navItems: unknown;
+  footerColumns: unknown;
+  socialLinks: unknown;
+  enquireRail: unknown;
+  typography: unknown;
   updatedAt: string;
 }
 
-export async function saveTemplate(payload: {
-  name?: string;
-  description?: string | null;
-  blocks: CmsBlocks;
-}): Promise<ApiResponse<CmsTemplateDto>> {
+/**
+ * Write part of the template.
+ *
+ * EVERY FIELD IS OPTIONAL AND THAT IS LOAD-BEARING. The template is edited from
+ * two screens — sections on one, navigation and typography on the other — and
+ * each sends only what it owns. A save from the chrome screen must not carry a
+ * block array it never displayed, because that array would overwrite the
+ * sections with whatever it happened to be holding.
+ */
+export async function saveTemplate(
+  payload: SaveCmsTemplateInput
+): Promise<ApiResponse<CmsTemplateDto>> {
   return apiRequest<CmsTemplateDto>("/api/platform/cms/template", {
     method: "PUT",
     body: payload,

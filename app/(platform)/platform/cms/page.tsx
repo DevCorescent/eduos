@@ -1,12 +1,25 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Eye } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Alert } from "@/components/ui/Alert";
 import { Card } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { prisma } from "@/lib/db/prisma";
 import { parseStoredBlocks } from "@/lib/domain/cms/blocks";
+import {
+  parseEnquireRail,
+  parseFooterColumns,
+  parseNavItems,
+  parseSocialLinks,
+  parseTypography,
+} from "@/lib/domain/cms/site";
+import {
+  defaultEnquireRail,
+  defaultFooterColumns,
+  defaultNavItems,
+  defaultSocialLinks,
+} from "@/lib/domain/cms/defaults";
 import { findTemplate } from "@/lib/repositories/cms.repository";
 import { TemplateEditor } from "./TemplateEditor";
 
@@ -47,11 +60,40 @@ export default async function PlatformCmsPage() {
 
   const blocks = parseStoredBlocks(template?.blocks);
 
+  // A template row seeded before the chrome columns existed holds null in all
+  // four. Falling back to the shared defaults means the form opens showing what
+  // onboarding would ACTUALLY produce, rather than an empty menu that implies a
+  // new university would get none.
+  const chrome = {
+    navItems: template?.navItems ? parseNavItems(template.navItems) : defaultNavItems(),
+    footerColumns: template?.footerColumns
+      ? parseFooterColumns(template.footerColumns)
+      : defaultFooterColumns(),
+    socialLinks: template?.socialLinks
+      ? parseSocialLinks(template.socialLinks)
+      : defaultSocialLinks(),
+    enquireRail: template?.enquireRail
+      ? parseEnquireRail(template.enquireRail)
+      : defaultEnquireRail(),
+    typography: parseTypography(template?.typography),
+  };
+
   return (
     <>
       <PageHeader
         title="Website CMS"
         subtitle="The landing page every new university starts from, and what each has published."
+        action={
+          <Link
+            href="/cms-preview"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Eye className="size-4" aria-hidden="true" />
+            Preview template
+          </Link>
+        }
       />
 
       <Alert variant="info" title="Editing the template does not change existing sites">
@@ -61,7 +103,7 @@ export default async function PlatformCmsPage() {
       </Alert>
 
       <div className="mt-6">
-        <TemplateEditor initialBlocks={blocks} />
+        <TemplateEditor initialBlocks={blocks} initialChrome={chrome} />
       </div>
 
       <Card
@@ -111,6 +153,18 @@ export default async function PlatformCmsPage() {
                   >
                     Edit page
                   </Link>
+
+                  {/* The DRAFT, which "View" below cannot show — that one opens
+                      the institution's live address. */}
+                  <a
+                    href={`/cms-preview?tenant=${tenant.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Preview draft
+                    <Eye className="size-3" aria-hidden="true" />
+                  </a>
 
                   {page?.status === "PUBLISHED" && (
                     <a

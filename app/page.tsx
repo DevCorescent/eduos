@@ -4,9 +4,11 @@ import { getPortalSession } from "@/services/session";
 import { homeRouteForRoles } from "@/constants/roles";
 import { resolveTenantForRequest } from "@/lib/services/tenant";
 import { getPublishedPage, getSiteChrome } from "@/lib/services/site";
+import { typographyCssVars } from "@/lib/domain/cms/typography";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteFooter } from "@/components/site/SiteFooter";
 import { BlockRenderer } from "@/components/site/BlockRenderer";
+import { EnquireDock } from "@/components/site/EnquireDock";
 
 /**
  * Root route — a public website on a university's hostname, a router on the
@@ -94,7 +96,18 @@ export default async function RootPage() {
     : { label: "Sign in", href: `/login?tenant=${tenant.slug}` };
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background">
+    <div
+      // `site-scope` is what switches this page — and only this page — to
+      // Poppins for body text and Inter for headings, and what makes the six
+      // typography custom properties below take effect. The five ERP portals
+      // keep the product's own type system untouched.
+      //
+      // The institution's site-wide setting is emitted HERE, at the outermost
+      // element, so a per-section override on any block inside simply wins by
+      // proximity. Nothing merges the two — see lib/domain/cms/typography.ts.
+      className="site-scope flex min-h-dvh flex-col bg-background"
+      style={typographyCssVars(chrome.typography) as React.CSSProperties}
+    >
       <SiteHeader branding={tenant.branding} navItems={chrome.navItems} action={action} />
 
       <main id="main-content" className="flex-1">
@@ -105,6 +118,8 @@ export default async function RootPage() {
           calling new Date() inside a child during render is the impurity the
           rest of this codebase avoids by the same means. */}
       <SiteFooter branding={tenant.branding} chrome={chrome} year={new Date().getFullYear()} />
+
+      <EnquireDock rail={chrome.enquireRail} />
     </div>
   );
 }

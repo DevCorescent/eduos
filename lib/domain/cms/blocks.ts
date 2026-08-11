@@ -27,6 +27,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { typographySchema } from "./typography";
 
 // --- Shared field rules -----------------------------------------------------
 
@@ -135,9 +136,32 @@ const icon = z.enum(BLOCK_ICONS);
 
 export type BlockIcon = (typeof BLOCK_ICONS)[number];
 
+/**
+ * Per-section typography, on EVERY block type.
+ *
+ * WHY EVERY BLOCK CARRIES THIS RATHER THAN A CHOSEN FEW
+ *   "Change the font for this section" is a question an editor asks of whatever
+ *   section they are looking at, and a control that appears on some blocks and
+ *   not others reads as a bug. It is optional everywhere, emits nothing when
+ *   unset, and costs an absent key in the stored JSON — so the uniformity is
+ *   free.
+ *
+ * The site-wide setting lives on CmsSite/CmsTemplate; this overrides it for one
+ * section. Neither is merged in code — see typography.ts on why the browser's
+ * cascade resolves them.
+ */
+const style = typographySchema.optional();
+
 // --- Block prop schemas -----------------------------------------------------
 
-const heroProps = z.object({
+/**
+ * One hero panel: everything a full-bleed opening slide needs.
+ *
+ * Extracted from the hero's own props so a carousel slide and a single hero are
+ * literally the same shape. They are rendered by the same component, so a
+ * template author switching between the two never loses a field or gains one.
+ */
+const heroSlideProps = z.object({
   /** A short line above the headline, as in the reference designs. */
   eyebrow: line.optional(),
   heading: line,
@@ -157,6 +181,74 @@ const heroProps = z.object({
   videoUrl: videoUrl.optional(),
 });
 
+export type HeroSlide = z.infer<typeof heroSlideProps>;
+
+/**
+ * The hero: one panel, or several on a timer.
+ *
+ * THE FIRST SLIDE IS THE BLOCK'S OWN PROPS, AND THAT IS A COMPATIBILITY
+ * DECISION, NOT AN AESTHETIC ONE
+ *   Every hero already stored — in the template, in the seed, on Demo
+ *   University's live homepage — has `heading` and `subheading` at the top
+ *   level. Moving them into a `slides[0]` would make `parseStoredBlocks` reject
+ *   every one of them, and parseStoredBlocks answers a failed parse with an
+ *   EMPTY PAGE. The upgrade would have blanked every published homepage on the
+ *   platform at deploy time.
+ *
+ *   So the top level stays the first slide and `slides` holds the ones after
+ *   it. Existing content parses unchanged and renders exactly as before, because
+ *   `slides` is absent and a one-slide carousel is a hero.
+ *
+ * `layout` IS SEPARATE FROM THE SLIDE COUNT, DELIBERATELY
+ *   An editor who has built four slides and wants to show one for a fortnight
+ *   should not have to delete three. "single" shows the first and keeps the rest
+ *   on the shelf.
+ */
+const heroProps = heroSlideProps.extend({
+  layout: z.enum(["single", "carousel"]).default("single"),
+
+  /** Slides AFTER the first. Bounded — a homepage carousel nobody scrolls past
+   *  slide three is a well-documented waste of the six most valuable seconds a
+   *  visitor will give an institution. */
+  slides: z.array(heroSlideProps).max(5).optional(),
+
+  /** Seconds each slide holds. Floor of 3 so a slide is readable; ceiling of 20
+   *  so a stalled carousel is distinguishable from a broken one. */
+  autoplaySeconds: z.number().int().min(3).max(20).default(6),
+
+  align: z.enum(["left", "center"]).default("left"),
+
+  /** How much vertical room the panel takes. */
+  height: z.enum(["compact", "standard", "tall"]).default("standard"),
+
+  style,
+});
+
+/**
+ * Every panel this hero should show, in order.
+ *
+ * Pure and exported so the renderer, the carousel and any future preview all
+ * agree on what "the slides" means rather than each re-deriving it.
+ */
+export function heroSlides(props: z.infer<typeof heroProps>): HeroSlide[] {
+  // Named field by field rather than by rest-spread: a rest would carry
+  // `align`, `height` and `style` into every "slide", and a slide that silently
+  // holds layout settings is the kind of thing that reads fine until somebody
+  // maps over slides and wonders why each one has a `height`.
+  const first: HeroSlide = {
+    eyebrow: props.eyebrow,
+    heading: props.heading,
+    subheading: props.subheading,
+    primaryCta: props.primaryCta,
+    secondaryCta: props.secondaryCta,
+    imageUrl: props.imageUrl,
+    videoUrl: props.videoUrl,
+  };
+
+  if (props.layout === "single" || !props.slides?.length) return [first];
+  return [first, ...props.slides];
+}
+
 const statsProps = z.object({
   heading: line.optional(),
   /**
@@ -165,6 +257,7 @@ const statsProps = z.object({
    * inventing a formatter that guesses which of those the editor meant.
    */
   items: z.array(z.object({ label: line, value: line })).min(1).max(6),
+  style,
 });
 
 const programmesProps = z.object({
@@ -180,6 +273,7 @@ const programmesProps = z.object({
    * is correct with no second edit, which no bolted-on website can do.
    */
   limit: z.number().int().min(1).max(12).default(6),
+  style,
 });
 
 const featuresProps = z.object({
@@ -189,6 +283,7 @@ const featuresProps = z.object({
     .array(z.object({ title: line, body: prose, icon: icon.optional() }))
     .min(1)
     .max(8),
+  style,
 });
 
 /**
@@ -216,6 +311,7 @@ const cardGridProps = z.object({
     )
     .min(1)
     .max(12),
+  style,
 });
 
 /**
@@ -232,6 +328,7 @@ const linkGridProps = z.object({
     .array(z.object({ label: line, href: href.optional(), icon: icon.optional() }))
     .min(1)
     .max(16),
+  style,
 });
 
 /**
@@ -246,6 +343,7 @@ const splitBandProps = z.object({
   stats: z.array(z.object({ value: line, label: line })).min(1).max(3),
   message: prose,
   cta: cta.optional(),
+  style,
 });
 
 const testimonialsProps = z.object({
@@ -254,17 +352,67 @@ const testimonialsProps = z.object({
     .array(z.object({ quote: prose, name: line, role: line.optional() }))
     .min(1)
     .max(8),
+  style,
+});
+
+/**
+ * Placement outcomes: figures and partner marks on one side, placed students
+ * rotating on the other.
+ *
+ * THE STUDENTS ARE A CAROUSEL, NOT A STATIC GRID
+ *   The reference designs show a 2×2 tile of portraits; institutions with
+ *   twelve placed students still want them all shown, so the tiles rotate.
+ *   Stats and partner logos stay fixed — they are the framing, not the content
+ *   that changes every few seconds.
+ */
+const placementsProps = z.object({
+  heading: line,
+  subheading: prose.optional(),
+  stats: z
+    .array(
+      z.object({
+        value: line,
+        /** A short supporting sentence under the figure, not just a caption. */
+        body: prose,
+        icon: icon.optional(),
+      })
+    )
+    .min(1)
+    .max(4),
+  /** Recruiting partners shown as a logo strip under the stats. */
+  partners: z
+    .array(z.object({ name: line, logoUrl: imageUrl.optional() }))
+    .max(12)
+    .optional(),
+  students: z
+    .array(
+      z.object({
+        name: line,
+        company: line,
+        imageUrl: imageUrl.optional(),
+        companyLogoUrl: imageUrl.optional(),
+        programme: line.optional(),
+      })
+    )
+    .min(1)
+    .max(24),
+  cta: cta.optional(),
+  /** Seconds each student pair holds. Same bounds as the hero carousel. */
+  autoplaySeconds: z.number().int().min(3).max(20).default(6),
+  style,
 });
 
 const faqProps = z.object({
   heading: line,
   items: z.array(z.object({ question: line, answer: prose })).min(1).max(12),
+  style,
 });
 
 const ctaBandProps = z.object({
   heading: line,
   body: prose.optional(),
   cta,
+  style,
 });
 
 const richTextProps = z.object({
@@ -279,6 +427,7 @@ const richTextProps = z.object({
    * meaning for content already stored under this one.
    */
   body: z.string().trim().min(1).max(8000),
+  style,
 });
 
 // --- The union --------------------------------------------------------------
@@ -299,6 +448,7 @@ export const blockSchema = z.discriminatedUnion("type", [
   z.object({ id: line, type: z.literal("linkGrid"), props: linkGridProps }),
   z.object({ id: line, type: z.literal("splitBand"), props: splitBandProps }),
   z.object({ id: line, type: z.literal("testimonials"), props: testimonialsProps }),
+  z.object({ id: line, type: z.literal("placements"), props: placementsProps }),
   z.object({ id: line, type: z.literal("faq"), props: faqProps }),
   z.object({ id: line, type: z.literal("cta"), props: ctaBandProps }),
   z.object({ id: line, type: z.literal("richText"), props: richTextProps }),
@@ -366,6 +516,11 @@ export const BLOCK_CATALOGUE: readonly BlockDefinition[] = [
   { type: "linkGrid", label: "Link tiles", description: "A dense index of schools or departments, with icons." },
   { type: "splitBand", label: "Split band", description: "Headline figures beside a statement." },
   { type: "testimonials", label: "Testimonials", description: "Student and alumni quotes." },
+  {
+    type: "placements",
+    label: "Placements",
+    description: "Placement stats, partner logos and a carousel of placed students.",
+  },
   { type: "faq", label: "FAQ", description: "Questions and answers." },
   { type: "cta", label: "Call to action", description: "A band with one button, e.g. Apply now." },
   { type: "richText", label: "Text", description: "A heading and a paragraph of plain text." },
@@ -390,6 +545,15 @@ export function defaultBlock(type: CmsBlockType, id: string): CmsBlock {
           heading: "Your headline here",
           subheading: "One or two sentences on what makes this institution worth applying to.",
           primaryCta: { label: "Apply now", href: "/admissions" },
+          // The four layout fields carry schema defaults, so stored content
+          // without them parses. They are written out here anyway: the editor
+          // shows a select for each, and a select whose value is undefined
+          // renders blank rather than showing the default that is actually in
+          // force.
+          layout: "single",
+          autoplaySeconds: 6,
+          align: "left",
+          height: "standard",
         },
       };
     case "stats":
@@ -457,6 +621,38 @@ export function defaultBlock(type: CmsBlockType, id: string): CmsBlock {
         props: {
           heading: "What our students say",
           items: [{ quote: "A short quote from a student.", name: "Student name" }],
+        },
+      };
+    case "placements":
+      return {
+        id,
+        type,
+        props: {
+          heading: "Impeccable Placements",
+          subheading: "Education that takes you where your ambition already points.",
+          stats: [
+            {
+              value: "94% placed",
+              body: "Graduates placed with recruiting partners in the last cycle.",
+              icon: "trophy",
+            },
+            {
+              value: "180+ companies",
+              body: "National and global employers on campus every year.",
+              icon: "briefcase",
+            },
+          ],
+          partners: [
+            { name: "Partner one" },
+            { name: "Partner two" },
+            { name: "Partner three" },
+          ],
+          students: [
+            { name: "Student name", company: "Company", programme: "B.Tech" },
+            { name: "Student name", company: "Company", programme: "MBA" },
+          ],
+          cta: { label: "View more placements", href: "/admissions" },
+          autoplaySeconds: 6,
         },
       };
     case "faq":

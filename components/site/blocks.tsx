@@ -4,11 +4,12 @@
 // LAYER  : Presentation (Server Components)
 // PURPOSE: One component per block type in lib/domain/cms/blocks.ts.
 //
-// ONE FILE, EIGHT COMPONENTS
-//   They share a section idiom — same max width, same vertical rhythm, same
-//   heading treatment — and are only ever used together by BlockRenderer.
-//   Splitting them across eight files would put that shared idiom eight files
-//   away from each place it is applied.
+// ONE FILE, ELEVEN COMPONENTS
+//   They share a section idiom and are only ever used together by BlockRenderer.
+//   Splitting them across eleven files would put that shared idiom eleven files
+//   away from each place it is applied. The idiom ITSELF now lives in
+//   Section.tsx, because the hero carousel is a client component and needs it
+//   too — see that file's note.
 //
 // PROPS ARE ALREADY VALIDATED
 //   Every component takes the Zod-inferred type for its own block, so nothing
@@ -16,12 +17,19 @@
 //   (parseStoredBlocks), which is what lets these be plain rendering functions
 //   with no defensive branching.
 //
+// TYPOGRAPHY IS PASSED DOWN AS CUSTOM PROPERTIES, NOT AS PROPS
+//   Each block's `props.style` goes to <Section style=…>, which emits the six
+//   custom properties on the section element. Everything inside — a card title
+//   three levels down — picks them up through the cascade. That is why no
+//   component below takes a colour or a size as an argument: the classes
+//   `.site-h2`, `.site-body` and friends read the properties themselves.
+//
 // TENANT COLOURS COME THROUGH TOKENS
 //   `bg-primary`, `text-primary` and friends resolve to the CSS custom
-//   properties app/layout.tsx injects per request from the tenant's branding.
-//   A university that sets its brand colour repaints this page without any of
-//   these components changing — which is the §45 requirement, met by not
-//   hardcoding a single colour.
+//   properties app/layout.tsx injects per request from the tenant's branding. A
+//   university that sets its brand colour repaints this page without any of
+//   these components changing — the §45 requirement, met by not hardcoding a
+//   single colour.
 // ============================================================================
 
 import Link from "next/link";
@@ -42,8 +50,17 @@ import {
   Users,
 } from "lucide-react";
 import type { BlockIcon, BlockOfType } from "@/lib/domain/cms/blocks";
-import { listPublicProgrammes } from "@/lib/services/site";
+import { heroSlides } from "@/lib/domain/cms/blocks";
+import { typographyCssVars } from "@/lib/domain/cms/typography";
+import { listPublicProgrammes, type PublicProgramme } from "@/lib/services/site";
 import { cn } from "@/lib/utils";
+import { Section, SectionHeading, type SectionTone } from "./Section";
+import { HeroPanel } from "./HeroPanel";
+import { HeroCarousel } from "./HeroCarousel";
+import { PlacementsCarousel } from "./PlacementsCarousel";
+
+/** Every block component takes the tone the renderer assigned it. */
+type Toned = { tone?: SectionTone };
 
 /**
  * The stored icon name → the component that draws it.
@@ -75,165 +92,69 @@ function BlockIconGlyph({ name, className }: { name?: BlockIcon; className?: str
   return <Glyph className={className} />;
 }
 
-// --- Shared section shell ---------------------------------------------------
+// --- Hero -------------------------------------------------------------------
 
-/** The horizontal rhythm every block shares. */
-function Section({
-  children,
-  className,
-  tone = "plain",
-}: {
-  children: React.ReactNode;
-  className?: string;
-  tone?: "plain" | "muted";
-}) {
-  return (
-    <section className={cn("w-full py-16 sm:py-20", tone === "muted" && "bg-muted/60", className)}>
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">{children}</div>
-    </section>
-  );
-}
+/**
+ * The full-bleed opening panel, or several of them.
+ *
+ * ONE PANEL STAYS A SERVER COMPONENT
+ *   The branch below is the whole reason HeroPanel is a separate, hook-free
+ *   file. An institution with a single hero — which is most of them — gets
+ *   server-rendered markup and no JavaScript; only a configured carousel pulls
+ *   the client component in.
+ *
+ * The hero is NOT wrapped in <Section>: it is full-bleed and sets its own
+ * vertical rhythm, so the shared container's max-width would letterbox the
+ * photograph. It still emits the typography properties, on its own wrapper.
+ */
+export function HeroBlock({ props }: BlockOfType<"hero">) {
+  const slides = heroSlides(props);
+  const { align, height, autoplaySeconds, style } = props;
 
-/** Centred heading + optional subheading, above a block's content. */
-function SectionHeading({ heading, subheading }: { heading: string; subheading?: string }) {
   return (
-    <div className="mx-auto max-w-2xl text-center">
-      <h2 className="text-3xl font-bold tracking-tight text-heading sm:text-4xl">{heading}</h2>
-      {subheading && (
-        <p className="mt-4 text-base leading-7 text-muted-foreground">{subheading}</p>
+    <div style={typographyCssVars(style) as React.CSSProperties}>
+      {slides.length > 1 ? (
+        <HeroCarousel
+          slides={slides}
+          align={align}
+          height={height}
+          autoplaySeconds={autoplaySeconds}
+        />
+      ) : (
+        <HeroPanel slide={slides[0]} align={align} height={height} />
       )}
     </div>
   );
 }
 
-// --- Hero -------------------------------------------------------------------
-
-/**
- * The full-bleed opening panel.
- *
- * THE OVERLAY IS A LEGIBILITY REQUIREMENT, NOT A STYLE CHOICE
- *   An institution supplies its own photograph and nobody reviews it for
- *   contrast. White text straight onto an arbitrary image is unreadable
- *   roughly half the time, so a gradient scrim sits between them — dense on the
- *   left where the text is, clearing to the right where the picture shows.
- *   That way any photograph works and none has to be vetted.
- *
- *   With no image the same layout renders over the brand gradient, so a
- *   university that has uploaded nothing still gets a finished-looking page.
- */
-export function HeroBlock({ props }: BlockOfType<"hero">) {
-  const { eyebrow, heading, subheading, primaryCta, secondaryCta, imageUrl, videoUrl } = props;
-
-  const hasBackground = Boolean(imageUrl || videoUrl);
-
-  return (
-    <section className="relative isolate overflow-hidden">
-      {videoUrl ? (
-        // muted + playsInline are what let a browser autoplay at all; without
-        // both, mobile Safari and Chrome refuse and the hero stays on its
-        // poster. `poster` is the still, so there is never an empty frame while
-        // the video buffers, and a visitor who blocks media sees the image.
-        <video
-          className="absolute inset-0 -z-20 size-full object-cover"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          poster={imageUrl}
-          aria-hidden="true"
-        >
-          <source src={videoUrl} />
-        </video>
-      ) : imageUrl ? (
-        // Tenant-supplied external URL; see SiteHeader for why next/image
-        // cannot be used in a multi-tenant product.
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={imageUrl} alt="" className="absolute inset-0 -z-20 size-full object-cover" />
-      ) : null}
-
-      {hasBackground ? (
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 -z-10 bg-linear-to-r from-neutral-950/85 via-neutral-950/65 to-neutral-950/25"
-        />
-      ) : (
-        <div aria-hidden="true" className="gradient-primary absolute inset-0 -z-10" />
-      )}
-
-      <div className="mx-auto w-full max-w-7xl px-4 py-28 sm:px-6 sm:py-36 lg:px-8">
-        <div className="max-w-2xl">
-          {eyebrow && (
-            <p className="mb-4 inline-block rounded-full bg-white/15 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-white backdrop-blur-sm">
-              {eyebrow}
-            </p>
-          )}
-          <h1 className="text-4xl font-bold leading-tight tracking-tight text-white sm:text-6xl">
-            {heading}
-          </h1>
-
-          {subheading && (
-            <p className="mt-6 max-w-xl text-lg leading-8 text-white/85">{subheading}</p>
-          )}
-
-          {(primaryCta || secondaryCta) && (
-            <div className="mt-10 flex flex-wrap items-center gap-4">
-              {primaryCta && (
-                <Link
-                  href={primaryCta.href}
-                  className="inline-flex items-center gap-2 rounded-full bg-primary px-7 py-3.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
-                >
-                  {primaryCta.label}
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </Link>
-              )}
-              {secondaryCta && (
-                <Link
-                  href={secondaryCta.href}
-                  className="inline-flex items-center rounded-full border border-white/70 bg-white/10 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
-                >
-                  {secondaryCta.label}
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
 // --- Stats ------------------------------------------------------------------
 
-export function StatsBlock({ props }: BlockOfType<"stats">) {
-  const { heading, items } = props;
+export function StatsBlock({ props, tone }: BlockOfType<"stats"> & Toned) {
+  const { heading, items, style } = props;
 
   return (
-    <Section tone="muted">
-      {heading && (
-        <h2 className="mb-10 text-center text-2xl font-bold tracking-tight text-heading">
-          {heading}
-        </h2>
-      )}
+    <Section tone={tone} style={style}>
+      {heading && <SectionHeading heading={heading} />}
 
       {/* Column count follows the item count so three stats are not stranded in
           a four-column grid with a hole in it. */}
       <dl
         className={cn(
           "grid grid-cols-2 gap-x-8 gap-y-10",
-          items.length <= 2 ? "sm:grid-cols-2" : items.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-3 lg:grid-cols-4"
+          heading && "mt-14",
+          items.length <= 2
+            ? "sm:grid-cols-2"
+            : items.length === 3
+              ? "sm:grid-cols-3"
+              : "sm:grid-cols-3 lg:grid-cols-4"
         )}
       >
         {items.map((item) => (
           <div key={item.label} className="text-center">
-            <dt className="order-2 mt-2 text-sm font-medium text-muted-foreground">
-              {item.label}
-            </dt>
-            {/* flex-col-reverse so the number reads first visually while the
-                <dl> keeps its required dt-before-dd document order. */}
-            <dd className="order-1 text-4xl font-bold tracking-tight text-primary sm:text-5xl">
-              {item.value}
-            </dd>
+            <dt className="site-small site-ink-muted order-2 mt-2">{item.label}</dt>
+            {/* order-* so the number reads first visually while the <dl> keeps
+                its required dt-before-dd document order. */}
+            <dd className="site-figure order-1 text-primary">{item.value}</dd>
           </div>
         ))}
       </dl>
@@ -249,51 +170,100 @@ export function StatsBlock({ props }: BlockOfType<"stats">) {
  * ASYNC, AND THE ONLY BLOCK THAT TOUCHES THE DATABASE. It is a Server
  * Component, so the query runs during the render that produces the HTML — no
  * loading state, no client fetch, no data in the browser bundle.
+ *
+ * `tenantId` IS NULL IN THE TEMPLATE PREVIEW, where there is no institution to
+ * query. The block then draws the sample rows below rather than an empty
+ * section, so an operator previewing the template sees the shape of the thing
+ * they are designing. The sample is labelled as such on screen — a preview that
+ * silently invents programme names is a preview nobody can trust.
  */
+const SAMPLE_PROGRAMMES: PublicProgramme[] = [
+  {
+    id: "sample-1",
+    name: "B.Tech Computer Science & Engineering",
+    code: "BT-CSE",
+    type: "UG",
+    durationValue: 4,
+    durationUnit: "YEARS",
+    description:
+      "Four years covering systems, data and software engineering, with an industry project from the second year.",
+    departmentName: "School of Engineering & Technology",
+  },
+  {
+    id: "sample-2",
+    name: "M.Sc Applied Mathematics",
+    code: "MS-AMT",
+    type: "PG",
+    durationValue: 2,
+    durationUnit: "YEARS",
+    description: "A two-year masters with a research or an industry track in the final semester.",
+    departmentName: "School of Science",
+  },
+  {
+    id: "sample-3",
+    name: "BBA Business Administration",
+    code: "BBA-GEN",
+    type: "UG",
+    durationValue: 3,
+    durationUnit: "YEARS",
+    description: "Management fundamentals taught through live case work with regional employers.",
+    departmentName: "School of Commerce & Management",
+  },
+];
+
 export async function ProgrammesBlock({
   props,
   tenantId,
-}: BlockOfType<"programmes"> & { tenantId: string }) {
-  const { heading, subheading, limit } = props;
-  const programmes = await listPublicProgrammes(tenantId, limit);
+  tone,
+}: BlockOfType<"programmes"> & { tenantId: string | null } & Toned) {
+  const { heading, subheading, limit, style } = props;
+
+  const isSample = tenantId === null;
+  const programmes = isSample
+    ? SAMPLE_PROGRAMMES.slice(0, limit)
+    : await listPublicProgrammes(tenantId, limit);
 
   return (
-    <Section>
-      <SectionHeading heading={heading} subheading={subheading} />
+    <Section id="programmes" tone={tone} style={style}>
+      <SectionHeading eyebrow="Academics" heading={heading} subheading={subheading} />
 
       {programmes.length === 0 ? (
         // A university with no active programmes yet. Saying so plainly beats
         // an empty grid, which reads as a broken page rather than a new one.
-        <p className="mt-12 text-center text-sm text-muted-foreground">
+        <p className="site-small site-ink-muted mt-14 text-center">
           Programme details will be published here shortly.
         </p>
       ) : (
-        <ul className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {programmes.map((programme) => (
-            <li
-              key={programme.id}
-              className="glass hover-lift flex flex-col rounded-xl p-6"
-            >
-              <p className="font-mono text-xs font-medium uppercase tracking-wide text-primary">
-                {programme.code}
-              </p>
-              <h3 className="mt-2 text-lg font-semibold leading-snug text-heading">
-                {programme.name}
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">{programme.departmentName}</p>
-
-              {programme.description && (
-                <p className="mt-3 line-clamp-3 text-sm leading-6 text-foreground/80">
-                  {programme.description}
+        <>
+          <ul className="mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {programmes.map((programme) => (
+              <li key={programme.id} className="glass hover-lift flex flex-col rounded-xl p-6">
+                <p className="font-mono text-xs font-medium uppercase tracking-wide text-primary">
+                  {programme.code}
                 </p>
-              )}
+                <h3 className="site-h3 site-ink mt-2">{programme.name}</h3>
+                <p className="site-small site-ink-muted mt-1">{programme.departmentName}</p>
 
-              <p className="mt-4 pt-4 text-xs text-muted-foreground border-t border-border">
-                {programme.durationValue} {programme.durationUnit.toLowerCase()}
-              </p>
-            </li>
-          ))}
-        </ul>
+                {programme.description && (
+                  <p className="site-small site-ink-body mt-3 line-clamp-3">
+                    {programme.description}
+                  </p>
+                )}
+
+                <p className="site-small site-ink-muted mt-4 border-t border-border pt-4">
+                  {programme.durationValue} {programme.durationUnit.toLowerCase()}
+                </p>
+              </li>
+            ))}
+          </ul>
+
+          {isSample && (
+            <p className="site-small site-ink-muted mt-8 text-center">
+              Sample rows. On a live site this section lists the institution&apos;s
+              own active programmes.
+            </p>
+          )}
+        </>
       )}
     </Section>
   );
@@ -301,23 +271,23 @@ export async function ProgrammesBlock({
 
 // --- Features ---------------------------------------------------------------
 
-export function FeaturesBlock({ props }: BlockOfType<"features">) {
-  const { heading, subheading, items } = props;
+export function FeaturesBlock({ props, tone }: BlockOfType<"features"> & Toned) {
+  const { heading, subheading, items, style } = props;
 
   return (
-    <Section>
-      <SectionHeading heading={heading} subheading={subheading} />
+    <Section tone={tone} style={style}>
+      <SectionHeading eyebrow="Why us" heading={heading} subheading={subheading} />
 
-      <ul className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {items.map((item) => (
           <li key={item.title} className="glass rounded-xl p-6">
             {item.icon && (
-              <span className="mb-4 flex size-11 items-center justify-center rounded-xl bg-primary-bg text-primary-bg-foreground">
+              <span className="mb-4 flex size-12 items-center justify-center rounded-xl bg-primary-bg text-primary-bg-foreground">
                 <BlockIconGlyph name={item.icon} className="size-5" />
               </span>
             )}
-            <h3 className="text-base font-semibold text-heading">{item.title}</h3>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.body}</p>
+            <h3 className="site-h3 site-ink">{item.title}</h3>
+            <p className="site-small site-ink-muted mt-2">{item.body}</p>
           </li>
         ))}
       </ul>
@@ -335,16 +305,16 @@ export function FeaturesBlock({ props }: BlockOfType<"features">) {
  * over a tinted panel. An institution part-way through gathering photography
  * gets a page that looks deliberate rather than half-loaded.
  */
-export function CardGridBlock({ props }: BlockOfType<"cardGrid">) {
-  const { heading, subheading, columns, items } = props;
+export function CardGridBlock({ props, tone }: BlockOfType<"cardGrid"> & Toned) {
+  const { heading, subheading, columns, items, style } = props;
 
   return (
-    <Section>
+    <Section tone={tone} style={style}>
       <SectionHeading heading={heading} subheading={subheading} />
 
       <ul
         className={cn(
-          "mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2",
+          "mt-14 grid grid-cols-1 gap-6 sm:grid-cols-2",
           columns === 2 ? "lg:grid-cols-2" : columns === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3"
         )}
       >
@@ -353,7 +323,7 @@ export function CardGridBlock({ props }: BlockOfType<"cardGrid">) {
             <>
               <div className="relative aspect-4/3 w-full overflow-hidden bg-primary-bg">
                 {item.imageUrl && (
-                  // eslint-disable-next-line @next/next/no-img-element -- see above
+                  // eslint-disable-next-line @next/next/no-img-element -- see HeroPanel
                   <img
                     src={item.imageUrl}
                     alt=""
@@ -363,9 +333,9 @@ export function CardGridBlock({ props }: BlockOfType<"cardGrid">) {
               </div>
 
               <div className="flex flex-1 flex-col bg-primary px-5 py-4 text-primary-foreground">
-                <h3 className="text-base font-semibold leading-snug">{item.title}</h3>
+                <h3 className="site-h3">{item.title}</h3>
                 {item.body && (
-                  <p className="mt-1.5 line-clamp-3 text-sm leading-6 text-primary-foreground/80">
+                  <p className="site-small mt-1.5 line-clamp-3 text-primary-foreground/80">
                     {item.body}
                   </p>
                 )}
@@ -406,25 +376,21 @@ export function CardGridBlock({ props }: BlockOfType<"cardGrid">) {
 
 // --- Link tiles -------------------------------------------------------------
 
-export function LinkGridBlock({ props }: BlockOfType<"linkGrid">) {
-  const { heading, subheading, items } = props;
+export function LinkGridBlock({ props, tone }: BlockOfType<"linkGrid"> & Toned) {
+  const { heading, subheading, items, style } = props;
 
   return (
-    <Section tone="muted">
+    <Section id="schools" tone={tone} style={style}>
       {/* Left-aligned heading beside the tiles, as the reference's "Find Your
           Interest" does — a centred heading over a dense index reads as a new
-          page rather than a label for the grid. */}
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-16">
-        <div>
-          <h2 className="text-3xl font-bold leading-tight tracking-tight text-heading sm:text-4xl">
-            {heading}
-          </h2>
-          {subheading && (
-            <p className="mt-4 border-l-2 border-primary pl-4 text-base leading-7 text-muted-foreground">
-              {subheading}
-            </p>
-          )}
-        </div>
+          page rather than as a label for the grid. */}
+      <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-16">
+        <SectionHeading
+          align="left"
+          eyebrow="Schools"
+          heading={heading}
+          subheading={subheading}
+        />
 
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {items.map((item, index) => {
@@ -433,7 +399,7 @@ export function LinkGridBlock({ props }: BlockOfType<"linkGrid">) {
                 <span className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                   <BlockIconGlyph name={item.icon} className="size-5" />
                 </span>
-                <span className="min-w-0 text-sm font-medium text-heading">{item.label}</span>
+                <span className="site-small site-ink min-w-0 font-medium">{item.label}</span>
               </>
             );
 
@@ -462,13 +428,23 @@ export function LinkGridBlock({ props }: BlockOfType<"linkGrid">) {
 
 // --- Split band -------------------------------------------------------------
 
+/**
+ * A two-tone band: figures on one side, a statement on the other.
+ *
+ * Given a TIGHTER vertical rhythm than a full section, because it is a rule
+ * between two sections rather than a section of its own — the reference designs
+ * use it the same way, immediately under the hero.
+ */
 export function SplitBandBlock({ props }: BlockOfType<"splitBand">) {
-  const { stats, message, cta } = props;
+  const { stats, message, cta, style } = props;
 
   return (
-    <section className="w-full">
+    <section
+      style={typographyCssVars(style) as React.CSSProperties}
+      className="w-full py-10 sm:py-14"
+    >
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid overflow-hidden rounded-2xl lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="grid overflow-hidden rounded-2xl shadow-soft lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <dl className="gradient-primary flex flex-wrap items-center gap-x-12 gap-y-8 px-8 py-10 sm:px-12">
             {stats.map((stat, index) => (
               <div
@@ -477,16 +453,14 @@ export function SplitBandBlock({ props }: BlockOfType<"splitBand">) {
                 // one does not sit behind a stray leading border.
                 className={cn(index > 0 && "border-l border-white/25 pl-12")}
               >
-                <dd className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-                  {stat.value}
-                </dd>
-                <dt className="mt-1 text-sm text-white/80">{stat.label}</dt>
+                <dd className="site-figure site-ink-on-dark">{stat.value}</dd>
+                <dt className="site-small site-ink-on-dark-soft mt-1">{stat.label}</dt>
               </div>
             ))}
           </dl>
 
           <div className="flex flex-col justify-center bg-tertiary-300 px-8 py-10 sm:px-12">
-            <p className="text-lg font-medium leading-8 text-tertiary-900">{message}</p>
+            <p className="site-lead font-medium text-tertiary-900">{message}</p>
             {cta && (
               <Link
                 href={cta.href}
@@ -505,27 +479,100 @@ export function SplitBandBlock({ props }: BlockOfType<"splitBand">) {
 
 // --- Testimonials -----------------------------------------------------------
 
-export function TestimonialsBlock({ props }: BlockOfType<"testimonials">) {
-  const { heading, items } = props;
+export function TestimonialsBlock({ props, tone }: BlockOfType<"testimonials"> & Toned) {
+  const { heading, items, style } = props;
 
   return (
-    <Section tone="muted">
-      <SectionHeading heading={heading} />
+    <Section tone={tone} style={style}>
+      <SectionHeading eyebrow="Student voices" heading={heading} />
 
-      <ul className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <ul className="mt-14 grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
         {items.map((item, index) => (
           <li key={`${item.name}-${index}`} className="glass flex flex-col rounded-xl p-6">
             <Quote className="size-6 text-primary/40" aria-hidden="true" />
-            <blockquote className="mt-3 flex-1 text-sm leading-6 text-foreground">
+            <blockquote className="site-small site-ink-body mt-3 flex-1">
               {item.quote}
             </blockquote>
             <footer className="mt-4 border-t border-border pt-4">
-              <p className="text-sm font-semibold text-heading">{item.name}</p>
-              {item.role && <p className="text-xs text-muted-foreground">{item.role}</p>}
+              <p className="site-small site-ink font-semibold">{item.name}</p>
+              {item.role && <p className="site-ink-muted text-xs">{item.role}</p>}
             </footer>
           </li>
         ))}
       </ul>
+    </Section>
+  );
+}
+
+// --- Placements -------------------------------------------------------------
+
+/**
+ * Placement outcomes: figures and partners on the left, a student carousel on
+ * the right — the reference "Impeccable Placements" composition.
+ */
+export function PlacementsBlock({ props, tone }: BlockOfType<"placements"> & Toned) {
+  const { heading, subheading, stats, partners, students, cta, autoplaySeconds, style } = props;
+
+  return (
+    <Section id="placements" tone={tone} style={style}>
+      <div className="grid gap-12 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-16 lg:items-center">
+        <div>
+          <p className="site-eyebrow text-primary">Careers</p>
+          <h2 className="site-h2 site-ink mt-3 bg-linear-to-r from-primary to-tertiary-600 bg-clip-text text-transparent">
+            {heading}
+          </h2>
+          {subheading && (
+            <p className="site-lead site-ink-muted mt-4 max-w-xl">{subheading}</p>
+          )}
+
+          <ul className="mt-10 space-y-6">
+            {stats.map((stat, index) => (
+              <li key={`${stat.value}-${index}`} className="flex gap-4">
+                <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                  <BlockIconGlyph name={stat.icon ?? "trophy"} className="size-5" />
+                </span>
+                <div>
+                  <p className="site-h3 site-ink">{stat.value}</p>
+                  <p className="site-small site-ink-muted mt-1">{stat.body}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          {partners && partners.length > 0 && (
+            <ul className="mt-10 flex flex-wrap items-center gap-x-6 gap-y-4">
+              {partners.map((partner, index) => (
+                <li key={`${partner.name}-${index}`} className="flex h-8 items-center">
+                  {partner.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={partner.logoUrl}
+                      alt={partner.name}
+                      className="h-7 w-auto max-w-24 object-contain opacity-70 grayscale transition-opacity hover:opacity-100 hover:grayscale-0"
+                    />
+                  ) : (
+                    <span className="site-small site-ink-muted font-medium">{partner.name}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <PlacementsCarousel students={students} autoplaySeconds={autoplaySeconds} />
+      </div>
+
+      {cta && (
+        <div className="mt-12 flex justify-center">
+          <Link
+            href={cta.href}
+            className="inline-flex items-center gap-2 rounded-full border border-primary px-7 py-3 text-sm font-semibold text-primary transition-colors hover:bg-primary hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            {cta.label}
+            <ArrowRight className="size-4" aria-hidden="true" />
+          </Link>
+        </div>
+      )}
     </Section>
   );
 }
@@ -540,17 +587,17 @@ export function TestimonialsBlock({ props }: BlockOfType<"testimonials">) {
  * so this block ships none, which matters on the one page of the product that
  * anonymous visitors load cold.
  */
-export function FaqBlock({ props }: BlockOfType<"faq">) {
-  const { heading, items } = props;
+export function FaqBlock({ props, tone }: BlockOfType<"faq"> & Toned) {
+  const { heading, items, style } = props;
 
   return (
-    <Section>
-      <SectionHeading heading={heading} />
+    <Section tone={tone} style={style}>
+      <SectionHeading eyebrow="Admissions" heading={heading} />
 
-      <dl className="mx-auto mt-12 max-w-3xl divide-y divide-border">
+      <dl className="mx-auto mt-14 max-w-3xl divide-y divide-border">
         {items.map((item, index) => (
           <details key={`${item.question}-${index}`} className="group py-5">
-            <summary className="flex cursor-pointer items-center justify-between gap-4 text-left text-base font-medium text-heading marker:content-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            <summary className="site-body site-ink flex cursor-pointer items-center justify-between gap-4 text-left font-medium marker:content-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               {item.question}
               <span
                 aria-hidden="true"
@@ -559,7 +606,7 @@ export function FaqBlock({ props }: BlockOfType<"faq">) {
                 +
               </span>
             </summary>
-            <p className="mt-3 text-sm leading-7 text-muted-foreground">{item.answer}</p>
+            <p className="site-small site-ink-muted mt-3">{item.answer}</p>
           </details>
         ))}
       </dl>
@@ -569,15 +616,15 @@ export function FaqBlock({ props }: BlockOfType<"faq">) {
 
 // --- Call to action ---------------------------------------------------------
 
-export function CtaBlock({ props }: BlockOfType<"cta">) {
-  const { heading, body, cta } = props;
+export function CtaBlock({ props, tone }: BlockOfType<"cta"> & Toned) {
+  const { heading, body, cta, style } = props;
 
   return (
-    <Section>
-      <div className="gradient-primary relative overflow-hidden rounded-2xl px-6 py-14 text-center sm:px-12">
-        <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">{heading}</h2>
+    <Section tone={tone} style={style}>
+      <div className="gradient-primary relative overflow-hidden rounded-2xl px-6 py-16 text-center sm:px-12">
+        <h2 className="site-h2 site-ink-on-dark">{heading}</h2>
         {body && (
-          <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-white/85">{body}</p>
+          <p className="site-lead site-ink-on-dark-soft mx-auto mt-4 max-w-2xl">{body}</p>
         )}
         <Link
           href={cta.href}
@@ -593,20 +640,16 @@ export function CtaBlock({ props }: BlockOfType<"cta">) {
 
 // --- Rich text --------------------------------------------------------------
 
-export function RichTextBlock({ props }: BlockOfType<"richText">) {
-  const { heading, body } = props;
+export function RichTextBlock({ props, tone }: BlockOfType<"richText"> & Toned) {
+  const { heading, body, style } = props;
 
   return (
-    <Section>
+    <Section tone={tone} style={style}>
       <div className="mx-auto max-w-3xl">
-        {heading && (
-          <h2 className="text-3xl font-bold tracking-tight text-heading">{heading}</h2>
-        )}
+        {heading && <h2 className="site-h2 site-ink">{heading}</h2>}
         {/* whitespace-pre-line, not a markdown or HTML renderer: the schema
             stores plain text precisely so nothing here has to sanitise. */}
-        <p className="mt-4 whitespace-pre-line text-base leading-7 text-foreground/85">
-          {body}
-        </p>
+        <p className="site-body site-ink-body mt-4 whitespace-pre-line">{body}</p>
       </div>
     </Section>
   );

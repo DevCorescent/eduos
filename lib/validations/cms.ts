@@ -18,9 +18,11 @@
 import { z } from "zod";
 import { blocksSchema } from "@/lib/domain/cms/blocks";
 import {
+  enquireRailSchema,
   footerColumnsSchema,
   navItemsSchema,
   socialLinksSchema,
+  typographySchema,
 } from "@/lib/domain/cms/site";
 
 /** A page title or SEO string. Bounded; empty means "clear this field". */
@@ -65,15 +67,23 @@ export type PublishCmsPageInput = z.infer<typeof publishCmsPageSchema>;
 /** Take a published page offline without deleting it. */
 export const unpublishCmsPageSchema = z.object({}).strict();
 
-/** Save the header, footer and contact details. */
+/** Save the header, footer, contact details and site-wide typography. */
 export const saveCmsSiteSchema = z
   .object({
     navItems: navItemsSchema,
     footerColumns: footerColumnsSchema,
     socialLinks: socialLinksSchema,
+    enquireRail: enquireRailSchema,
     contactAddress: optionalText(300),
     contactPhone: optionalText(40),
     contactEmail: optionalText(200),
+    /**
+     * NULLABLE as well as optional, and the two mean different things.
+     * `undefined` leaves the stored typography alone; `null` clears it back to
+     * the design system's own type. An editor pressing "reset" needs the
+     * second, and a payload that simply omitted the key could not express it.
+     */
+    typography: typographySchema.nullable().optional(),
   })
   .strict();
 
@@ -90,7 +100,30 @@ export const saveCmsTemplateSchema = z
   .object({
     name: z.string().trim().min(1).max(120).optional(),
     description: optionalText(400),
-    blocks: blocksSchema,
+    /**
+     * OPTIONAL, unlike a page's.
+     *
+     * The template is edited from two screens — sections on one, navigation and
+     * typography on the other — and each saves only what it owns. If `blocks`
+     * were required, the chrome screen would have to send back a block array it
+     * never displayed, and any drift between the two would silently overwrite
+     * the sections.
+     */
+    blocks: blocksSchema.optional(),
+    /**
+     * The chrome the template hands a new university, on the same schemas the
+     * tenant's own CmsSite uses — which is what makes onboarding a copy rather
+     * than a conversion.
+     *
+     * All optional: the template editor saves blocks and chrome from two
+     * separate screens, and a blocks-only save must not wipe a navigation
+     * somebody configured on the other one.
+     */
+    navItems: navItemsSchema.optional(),
+    footerColumns: footerColumnsSchema.optional(),
+    socialLinks: socialLinksSchema.optional(),
+    enquireRail: enquireRailSchema.optional(),
+    typography: typographySchema.nullable().optional(),
   })
   .strict();
 

@@ -29,12 +29,16 @@ import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { parseStoredBlocks, type CmsBlocks } from "@/lib/domain/cms/blocks";
 import {
+  parseEnquireRail,
   parseFooterColumns,
   parseNavItems,
   parseSocialLinks,
+  parseTypography,
+  type EnquireRail,
   type FooterColumn,
   type NavItem,
   type SocialLink,
+  type Typography,
 } from "@/lib/domain/cms/site";
 
 /** A page as the public renderer needs it. */
@@ -92,9 +96,16 @@ export interface SiteChrome {
   navItems: NavItem[];
   footerColumns: FooterColumn[];
   socialLinks: SocialLink[];
+  enquireRail: EnquireRail;
   contactAddress: string | null;
   contactPhone: string | null;
   contactEmail: string | null;
+  /**
+   * The institution's site-wide type. Emitted as custom properties on the page
+   * wrapper; a block's own `style` overrides it for one section through the
+   * cascade. `{}` means the design system's own, which is the correct default.
+   */
+  typography: Typography;
 }
 
 /**
@@ -113,9 +124,11 @@ export async function getSiteChrome(tenantId: string): Promise<SiteChrome> {
       navItems: true,
       footerColumns: true,
       socialLinks: true,
+      enquireRail: true,
       contactAddress: true,
       contactPhone: true,
       contactEmail: true,
+      typography: true,
     },
   });
 
@@ -123,9 +136,11 @@ export async function getSiteChrome(tenantId: string): Promise<SiteChrome> {
     navItems: parseNavItems(site?.navItems),
     footerColumns: parseFooterColumns(site?.footerColumns),
     socialLinks: parseSocialLinks(site?.socialLinks),
+    enquireRail: parseEnquireRail(site?.enquireRail),
     contactAddress: site?.contactAddress ?? null,
     contactPhone: site?.contactPhone ?? null,
     contactEmail: site?.contactEmail ?? null,
+    typography: parseTypography(site?.typography),
   };
 }
 

@@ -117,8 +117,8 @@ export function SiteFooter({ branding, chrome, year }: SiteFooterProps) {
       <div className="mx-auto w-full max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
         <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-4">
           <div className="min-w-0">
-            <p className="text-lg font-semibold">{branding.name}</p>
-            <p className="mt-3 text-sm leading-6 text-white/70">
+            <p className="site-h3 text-white">{branding.name}</p>
+            <p className="site-small mt-3 text-white/70">
               Programmes, admissions and publicly verifiable credentials.
             </p>
 
@@ -149,15 +149,13 @@ export function SiteFooter({ branding, chrome, year }: SiteFooterProps) {
 
           {footerColumns.map((column) => (
             <nav key={column.heading} aria-label={column.heading} className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-widest text-white/60">
-                {column.heading}
-              </p>
+              <p className="site-eyebrow text-white/60">{column.heading}</p>
               <ul className="mt-4 space-y-2.5">
                 {column.links.map((link) => (
                   <li key={`${link.label}-${link.href}`}>
                     <Link
                       href={link.href}
-                      className="rounded text-sm text-white/85 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                      className="site-small rounded text-white/85 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     >
                       {link.label}
                     </Link>
@@ -169,10 +167,8 @@ export function SiteFooter({ branding, chrome, year }: SiteFooterProps) {
 
           {hasContact && (
             <address className="min-w-0 not-italic">
-              <p className="text-xs font-semibold uppercase tracking-widest text-white/60">
-                Contact
-              </p>
-              <ul className="mt-4 space-y-3 text-sm text-white/85">
+              <p className="site-eyebrow text-white/60">Contact</p>
+              <ul className="site-small mt-4 space-y-3 text-white/85">
                 {contactAddress && (
                   <li className="flex gap-2.5">
                     <MapPin className="mt-0.5 size-4 shrink-0 text-white/60" aria-hidden="true" />

@@ -533,3 +533,158 @@ h6 {
     transform: none;
   }
 }
+
+/* ============================================================================
+   PUBLIC WEBSITE TYPOGRAPHY
+   ============================================================================
+   Scoped to `.site-scope`, which wraps the public landing page and NOTHING
+   else. The five ERP portals keep the product's own type system untouched —
+   a university choosing an extra-bold display face for its homepage must not
+   restyle the attendance register.
+
+   THE CASCADE IS THE MERGE
+     Three levels feed the same six custom properties: the design system's
+     fallbacks (written as the second argument of each var()), the site-wide
+     setting on the page wrapper, and a per-section override on the section
+     element. Nothing in TypeScript combines them; CSS resolves it, which is why
+     lib/domain/cms/typography.ts only ever emits the properties that were
+     actually set.
+
+   SIZE IS A MULTIPLIER, NOT A VALUE
+     Each step below keeps its own responsive size and multiplies it by
+     --site-heading-scale / --site-body-scale. So "Larger" is larger at every
+     breakpoint, rather than pinning one number that is wrong on a phone.
+
+   FONTS
+     Body is Poppins; headings are Inter. Both are loaded by app/layout.tsx as
+     next/font variables, so there is no network request to a third party and no
+     layout shift while a webfont arrives.
+   ========================================================================= */
+
+.site-scope {
+  font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+  --site-heading-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.site-scope :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--site-heading-family);
+}
+
+/* --- Size steps ---------------------------------------------------------- */
+
+/* Hero headline. */
+.site-display {
+  font-size: calc(2.5rem * var(--site-heading-scale, 1));
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-weight: var(--site-heading-weight, 700);
+}
+
+@media (min-width: 640px) {
+  .site-display {
+    font-size: calc(3.5rem * var(--site-heading-scale, 1));
+  }
+}
+
+/* Section heading. */
+.site-h2 {
+  font-size: calc(1.875rem * var(--site-heading-scale, 1));
+  line-height: 1.18;
+  letter-spacing: -0.015em;
+  font-weight: var(--site-heading-weight, 700);
+}
+
+@media (min-width: 640px) {
+  .site-h2 {
+    font-size: calc(2.25rem * var(--site-heading-scale, 1));
+  }
+}
+
+/* Card and item title. */
+.site-h3 {
+  font-size: calc(1.0625rem * var(--site-heading-scale, 1));
+  line-height: 1.35;
+  font-weight: var(--site-heading-weight, 600);
+}
+
+/* The figure in a statistic. Follows the HEADING scale, because a stat is a
+   display element — scaling it with body text would leave "94%" the size of a
+   caption on a site set to smaller text. */
+.site-figure {
+  font-size: calc(2.25rem * var(--site-heading-scale, 1));
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-weight: var(--site-heading-weight, 700);
+}
+
+@media (min-width: 640px) {
+  .site-figure {
+    font-size: calc(3rem * var(--site-heading-scale, 1));
+  }
+}
+
+/* The small capitalised line above a heading. */
+.site-eyebrow {
+  font-size: calc(0.75rem * var(--site-body-scale, 1));
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: var(--site-body-weight, 600);
+}
+
+/* Hero and section standfirst. */
+.site-lead {
+  font-size: calc(1.0625rem * var(--site-body-scale, 1));
+  line-height: 1.65;
+  font-weight: var(--site-body-weight, 400);
+}
+
+@media (min-width: 640px) {
+  .site-lead {
+    font-size: calc(1.125rem * var(--site-body-scale, 1));
+  }
+}
+
+/* Ordinary paragraph. */
+.site-body {
+  font-size: calc(1rem * var(--site-body-scale, 1));
+  line-height: 1.7;
+  font-weight: var(--site-body-weight, 400);
+}
+
+/* Captions, card copy, footer links. */
+.site-small {
+  font-size: calc(0.875rem * var(--site-body-scale, 1));
+  line-height: 1.6;
+  font-weight: var(--site-body-weight, 400);
+}
+
+/* --- Colour -------------------------------------------------------------- */
+/* Separate from the size steps so a component can scale text without adopting
+   a colour — a card title inside a coloured caption bar is sized by .site-h3
+   and coloured by its own container.
+
+   Each class names the fallback appropriate to WHERE it is used. On a dark hero
+   the fallback is white; overriding it is allowed, because an institution that
+   wants gold lettering over its own photograph is making an editorial choice we
+   have no standing to refuse. */
+
+.site-ink {
+  color: var(--site-heading-color, var(--text-heading));
+}
+
+.site-ink-body {
+  color: var(--site-body-color, var(--text-body));
+}
+
+.site-ink-muted {
+  color: var(--site-body-color, var(--text-muted));
+}
+
+.site-ink-on-dark {
+  color: var(--site-heading-color, #ffffff);
+}
+
+.site-ink-on-dark-soft {
+  color: var(--site-body-color, rgba(255, 255, 255, 0.85));
+}
