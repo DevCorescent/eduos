@@ -4652,6 +4652,28 @@ model CmsTemplate {
   /// CmsPage.draftBlocks — a template IS a page body with no tenant.
   blocks Json
 
+  /// The chrome the template starts a university with: the navigation bar with
+  /// its dropdowns, the footer columns and the social accounts. Same schemas as
+  /// the matching CmsSite columns, so onboarding copies them across without a
+  /// translation step.
+  ///
+  /// NULLABLE, AND THAT IS THE PRE-EXISTING-ROW CASE
+  ///   The default template was seeded before these columns existed. Null means
+  ///   "the template has no opinion", and onboarding then falls back to the
+  ///   seeder's own defaults rather than giving a new university an empty menu.
+  navItems      Json?
+  footerColumns Json?
+  socialLinks   Json?
+
+  /// Site-wide typography defaults — heading and body colour, size step and
+  /// weight. Validated by typographySchema; see lib/domain/cms/typography.ts on
+  /// why size and weight are closed vocabularies and colour is strict hex.
+  typography Json?
+
+  /// Optional enquire dock handed to a new university. Same schema as
+  /// CmsSite.enquireRail so onboarding is a copy, not a conversion.
+  enquireRail Json?
+
   /// The platform operator who last wrote it. Nullable because an operator can
   /// leave and the template must survive them.
   updatedById String?
@@ -4776,9 +4798,13 @@ model CmsSite {
   id       String @id @default(cuid())
   tenantId String @unique
 
-  /// Ordered [{ label, href }]. Validated by navItemsSchema on write; a menu
-  /// entry is a link and nothing else, so there is no nesting here — a
-  /// dropdown is a design this product has not agreed on yet.
+  /// Ordered [{ label, href, children?: [{ label, href, description? }] }].
+  /// Validated by navItemsSchema on write.
+  ///
+  /// ONE LEVEL OF NESTING. A child cannot have children of its own — the
+  /// schema makes it unrepresentable rather than the renderer refusing to draw
+  /// it. Two levels is a menu; three is a sitemap operated with a mouse held
+  /// very still, and no reference university site goes past two.
   navItems Json
 
   /// Ordered [{ heading, links: [{ label, href }] }] — the footer's columns.
@@ -4793,6 +4819,24 @@ model CmsSite {
   contactAddress String?
   contactPhone   String?
   contactEmail   String?
+
+  /// Site-wide typography: heading and body colour, size step and weight.
+  ///
+  /// SITE-WIDE RATHER THAN PER PAGE, because it is the institution's voice and
+  /// not one page's layout. A block's own `style` overrides it for one section;
+  /// nothing in code merges the two — the browser's cascade does, which is why
+  /// only the properties actually set are ever emitted. See
+  /// lib/domain/cms/typography.ts.
+  ///
+  /// NULL means the design system's own type, which is the correct default and
+  /// not a fallback worth apologising for.
+  typography Json?
+
+  /// Optional enquire dock: { enabled, label, items: [{ label, href, icon? }] }.
+  /// Validated by enquireRailSchema. Null means "not configured" — the public
+  /// site then draws nothing, which is the correct default for institutions
+  /// that never open the chrome editor.
+  enquireRail Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

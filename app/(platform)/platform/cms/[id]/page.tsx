@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Eye } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Alert } from "@/components/ui/Alert";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -58,19 +58,34 @@ export default async function PlatformTenantCmsPage({
         title={tenant.name}
         subtitle={`Public landing page · ${tenant.slug}`}
         action={
-          <StatusBadge
-            label={
-              !page
-                ? "No page"
-                : page.status === "PUBLISHED"
-                  ? "Live"
-                  : page.status === "ARCHIVED"
-                    ? "Taken down"
-                    : "Draft"
-            }
-            variant={page?.status === "PUBLISHED" ? "success" : "neutral"}
-            size="md"
-          />
+          <div className="flex items-center gap-3">
+            {/* The DRAFT. `previewUrl` on the editor below opens the live site,
+                which is a different question — and the one an operator midway
+                through an edit is not asking. */}
+            <a
+              href={`/cms-preview?tenant=${tenant.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Eye className="size-4" aria-hidden="true" />
+              Preview draft
+            </a>
+
+            <StatusBadge
+              label={
+                !page
+                  ? "No page"
+                  : page.status === "PUBLISHED"
+                    ? "Live"
+                    : page.status === "ARCHIVED"
+                      ? "Taken down"
+                      : "Draft"
+              }
+              variant={page?.status === "PUBLISHED" ? "success" : "neutral"}
+              size="md"
+            />
+          </div>
         }
       />
 

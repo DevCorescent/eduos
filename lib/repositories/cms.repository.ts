@@ -18,9 +18,13 @@ import "server-only";
 //   routes. Nothing in this file decides who may call it.
 // ============================================================================
 
+import { Prisma } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/db/prisma";
-import type { CmsBlocks } from "@/lib/domain/cms/blocks";
-import type { SaveCmsPageInput, SaveCmsSiteInput } from "@/lib/validations/cms";
+import type {
+  SaveCmsPageInput,
+  SaveCmsSiteInput,
+  SaveCmsTemplateInput,
+} from "@/lib/validations/cms";
 
 /** The landing page every tenant gets. Other paths are a later work package. */
 export const LANDING_PATH = "/";
@@ -201,9 +205,11 @@ const SITE_SELECT = {
   navItems: true,
   footerColumns: true,
   socialLinks: true,
+  enquireRail: true,
   contactAddress: true,
   contactPhone: true,
   contactEmail: true,
+  typography: true,
   updatedAt: true,
 } as const;
 
@@ -220,10 +226,18 @@ export async function findSite(tenantId: string) {
  * live on save, which is also how the branding screen behaves.
  */
 export async function saveSite(tenantId: string, input: SaveCmsSiteInput) {
+  const { typography, ...rest } = input;
+
+  // `typography: null` clears the column; `undefined` leaves it alone. Prisma
+  // treats an explicit `null` on a nullable Json field as SQL NULL only when it
+  // is passed as such, and omitting the key is how "don't touch this" is
+  // expressed — so the two cases are separated here rather than spread blindly.
+  const typographyWrite = typography === undefined ? {} : { typography: typography ?? Prisma.DbNull };
+
   return prisma.cmsSite.upsert({
     where: { tenantId },
-    update: input,
-    create: { tenantId, ...input },
+    update: { ...rest, ...typographyWrite },
+    create: { tenantId, ...rest, ...typographyWrite },
     select: SITE_SELECT,
   });
 }
@@ -236,6 +250,11 @@ const TEMPLATE_SELECT = {
   name: true,
   description: true,
   blocks: true,
+  navItems: true,
+  footerColumns: true,
+  socialLinks: true,
+  enquireRail: true,
+  typography: true,
   updatedAt: true,
 } as const;
 
@@ -243,19 +262,45 @@ export async function findTemplate(key: string) {
   return prisma.cmsTemplate.findUnique({ where: { key }, select: TEMPLATE_SELECT });
 }
 
+/**
+ * Write the template, touching ONLY the fields the caller supplied.
+ *
+ * The template is edited from two screens — sections on one, navigation and
+ * typography on the other — so a save from either must leave the other's work
+ * alone. Spreading the input wholesale would write `undefined` over a column
+ * Prisma then leaves alone anyway, which happens to be correct; building the
+ * update explicitly says so on purpose rather than by luck.
+ */
 export async function saveTemplate(
   key: string,
-  input: { name?: string; description?: string | null; blocks: CmsBlocks },
+  input: SaveCmsTemplateInput,
   updatedById: string | null
 ) {
+  const write = {
+    ...(input.name !== undefined ? { name: input.name } : {}),
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.blocks !== undefined ? { blocks: input.blocks } : {}),
+    ...(input.navItems !== undefined ? { navItems: input.navItems } : {}),
+    ...(input.footerColumns !== undefined ? { footerColumns: input.footerColumns } : {}),
+    ...(input.socialLinks !== undefined ? { socialLinks: input.socialLinks } : {}),
+    ...(input.enquireRail !== undefined ? { enquireRail: input.enquireRail } : {}),
+    ...(input.typography !== undefined
+      ? { typography: input.typography ?? Prisma.DbNull }
+      : {}),
+  };
+
   return prisma.cmsTemplate.upsert({
     where: { key },
-    update: { ...input, updatedById },
+    update: { ...write, updatedById },
     create: {
       key,
       name: input.name ?? key,
       description: input.description ?? null,
-      blocks: input.blocks,
+      // A template created by a chrome-only save has no sections yet. An empty
+      // array is valid content — see blocksSchema — so this is a real starting
+      // state and not a placeholder that has to be cleaned up later.
+      blocks: input.blocks ?? [],
+      ...write,
       updatedById,
     },
     select: TEMPLATE_SELECT,

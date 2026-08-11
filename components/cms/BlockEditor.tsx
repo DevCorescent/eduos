@@ -48,11 +48,11 @@ import { BLOCK_FIELDS, type BlockField } from "@/lib/domain/cms/fields";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
-import { Select } from "@/components/ui/Select";
-import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/providers/ToastProvider";
 import { cn } from "@/lib/utils";
+// The recursive form machinery, shared with the site-chrome editor. See
+// fieldControls.tsx on why it is not defined here any more.
+import { FieldControl, IconButton, getAt, setAt } from "./fieldControls";
 
 /** A block as the editor holds it: loosely typed while being edited. */
 type DraftBlock = { id: string; type: CmsBlockType; props: Record<string, unknown> };
@@ -67,40 +67,12 @@ export interface BlockEditorProps {
    * published state — it is copied into pages rather than served to anyone.
    */
   onPublish?: () => Promise<string | null>;
-  /** Opened in a new tab by "View site". Omitted where there is no live URL. */
+  /** Opened in a new tab by the preview button. Omitted where there is none. */
   previewUrl?: string;
+  /** What that button says. The template previews a template, not a "site". */
+  previewLabel?: string;
   /** Shown above the editor, e.g. "Editing: Demo University". */
   contextLabel?: string;
-}
-
-/** Immutably set `value` at `path` within an object. */
-function setAt(
-  source: Record<string, unknown>,
-  path: readonly (string | number)[],
-  value: unknown
-): Record<string, unknown> {
-  if (path.length === 0) return value as Record<string, unknown>;
-
-  const [head, ...rest] = path;
-
-  if (typeof head === "number") {
-    const list = Array.isArray(source) ? [...(source as unknown[])] : [];
-    list[head] = setAt((list[head] ?? {}) as Record<string, unknown>, rest, value);
-    return list as unknown as Record<string, unknown>;
-  }
-
-  return {
-    ...source,
-    [head]: setAt((source[head] ?? {}) as Record<string, unknown>, rest, value),
-  };
-}
-
-/** Read the value at `path`, or undefined. */
-function getAt(source: unknown, path: readonly (string | number)[]): unknown {
-  return path.reduce<unknown>(
-    (acc, key) => (acc == null ? undefined : (acc as Record<string, unknown>)[key as string]),
-    source
-  );
 }
 
 export function BlockEditor({
@@ -108,6 +80,7 @@ export function BlockEditor({
   onSave,
   onPublish,
   previewUrl,
+  previewLabel = "View site",
   contextLabel,
 }: BlockEditorProps) {
   const { toast } = useToast();
@@ -233,7 +206,7 @@ export function BlockEditor({
                 onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
                 leftIcon={<ExternalLink className="size-4" />}
               >
-                View site
+                {previewLabel}
               </Button>
             )}
             <Button
@@ -361,192 +334,5 @@ export function BlockEditor({
         </ul>
       </Card>
     </div>
-  );
-}
-
-// --- Field rendering --------------------------------------------------------
-
-function IconButton({
-  label,
-  onClick,
-  disabled,
-  destructive,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  destructive?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40",
-        destructive && "hover:bg-danger-bg hover:text-danger-bg-foreground"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/**
- * One field of any kind, resolved from its spec.
- *
- * Recursive: a `group` renders its own leaves, and a `list` renders a numbered
- * set of item panels each containing leaves and groups. The path grows as it
- * descends, so every input knows exactly where in the block its value lives and
- * the editor needs no per-block change handlers.
- */
-function FieldControl({
-  field,
-  path,
-  value,
-  onChange,
-}: {
-  field: BlockField;
-  path: (string | number)[];
-  value: unknown;
-  onChange: (path: (string | number)[], value: unknown) => void;
-}) {
-  if (field.kind === "group") {
-    return (
-      <fieldset className="rounded-lg border border-border p-4">
-        <legend className="px-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {field.label}
-          {field.optional && " (optional)"}
-        </legend>
-        <div className="space-y-3">
-          {field.fields.map((sub) => (
-            <FieldControl
-              key={sub.name}
-              field={sub}
-              path={[...path, sub.name]}
-              value={getAt(value, [sub.name])}
-              onChange={onChange}
-            />
-          ))}
-        </div>
-      </fieldset>
-    );
-  }
-
-  if (field.kind === "list") {
-    const items = Array.isArray(value) ? value : [];
-
-    return (
-      <fieldset className="rounded-lg border border-border p-4">
-        <legend className="px-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {field.label}
-        </legend>
-
-        <ul className="space-y-3">
-          {items.map((item, index) => (
-            <li key={index} className="rounded-lg bg-muted/60 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground">
-                  {field.itemNoun} {index + 1}
-                </span>
-                <IconButton
-                  label={`Remove ${field.itemNoun} ${index + 1}`}
-                  destructive
-                  // The schema's own minimum, enforced in the UI so the reader
-                  // cannot reach a state the server would reject.
-                  disabled={items.length <= field.min}
-                  onClick={() =>
-                    onChange(path, items.filter((_, i) => i !== index))
-                  }
-                >
-                  <Trash2 className="size-4" />
-                </IconButton>
-              </div>
-
-              <div className="space-y-3">
-                {field.fields.map((sub) => (
-                  <FieldControl
-                    key={sub.name}
-                    field={sub}
-                    path={[...path, index, sub.name]}
-                    value={getAt(item, [sub.name])}
-                    onChange={onChange}
-                  />
-                ))}
-              </div>
-            </li>
-          ))}
-        </ul>
-
-        {items.length < field.max && (
-          <Button
-            variant="outlined"
-            size="sm"
-            className="mt-3"
-            leftIcon={<Plus className="size-4" />}
-            onClick={() => onChange(path, [...items, {}])}
-          >
-            Add {field.itemNoun}
-          </Button>
-        )}
-      </fieldset>
-    );
-  }
-
-  const label = field.optional ? `${field.label} (optional)` : field.label;
-  const text = typeof value === "string" ? value : value == null ? "" : String(value);
-
-  if (field.kind === "textarea") {
-    return (
-      <Textarea
-        label={label}
-        helperText={field.hint}
-        value={text}
-        rows={3}
-        onChange={(event) => onChange(path, event.target.value || undefined)}
-      />
-    );
-  }
-
-  if (field.kind === "select") {
-    return (
-      <Select
-        label={label}
-        helperText={field.hint}
-        value={text}
-        // Select is controlled and hands back the VALUE, not an event.
-        onChange={(next) => {
-          // Numeric selects (a column count) must not be stored as strings —
-          // the schema expects a literal number and would reject "3".
-          const parsed = /^\d+$/.test(next) ? Number(next) : next || undefined;
-          onChange(path, parsed);
-        }}
-        options={(field.options ?? []).map((option) => ({
-          value: option.value,
-          label: option.label,
-        }))}
-      />
-    );
-  }
-
-  return (
-    <Input
-      label={label}
-      helperText={field.hint}
-      type={field.kind === "number" ? "number" : "text"}
-      value={text}
-      onChange={(event) => {
-        const next = event.target.value;
-        if (field.kind === "number") {
-          onChange(path, next === "" ? undefined : Number(next));
-          return;
-        }
-        onChange(path, next || undefined);
-      }}
-    />
   );
 }
