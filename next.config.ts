@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  /**
+   * The floating dev badge, off.
+   *
+   * It sits bottom-left over the sidebar, which is exactly where a portal's
+   * collapse control and a public site's content live — so every screenshot of
+   * this product taken in development has a Next.js logo pasted on it. Compile
+   * and runtime errors are still surfaced; only the badge is hidden.
+   */
+  devIndicators: false,
+
   turbopack: {
     // Pinned because a stray package-lock.json sits in the parent directory.
     // Turbopack infers the workspace root from the outermost lockfile it finds,

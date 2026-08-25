@@ -67,6 +67,9 @@ model Tenant {
   onboardingSteps   TenantOnboardingStep[]
   /// W3 — admission applications.
   applications      Application[]
+  /// PRD §7 — this university's public website pages, and the chrome around them.
+  cmsPages          CmsPage[]
+  cmsSite           CmsSite?
 
   @@index([slug])
   @@index([status])
@@ -305,6 +308,12 @@ model User {
 
   examResourcesUploaded ExamResource[] @relation("ExamResourceUploadedBy")
   examResourcesVerified ExamResource[] @relation("ExamResourceVerifiedBy")
+
+  /// PRD §7 — website pages this user published, and the version snapshots
+  /// they authored. Two relations rather than one because publishing a page
+  /// and writing its history entry are separate acts on separate rows.
+  cmsPagesPublished CmsPage[]        @relation("CmsPagePublisher")
+  cmsVersions       CmsPageVersion[] @relation("CmsVersionAuthor")
 
   announcementsCreated Announcement[]
   announcementReads    AnnouncementRead[]
@@ -2742,6 +2751,9 @@ model PlatformUser {
   /// PlatformUser; the FK lives on Tenant.
   supportedTenants Tenant[] @relation("TenantSupportManager")
 
+  /// PRD §7 — platform-owned page templates this operator last edited.
+  cmsTemplates CmsTemplate[] @relation("CmsTemplateEditor")
+
   @@index([email])
 }
 
@@ -4576,4 +4588,258 @@ model ApplicationPreference {
 
   @@id([applicationId, programmeId])
   @@index([applicationId])
+}
+
+/// ============================================================================
+/// WEBSITE CMS (PRD §7 — Public University Website and Marketing CMS)
+///
+/// THE SHAPE: BLOCKS AS JSON, MEANING AS CODE
+///   A page is an ORDERED ARRAY of { id, type, props } stored in one Json
+///   column. What each `type` means — its fields, its validation, its React
+///   component — lives in lib/domain/cms/blocks, not in the database.
+///
+///   The alternative, a Block table with a parent, an order column and typed
+///   columns per block kind, was rejected deliberately. Rendering one page
+///   would become N queries, reordering two blocks would become an UPDATE
+///   storm across every row after the move, and adding a block type would
+///   become a migration. None of that buys anything a Json column does not
+///   already give, because nothing ever queries INSIDE a page's blocks — a
+///   page is always read whole, by path.
+///
+///   The cost is real and accepted: the database cannot validate block props.
+///   Zod does, on every write, from the same schema the renderer reads.
+///
+/// WHY DRAFT AND PUBLISHED ARE TWO COLUMNS ON ONE ROW
+///   An editor must be able to save a half-finished page without that page
+///   going live, which is the whole of §7.3 "Draft and approval workflows".
+///   Two columns express that with no join and no pointer to keep consistent:
+///   the public renderer reads `publishedBlocks` and never looks at the draft,
+///   the editor reads and writes `draftBlocks` and never touches the published
+///   copy, and publishing is one assignment.
+///
+///   §7.3 also asks for "Version history", which two columns cannot give — so
+///   CmsPageVersion below records a snapshot on every publish. History is
+///   therefore a log of what was PUBLISHED, not of every keystroke saved. That
+///   is the useful definition: "what did the site say last Tuesday" is a
+///   question about published content.
+/// ============================================================================
+
+/// A platform-owned starting point for a tenant's page. PRD §5.1 "Import
+/// initial university data", §45 "Document templates".
+///
+/// NOT A TENANT ROW, AND THAT IS THE POINT
+///   It has no tenantId because it belongs to the platform owner. Onboarding
+///   copies its blocks into the new university's CmsPage, after which the two
+///   are unrelated: the tenant edits their copy freely and nothing pushes back.
+///
+///   A COPY, NOT A REFERENCE. A tenant whose landing page silently changed
+///   because the platform edited a shared template would have no way to
+///   understand what happened, and no way to refuse it. Push-on-change was
+///   considered and rejected — it needs per-block "has the tenant overridden
+///   this" tracking, which is a much larger design than seeding is worth.
+model CmsTemplate {
+  id String @id @default(cuid())
+
+  /// Stable identifier used by the seeder and by onboarding, e.g.
+  /// "default-landing". Unique so a template can be fetched without knowing
+  /// its cuid.
+  key String @unique
+
+  name        String
+  description String?
+
+  /// The ordered block array. Same shape and the same registry as
+  /// CmsPage.draftBlocks — a template IS a page body with no tenant.
+  blocks Json
+
+  /// The chrome the template starts a university with: the navigation bar with
+  /// its dropdowns, the footer columns and the social accounts. Same schemas as
+  /// the matching CmsSite columns, so onboarding copies them across without a
+  /// translation step.
+  ///
+  /// NULLABLE, AND THAT IS THE PRE-EXISTING-ROW CASE
+  ///   The default template was seeded before these columns existed. Null means
+  ///   "the template has no opinion", and onboarding then falls back to the
+  ///   seeder's own defaults rather than giving a new university an empty menu.
+  navItems      Json?
+  footerColumns Json?
+  socialLinks   Json?
+
+  /// Site-wide typography defaults — heading and body colour, size step and
+  /// weight. Validated by typographySchema; see lib/domain/cms/typography.ts on
+  /// why size and weight are closed vocabularies and colour is strict hex.
+  typography Json?
+
+  /// Optional enquire dock handed to a new university. Same schema as
+  /// CmsSite.enquireRail so onboarding is a copy, not a conversion.
+  enquireRail Json?
+
+  /// The platform operator who last wrote it. Nullable because an operator can
+  /// leave and the template must survive them.
+  updatedById String?
+  updatedBy   PlatformUser? @relation("CmsTemplateEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One page of one university's public website. PRD §7.1.
+///
+/// PATH IS THE IDENTITY, SCOPED TO THE TENANT
+///   "/" is the landing page; "/admissions" would be another. The unique
+///   constraint is composite because two universities both have a "/", and a
+///   globally unique path would let the first tenant to claim one lock every
+///   other tenant out of it.
+model CmsPage {
+  id       String @id @default(cuid())
+  tenantId String
+
+  /// Always stored with a leading slash and no trailing slash, "/" excepted.
+  /// Normalised on write so "/admissions" and "admissions/" cannot become two
+  /// pages that render the same URL.
+  path String
+
+  title String
+
+  status CmsPageStatus @default(DRAFT)
+
+  /// What the editor is working on. Never rendered publicly.
+  draftBlocks Json
+
+  /// What the public sees. NULL until the page has been published even once,
+  /// which is what lets a page exist in draft without its URL going live.
+  publishedBlocks Json?
+
+  publishedAt   DateTime?
+  publishedById String?
+  publishedBy   User?     @relation("CmsPagePublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+
+  /// PRD §7.3 "SEO metadata". Plain columns rather than a Json blob: these
+  /// three are read on every render to build <head>, and a blob would mean
+  /// parsing untyped JSON on the hottest path on the site.
+  seoTitle       String?
+  seoDescription String?
+  ogImageUrl     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  versions CmsPageVersion[]
+
+  /// The public read: one page, by tenant and path.
+  @@unique([tenantId, path])
+  @@index([tenantId, status])
+}
+
+/// A snapshot of what was published, written once per publish. PRD §7.3
+/// "Version history".
+///
+/// IMMUTABLE BY CONVENTION AND BY SHAPE
+///   Nothing updates a version row: there is no updatedAt and no service that
+///   writes one twice. Rolling back copies a version's blocks into the page's
+///   DRAFT rather than re-pointing the page at it, so the editor sees what they
+///   are about to restore and publishes it deliberately. A rollback that went
+///   straight to live would be an unreviewed publish.
+model CmsPageVersion {
+  id     String @id @default(cuid())
+  pageId String
+
+  /// Denormalised from the page so history can be read and access-checked
+  /// without a join, and so a version cannot be orphaned into another tenant's
+  /// scope by a bug in a page write.
+  tenantId String
+
+  /// Monotonic per page, starting at 1. Unique with pageId so two concurrent
+  /// publishes cannot both claim the same number.
+  versionNo Int
+
+  blocks Json
+
+  /// Free-text note from the publisher, e.g. "added spring intake banner".
+  note String?
+
+  createdById String?
+  createdBy   User?    @relation("CmsVersionAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  page CmsPage @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@unique([pageId, versionNo])
+  @@index([tenantId])
+}
+
+enum CmsPageStatus {
+  /// Never published, or unpublished since. The URL 404s publicly.
+  DRAFT
+
+  /// publishedBlocks is live at the page's path.
+  PUBLISHED
+
+  /// Was published, deliberately withdrawn. Distinct from DRAFT so an editor
+  /// can tell "not finished yet" from "taken down".
+  ARCHIVED
+}
+
+/// The chrome around every page of one university's website: the navigation
+/// bar, the footer columns, the contact details and the social links.
+/// PRD §7.3 "Redirect management" neighbours; §7.1 site-wide furniture.
+///
+/// WHY THIS IS NOT A BLOCK
+///   Blocks are page BODY. The header and footer wrap every page, so storing
+///   them in a page's block array would mean repeating them on each page and
+///   editing the navigation N times to add one menu item.
+///
+/// ONE ROW PER TENANT, ENFORCED BY THE SCHEMA
+///   tenantId is unique rather than merely indexed. Two navigation rows for one
+///   university is a state with no correct resolution — whichever the query
+///   happened to return would win — so it is made unrepresentable instead.
+model CmsSite {
+  id       String @id @default(cuid())
+  tenantId String @unique
+
+  /// Ordered [{ label, href, children?: [{ label, href, description? }] }].
+  /// Validated by navItemsSchema on write.
+  ///
+  /// ONE LEVEL OF NESTING. A child cannot have children of its own — the
+  /// schema makes it unrepresentable rather than the renderer refusing to draw
+  /// it. Two levels is a menu; three is a sitemap operated with a mouse held
+  /// very still, and no reference university site goes past two.
+  navItems Json
+
+  /// Ordered [{ heading, links: [{ label, href }] }] — the footer's columns.
+  footerColumns Json
+
+  /// Ordered [{ platform, href }], platform constrained to a known set so the
+  /// renderer can map it to an icon without trusting stored text.
+  socialLinks Json
+
+  /// Shown in the footer's contact column. Nullable individually: an
+  /// institution that publishes an address but not a phone number is ordinary.
+  contactAddress String?
+  contactPhone   String?
+  contactEmail   String?
+
+  /// Site-wide typography: heading and body colour, size step and weight.
+  ///
+  /// SITE-WIDE RATHER THAN PER PAGE, because it is the institution's voice and
+  /// not one page's layout. A block's own `style` overrides it for one section;
+  /// nothing in code merges the two — the browser's cascade does, which is why
+  /// only the properties actually set are ever emitted. See
+  /// lib/domain/cms/typography.ts.
+  ///
+  /// NULL means the design system's own type, which is the correct default and
+  /// not a fallback worth apologising for.
+  typography Json?
+
+  /// Optional enquire dock: { enabled, label, items: [{ label, href, icon? }] }.
+  /// Validated by enquireRailSchema. Null means "not configured" — the public
+  /// site then draws nothing, which is the correct default for institutions
+  /// that never open the chrome editor.
+  enquireRail Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }

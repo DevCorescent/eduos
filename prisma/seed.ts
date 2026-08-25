@@ -19,6 +19,7 @@ import "dotenv/config";
 
 import { prisma } from "../lib/db/prisma";
 import { hashPassword } from "../lib/auth/password";
+import { seedCmsTemplate, seedTenantLandingPage, seedTenantSiteChrome } from "./seedCms";
 
 const DEMO_SLUG = "demo";
 
@@ -448,6 +449,13 @@ async function main() {
   const demo = await seedDemoTenant();
   const legacy = await seedLegacyVerificationTenant();
 
+  // W4 — the platform's default landing template, and the demo tenant's own
+  // page copied from it. Ordered after the tenants because the page needs a
+  // tenantId, and the template needs nothing at all.
+  const cmsTemplate = await seedCmsTemplate(prisma);
+  const cmsPage = await seedTenantLandingPage(prisma, demo.tenantId, "Demo University");
+  const cmsChrome = await seedTenantSiteChrome(prisma, demo.tenantId, "Demo University");
+
   // Printed as JSON so the ids can be pasted straight into a Postman
   // environment without hunting through the database.
   console.log(
@@ -455,6 +463,9 @@ async function main() {
       {
         demo,
         legacy,
+        cmsTemplate,
+        cmsPage,
+        cmsChrome,
         logins: ACCOUNTS.map((a) => ({ email: a.email, password: a.password, role: a.role, tenantSlug: DEMO_SLUG })),
       },
       null,

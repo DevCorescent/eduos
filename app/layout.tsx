@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Geist_Mono } from "next/font/google";
+import { Inter, Geist_Mono, Poppins } from "next/font/google";
 import { ToastProvider } from "@/providers/ToastProvider";
 import { resolveTenantForRequest } from "@/lib/services/tenant";
 import { brandingCssVariables, isSafeAssetUrl } from "@/lib/domain/tenant/branding";
@@ -13,6 +13,28 @@ const interSans = Inter({
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+});
+
+/**
+ * The public website's body face.
+ *
+ * LOADED HERE, APPLIED NOWHERE BY DEFAULT
+ *   The variable is declared on <html> so the custom property exists, but only
+ *   `.site-scope` in globals.css actually uses it. The five ERP portals keep
+ *   Inter. A university's homepage and its attendance register are read by
+ *   different people for different reasons, and there is no argument for
+ *   restyling the second because somebody chose a face for the first.
+ *
+ * WEIGHTS ARE ENUMERATED because Poppins has no variable font on Google Fonts —
+ * next/font requires the list, and these six are exactly the steps
+ * lib/domain/cms/typography.ts lets an editor choose. Asking for a weight that
+ * is not fetched is how a "Light" setting silently renders at 400.
+ */
+const poppins = Poppins({
+  variable: "--font-poppins",
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
+  display: "swap",
 });
 
 /**
@@ -77,7 +99,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${interSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${interSans.variable} ${geistMono.variable} ${poppins.variable} h-full antialiased`}
     >
       {brandVariables && (
         // Server-rendered, so the brand colours are present in the first paint
