@@ -3,16 +3,17 @@ import { redirect } from "next/navigation";
 import { ClipboardCheck } from "lucide-react";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
-import { ErrorState } from "@/components/shared/ErrorState";
-import { UnavailableState } from "@/components/shared/UnavailableState";
+import { StateView } from "@/components/shared/StateView";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
 import { getCurrentFaculty } from "@/services/portal";
-import { MAX_LIST_LIMIT } from "@/types/api";
-import { resolveUiState } from "@/lib/ui-state";
-import { getFacultyTimetable, getSessionAttendance } from "@/services/academics";
-import { listStudents } from "@/services/students";
+import { resolveFailureState } from "@/lib/ui-state";
+import {
+  getFacultyTimetable,
+  getSectionRoster,
+  getSessionAttendance,
+} from "@/services/academics";
 import { MarkAttendanceForm } from "@/app/(university)/attendance/mark/MarkAttendanceForm";
 
 export const metadata: Metadata = { title: "Mark Attendance" };
@@ -42,36 +43,33 @@ export default async function FacultyMarkAttendancePage({
     />
   );
 
-  // Two admin-only routes stand between a lecturer and this screen, both
-  // verified against the running server: the timetable that supplies the class
-  // list (403) and GET /api/students that supplies the roster to mark (403).
-  // Neither is a transient failure, so neither is an ErrorState.
-  if (resolveUiState(timetableResult) === "unavailable") {
-    return (
-      <>
-        {header}
-        <Card noPadding>
-          <UnavailableState
-            title="Marking attendance is not available yet"
-            description="Taking a register needs two things a lecturer cannot currently read: the timetable that lists your classes, and the student roster for a section. Both APIs are restricted to administrators today. Attendance you have already marked is still visible in the analytics."
-          />
-        </Card>
-      </>
-    );
-  }
-
+  // The class list. Both routes this screen needs now admit a lecturer:
+  // /api/timetables/faculty/[facultyId] for their own schedule, and
+  // /api/sections/[id]/roster for the register of a class they teach. A
+  // failure here is therefore a real failure rather than a missing capability,
+  // and resolveFailureState maps it to the state that says so.
   if (!timetableResult.success) {
     return (
       <>
         {header}
-        <ErrorState title="Schedule service is currently unavailable" description={timetableResult.error} />
+        <StateView
+          state={resolveFailureState(timetableResult)}
+          subject="classes"
+          message={timetableResult.error}
+        />
       </>
     );
   }
 
-  // The class list comes from this lecturer's own timetable — a lecturer may
-  // only take the register for a class they actually teach, so the picker is
-  // the guard as well as the convenience.
+  // The class list comes from this lecturer's own timetable, so the picker
+  // offers only classes they actually teach.
+  //
+  // The picker is a CONVENIENCE, never the guard. Enforcement lives in
+  // /api/sections/[id]/roster, which proves the caller teaches the exact
+  // (section, course) pair against Timetable or FacultyCourseAssignment before
+  // returning a single name. A hand-crafted request that names a colleague's
+  // class is refused there, which is where it has to be refused — a client can
+  // always choose not to run the picker.
   //
   // Deduplicated by (section, course): a course taught to one section three
   // times a week is one register to take, not three choices.
@@ -91,16 +89,39 @@ export default async function FacultyMarkAttendancePage({
 
   const selected = classes.find((entry) => entry.value === slotId) ?? classes[0];
 
-  const [studentsResult, existingResult] = await Promise.all([
+  const [rosterResult, existingResult] = await Promise.all([
+    // The class-scoped register, NOT the institution-wide student list. Both
+    // ids travel because the second is what proves the caller may read the
+    // first — see the guard on /api/sections/[id]/roster.
     selected
-      ? listStudents({ page: 1, limit: MAX_LIST_LIMIT, sectionId: selected.sectionId, status: "ACTIVE" })
+      ? getSectionRoster(selected.sectionId, selected.courseId)
       : Promise.resolve(null),
     selected
       ? getSessionAttendance(selected.sectionId, selected.courseId, selectedDate)
       : Promise.resolve(null),
   ]);
 
-  const students = studentsResult?.success ? studentsResult.data.items : [];
+  // The roster's own failures get their own treatment rather than collapsing
+  // into an empty register. Reading a 403 as "this section has no active
+  // students" is the specific bug this replaces: it stated something false
+  // about the class, and it was indistinguishable from a genuinely empty one.
+  //
+  // Only reached once a class is selected — with none, there is nothing to
+  // have failed, and the empty state below says so instead.
+  if (rosterResult && !rosterResult.success) {
+    return (
+      <>
+        {header}
+        <StateView
+          state={resolveFailureState(rosterResult)}
+          subject="students"
+          message={rosterResult.error}
+        />
+      </>
+    );
+  }
+
+  const students = rosterResult?.success ? rosterResult.data : [];
 
   const existingByStudent = new Map(
     (existingResult?.success ? existingResult.data : []).map((row) => [
@@ -160,10 +181,12 @@ export default async function FacultyMarkAttendancePage({
           courseId={selected.courseId}
           date={selectedDate}
           students={students.map((student) => ({
-            id: student.id,
-            name: student.fullName,
+            id: student.studentId,
+            // A real name, which /api/students could not supply: it selects
+            // Student columns only, and Student carries no name.
+            name: `${student.firstName} ${student.lastName}`.trim(),
             enrollmentNo: student.enrollmentNo,
-            status: existingByStudent.get(student.id) ?? "PRESENT",
+            status: existingByStudent.get(student.studentId) ?? "PRESENT",
           }))}
           alreadyMarked={existingByStudent.size > 0}
         />

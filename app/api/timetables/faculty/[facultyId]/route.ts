@@ -2,8 +2,9 @@
 // OWNER  : Gauransh
 // MODULE : Timetable — Faculty Schedule
 // FLOW   : Guard → tenant → param → query → prove faculty ownership →
-//          faculty-scoped page → response.
-// ACCESS : UNIVERSITY_ADMIN
+//          confine a faculty caller to themselves → faculty-scoped page →
+//          response.
+// ACCESS : UNIVERSITY_ADMIN (any member) · FACULTY (their own record only)
 // BACKEND: Prisma
 // PURPOSE: Read one faculty member's teaching schedule within the authenticated
 //          tenant.
@@ -11,8 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { requireRole } from "@/lib/middleware/requireRole";
-import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireFacultyTimetableAccess } from "@/lib/middleware/requireFacultyTimetableAccess";
 import { paginationQuerySchema } from "@/lib/validations/pagination";
 import { timetableFacultyParamSchema } from "@/lib/validations/timetable";
 import { ok, fail } from "@/types";
@@ -64,7 +64,13 @@ const TIMETABLE_SELECT = {
 // createdAt is a DateTime carrying its own toJSON.
 
 // GET
-// ACCESS     : UNIVERSITY_ADMIN
+// ACCESS     : UNIVERSITY_ADMIN reaches any faculty member in the tenant.
+//              FACULTY reaches ONLY the record that names them as its user —
+//              requireFacultyTimetableAccess resolves the authority and the
+//              handler applies it against FacultyMember.userId. A faculty
+//              caller asking for a colleague's id is refused 403 FORBIDDEN.
+//              No other role is admitted; STUDENT and PARENT are refused by
+//              the role gate exactly as they were before.
 // VALIDATION : timetableFacultyParamSchema for the [facultyId] segment — keyed on
 //              facultyId rather than id because that is the segment name and so
 //              the key Next.js supplies; facultyIdParamSchema in the faculty
@@ -88,8 +94,16 @@ const TIMETABLE_SELECT = {
 //              therefore list alongside active ones with the client reading
 //              isActive.
 // FLOW       : Authorise → resolve tenant → validate param and query → prove the
-//              faculty member belongs to this tenant → read one page of their
-//              entries alongside the total in a single transaction.
+//              faculty member belongs to this tenant → confine a FACULTY caller
+//              to their own record → read one page of their entries alongside
+//              the total in a single transaction.
+//
+//              Tenant before confinement, and that order is the security
+//              property: an unknown or foreign facultyId is already a 404 by
+//              the time the ownership comparison runs, so the 403 a faculty
+//              member receives for a colleague's id can only ever describe a
+//              record inside their own tenant. Reversing the two would let a
+//              caller distinguish "exists elsewhere" from "does not exist".
 //
 //              The faculty member is resolved first and the timetable is never
 //              read without them. FacultyMember.tenantId is checked in the lookup
@@ -150,13 +164,13 @@ export async function GET(
   { params }: { params: Promise<{ facultyId: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
-    if (!guard.authorized) return guard.response;
+    // Role AND tenant in one call. UNIVERSITY_ADMIN resolves to scope "ANY";
+    // FACULTY resolves to "OWN" and is confined below to the row that names
+    // them. Every other role is refused here exactly as it was before.
+    const guard = await requireFacultyTimetableAccess();
+    if (!guard.granted) return guard.response;
 
-    const tenantGuard = await requireTenant();
-    if (!tenantGuard.resolved) return tenantGuard.response;
-
-    const { tenant } = tenantGuard;
+    const { tenantId, userId, scope } = guard.access;
 
     // Route params resolve asynchronously in this Next.js version.
     const parsedParam = timetableFacultyParamSchema.safeParse(await params);
@@ -193,16 +207,29 @@ export async function GET(
     // Ownership is proven before any timetable row is read. findFirst rather
     // than findUnique: the tenant filter is part of the lookup, so another
     // tenant's faculty member can never be resolved or even acknowledged.
+    //
+    // userId is selected so the confinement below can be settled without a
+    // second read. It is the column FacultyMember uses to name its owner, and
+    // the same one /api/faculty/me resolves the caller by.
     const faculty = await prisma.facultyMember.findFirst({
-      where: { id: facultyId, tenantId: tenant.id },
-      select: { id: true },
+      where: { id: facultyId, tenantId },
+      select: { id: true, userId: true },
     });
 
     if (!faculty) {
       return NextResponse.json(fail("Faculty member not found", "NOT_FOUND"), { status: 404 });
     }
 
-    const where = { tenantId: tenant.id, facultyId };
+    // The DATA gate. A faculty member reaching a colleague's id is refused
+    // here, after the tenant check above has already answered 404 for an
+    // unknown or foreign id — so this 403 can only ever describe a record
+    // inside the caller's own tenant, and no cross-tenant id is confirmed.
+    // scope "ANY" skips it: an administrator legitimately reads any member.
+    if (scope === "OWN" && faculty.userId !== userId) {
+      return NextResponse.json(fail("Forbidden", "FORBIDDEN"), { status: 403 });
+    }
+
+    const where = { tenantId, facultyId };
 
     // Paired in one transaction so the total cannot shift between the two reads.
     const [timetables, total] = await prisma.$transaction([

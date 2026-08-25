@@ -7,6 +7,12 @@
 // ACCESS : FACULTY · UNIVERSITY_ADMIN
 //          A student reading their own attendance is a different endpoint and is
 //          not reachable here; PARENT is not implemented anywhere yet.
+//
+//          On POST, UNIVERSITY_ADMIN marks any class in the tenant, exactly as
+//          before. FACULTY is CONFINED to the (section, course) pairs they
+//          actually teach — see FACULTY WRITE CONFINEMENT in the handler. Until
+//          that block existed the role gate was the only check, so any lecturer
+//          could mark any class in their tenant.
 // BACKEND: Prisma
 // PURPOSE: List the authenticated tenant's attendance and mark attendance in
 //          bulk.
@@ -28,6 +34,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { ROLES } from "@/constants/roles";
+import { facultyMayMarkRecords } from "@/lib/services/facultyTeaching";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { paginationQuerySchema } from "@/lib/validations/pagination";
@@ -331,6 +339,45 @@ export async function POST(request: NextRequest) {
     if (courses.length !== courseIds.length) {
       return NextResponse.json(fail("Course not found", "NOT_FOUND"), { status: 404 });
     }
+
+    // ------------------------------------------------------------------
+    // FACULTY WRITE CONFINEMENT
+    //
+    // The role gate above admits FACULTY and UNIVERSITY_ADMIN, and the four
+    // reference checks prove every id in the batch belongs to this tenant.
+    // Neither establishes that a LECTURER may write THIS register: until this
+    // block existed, any faculty member could mark attendance for any class in
+    // their tenant, because tenant scope was the only thing being checked.
+    //
+    // The same predicate the roster endpoint reads with — one definition, in
+    // lib/services/facultyTeaching.ts — so what a lecturer may submit can never
+    // drift from what they were shown.
+    //
+    // POSITION. After the reference checks, so a section outside this tenant is
+    // still the 404 it always was and this 403 can only ever describe a class
+    // genuinely inside the caller's own tenant. Before the lock check, so a
+    // lecturer with no right to a class does not learn whether it is locked.
+    //
+    // An administrator is untouched: marking on behalf of a faculty member is
+    // exactly what the admin screen does, and requireRole memoises the role
+    // read per request, so this second call costs no query.
+    const elevated = await requireRole(ROLES.UNIVERSITY_ADMIN);
+
+    if (!elevated.authorized) {
+      // Reached only by a caller holding FACULTY and not UNIVERSITY_ADMIN. The
+      // guard's own 403 is deliberately NOT returned here — `elevated` is being
+      // read as a question, not used as a gate.
+      //
+      // Every refusal inside is the same 403: distinguishing "you hold no
+      // faculty record" from "you do not teach that class" from "you named no
+      // class" would tell a caller which classes exist.
+      const mayMark = await facultyMayMarkRecords(tenant.id, session.sub, records);
+
+      if (!mayMark) {
+        return NextResponse.json(fail("Forbidden", "FORBIDDEN"), { status: 403 });
+      }
+    }
+    // ------------------------------------------------------------------
 
     // PHASE 22 — attendance lock enforcement.
     //
