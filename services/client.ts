@@ -154,7 +154,17 @@ export async function apiRequest<T>(
     // On the server, carry the caller's session and tenant host across manually.
     // In the browser both are supplied by the platform and this resolves to nulls.
     const { cookie, origin } = await serverRequestContext();
-    const base = origin ?? API_BASE_URL;
+    // The absolute base is a SERVER-ONLY concern. A Server Component fetch has
+    // no current origin, so it must be given one; a browser fetch already has
+    // the page's origin and a relative path is the only correct answer there.
+    //
+    // Sending the browser to API_BASE_URL was the bug: NEXT_PUBLIC_APP_URL is
+    // inlined into the client bundle at build time, so a deployment built with
+    // it pointing at http://localhost:3000 made every client-side call —
+    // login included — target the user's own machine. fetch() rejects at the
+    // transport layer, and the catch below reports it as "Could not reach the
+    // server", which is true but names the wrong server.
+    const base = isServer ? (origin ?? API_BASE_URL) : "";
 
     const headers: Record<string, string> = {};
     if (body) headers["Content-Type"] = "application/json";
