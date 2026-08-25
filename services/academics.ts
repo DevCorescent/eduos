@@ -157,6 +157,47 @@ export async function getFacultyTimetable(
 
 // --- Attendance -------------------------------------------------------------
 
+/**
+ * One student on a class register.
+ *
+ * Exactly the five fields GET /api/sections/[id]/roster returns. Declared here
+ * rather than in types/ because nothing outside this flow consumes it, and a
+ * shared name would invite it being widened for some other screen's benefit —
+ * which is how a deliberately narrow payload stops being narrow.
+ */
+export interface RosterStudent {
+  studentId: string;
+  enrollmentNo: string;
+  firstName: string;
+  lastName: string;
+  status: string;
+}
+
+/**
+ * The ACTIVE students of one section, for the class a lecturer is marking.
+ *
+ * NOT listStudents(). That reads /api/students — the institution-wide roster,
+ * which is UNIVERSITY_ADMIN-only, so a lecturer received 403 and the register
+ * rendered empty. It also returns Student columns alone, so every row it
+ * yields is nameless and this service fills the names with empty placeholders;
+ * a register keyed on enrollment number is not one a lecturer can take.
+ *
+ * courseId travels with the section because it is what proves the caller may
+ * read this roster at all — a lecturer teaches a COURSE to a SECTION, and the
+ * pair is what the route's guard checks. It does not filter the rows.
+ */
+export async function getSectionRoster(
+  sectionId: string,
+  courseId: string
+): Promise<ApiResponse<RosterStudent[]>> {
+  const result = await apiRequest<{ roster: RosterStudent[] }>(
+    `/api/sections/${sectionId}/roster`,
+    { params: { courseId } }
+  );
+
+  return result.success ? { success: true, data: result.data.roster } : result;
+}
+
 /** One session's register, for the mark-attendance screen. */
 export async function getSessionAttendance(
   sectionId: string,

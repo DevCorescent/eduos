@@ -32,6 +32,24 @@ export interface PortalShellProps {
    * down through this slot, keeping the fetch off the browser entirely.
    */
   topbarActions?: ReactNode;
+  /**
+   * Where the top bar's "Settings" item points.
+   *
+   * A prop rather than a constant because "my own account" is not one page for
+   * everybody. /settings is a TENANT screen: it resolves the signed-in person
+   * through getPortalSession() and reads their User row, their profile and
+   * their notification preferences. A platform operator is a PlatformUser —
+   * a different table, with no tenant, no User row and no preferences — so
+   * that page cannot render for them, and sending them to it bounced them to
+   * the tenant login form while their platform session was still perfectly
+   * valid. That is what "clicking Settings logs me out" was.
+   *
+   * Each portal therefore names its own destination and the default keeps
+   * every tenant portal exactly as it was.
+   *
+   * @default "/settings"
+   */
+  settingsHref?: string;
   children: ReactNode;
 }
 
@@ -70,6 +88,7 @@ export function PortalShell({
   homeHref,
   homeLabel = "Dashboard",
   topbarActions,
+  settingsHref = "/settings",
   children,
 }: PortalShellProps) {
   const router = useRouter();
@@ -136,10 +155,12 @@ export function PortalShell({
         <Topbar
           user={user}
           // Settings lives here rather than in the sidebar so every portal gets
-          // it: the four nav trees differ, but "my own account" belongs to
-          // whoever is signed in, whatever they are signed in as.
+          // it: the nav trees differ, but "my own account" belongs to whoever
+          // is signed in. WHERE that account lives is not the same for all of
+          // them, though — see settingsHref — because a platform operator and
+          // a tenant user are different records in different tables.
           menuItems={[
-            { label: "Settings", href: "/settings" },
+            { label: "Settings", href: settingsHref },
             { label: "Sign out", onClick: handleLogout, destructive: true },
           ]}
           actions={topbarActions}

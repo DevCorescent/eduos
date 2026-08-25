@@ -68,6 +68,19 @@ export default async function PlatformLayout({ children }: { children: ReactNode
       }}
       portalName="Platform"
       homeHref="/platform/dashboard"
+      // NOT /settings. That screen resolves its subject through
+      // getPortalSession() and reads a User row, a profile and notification
+      // preferences — all tenant records. A PlatformUser has none of them, so
+      // the account layout found no tenant session and redirected here to
+      // /login, which reads as being signed out despite edu_platform still
+      // being valid.
+      //
+      // This is the only page in the project that manages a platform
+      // operator's own account: it is guarded by getPlatformSession(), it
+      // names the operator it is signed in as, and it returns to the console
+      // when it is done. A tenant session reaches it and is sent to the
+      // platform sign-in, so it is no wider a door than the console itself.
+      settingsHref="/super-admin/change-password"
     >
       {children}
     </PortalShell>
