@@ -688,3 +688,85 @@ h6 {
 .site-ink-on-dark-soft {
   color: var(--site-body-color, rgba(255, 255, 255, 0.85));
 }
+
+/* ============================================================================
+   SUPER ADMIN CONSOLE ACCENT
+   ============================================================================
+   Set by app/(platform)/layout.tsx as data-platform-accent on the wrapper
+   around the platform console, from the signed-in operator's own
+   PlatformUser.accentColor.
+
+   SCOPE IS THE WHOLE POINT
+     Each block below redefines custom properties on ONE element. Custom
+     properties inherit, so the override reaches that element's subtree — the
+     platform console — and nothing else. :root is never touched, so a tenant
+     portal, the university admin, faculty, student and parent screens all
+     continue to resolve --primary from :root exactly as before. There is no
+     accent attribute anywhere outside the platform layout, and DEFAULT emits
+     no attribute at all.
+
+   WHAT EACH BLOCK MAY REDEFINE
+     Accent surfaces only: the primary ramp, its tint, the focus ring and the
+     primary gradient that .btn-gradient paints with.
+
+     NOT --success, --warning, --danger, --info or any of their tints. Those
+     encode meaning rather than taste, and an operator choosing a red console
+     must not make a success badge read as an error. This is a rule about which
+     properties appear inside these blocks, and the accompanying test asserts
+     it by reading this file.
+   ========================================================================= */
+
+[data-platform-accent="BLUE"] {
+  --primary: #3a6ea5;
+  --primary-hover: #2c5480;
+  --primary-active: #1d3a58;
+  --primary-bg: #d6e4f2;
+  --primary-bg-foreground: #1d3a58;
+  --ring: #3a6ea5;
+  --gradient-primary: linear-gradient(135deg, #5b8cc0 0%, #2c5480 100%);
+}
+
+[data-platform-accent="PURPLE"] {
+  --primary: #6f5aa5;
+  --primary-hover: #554480;
+  --primary-active: #392e58;
+  --primary-bg: #e2dbf2;
+  --primary-bg-foreground: #392e58;
+  --ring: #6f5aa5;
+  --gradient-primary: linear-gradient(135deg, #8f7bc0 0%, #554480 100%);
+}
+
+/* GREEN and ORANGE reference the design system's own secondary and tertiary
+   scales rather than restating hex, so an accent follows the palette if the
+   palette is ever retuned. */
+[data-platform-accent="GREEN"] {
+  --primary: var(--secondary-600);
+  --primary-hover: var(--secondary-700);
+  --primary-active: var(--secondary-800);
+  --primary-bg: var(--secondary-200);
+  --primary-bg-foreground: var(--secondary-800);
+  --ring: var(--secondary-600);
+  --gradient-primary: linear-gradient(135deg, #75a87b 0%, #416746 100%);
+}
+
+[data-platform-accent="ORANGE"] {
+  --primary: var(--tertiary-600);
+  --primary-hover: var(--tertiary-700);
+  --primary-active: var(--tertiary-800);
+  --primary-bg: var(--tertiary-200);
+  --primary-bg-foreground: var(--tertiary-800);
+  --ring: var(--tertiary-600);
+  --gradient-primary: linear-gradient(135deg, #e57438 0%, #954013 100%);
+}
+
+/* Muted, and deliberately NOT --color-error (#ba1a1a). An accent is taste; the
+   error colour is meaning, and this block does not redefine it. */
+[data-platform-accent="RED"] {
+  --primary: #a54a4a;
+  --primary-hover: #803838;
+  --primary-active: #582626;
+  --primary-bg: #f2dcdc;
+  --primary-bg-foreground: #582626;
+  --ring: #a54a4a;
+  --gradient-primary: linear-gradient(135deg, #c06b6b 0%, #803838 100%);
+}

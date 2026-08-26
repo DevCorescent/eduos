@@ -59,9 +59,14 @@ export async function getFaculty(id: string): Promise<ApiResponse<FacultyWithUse
   };
 }
 
-export async function countFaculty(params?: ListParams): Promise<number> {
+/**
+ * How many match, or null when the count could not be read. See countStudents
+ * in services/students.ts: 0 asserts an empty institution, and a caller the API
+ * refused has learned nothing about how many there are.
+ */
+export async function countFaculty(params?: ListParams): Promise<number | null> {
   const result = await listFaculty({ ...params, page: 1, limit: 1 });
-  return result.success ? result.data.pagination.total : 0;
+  return result.success ? result.data.pagination.total : null;
 }
 
 // --- Employees --------------------------------------------------------------
@@ -85,9 +90,14 @@ export async function listEmployees(
   };
 }
 
-export async function countEmployees(params?: ListParams): Promise<number> {
+/**
+ * How many match, or null when the count could not be read. See countStudents
+ * in services/students.ts: 0 asserts an empty institution, and a caller the API
+ * refused has learned nothing about how many there are.
+ */
+export async function countEmployees(params?: ListParams): Promise<number | null> {
   const result = await listEmployees({ ...params, page: 1, limit: 1 });
-  return result.success ? result.data.pagination.total : 0;
+  return result.success ? result.data.pagination.total : null;
 }
 
 // --- Staff creation ---------------------------------------------------------

@@ -181,6 +181,8 @@ export interface PlatformUser {
   isActive: boolean;
   /** True while the account holds a password another operator generated. */
   mustChangePassword: boolean;
+  /** Console accent for THIS operator. null = the product default. */
+  accentColor: string | null;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;

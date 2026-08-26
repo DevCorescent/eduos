@@ -2742,6 +2742,21 @@ model PlatformUser {
   mustChangePassword Boolean @default(false)
 
   lastLoginAt DateTime?
+
+  /// Console accent chosen by THIS operator, for THIS operator.
+  ///
+  /// Null means the product default, which is also the fallback for any value
+  /// the application no longer recognises — a preference must never be able to
+  /// break the console that renders it.
+  ///
+  /// A plain nullable column rather than a UserPreference table: exactly one
+  /// preference exists, it belongs to exactly one row, and a generic key/value
+  /// store would be a second settings system for a single string.
+  ///
+  /// Scoped by construction — it is read only by the platform console layout
+  /// and applied to that subtree alone, so it can never reach a tenant portal.
+  accentColor String?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

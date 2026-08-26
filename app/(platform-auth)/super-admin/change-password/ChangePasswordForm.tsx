@@ -10,6 +10,23 @@ import { changeOwnPlatformPassword } from "@/services/platformUsers";
 /** Mirrors changePlatformPasswordSchema, so a value this accepts the API takes. */
 const MIN_NEW_PASSWORD_LENGTH = 12;
 
+export interface ChangePasswordFormProps {
+  /**
+   * What happens once the password is changed.
+   *
+   * "redirect" — the default, and the behaviour the FORCED flow depends on:
+   *   an operator sent here by the platform layout is returned to the console
+   *   the moment their generated password is replaced.
+   *
+   * "stay" — for the Settings screen, where the form is one section among
+   *   several and the operator chose to be here. Confirms in place instead.
+   *
+   * Defaulted rather than required so the forced-change page keeps working
+   * unchanged and cannot acquire the new behaviour by accident.
+   */
+  onSuccess?: "redirect" | "stay";
+}
+
 /**
  * Replace the signed-in operator's password.
  *
@@ -21,11 +38,12 @@ const MIN_NEW_PASSWORD_LENGTH = 12;
  * of a confirmation — it is a typing check on a value nobody can read back, and
  * it belongs beside the two boxes rather than in a schema.
  */
-export function ChangePasswordForm() {
+export function ChangePasswordForm({ onSuccess = "redirect" }: ChangePasswordFormProps = {}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
+  const [changed, setChanged] = useState(false);
   const [values, setValues] = useState({
     currentPassword: "",
     newPassword: "",
@@ -73,13 +91,32 @@ export function ChangePasswordForm() {
           // platform layout's guard runs against it. Without this the redirect
           // below bounces straight back to this page.
           router.refresh();
-          router.replace("/platform/dashboard");
+
+          // FORCED arrival: the operator came here because the console refused
+          // them, so completing the change is the moment to send them into it.
+          // VOLUNTARY arrival from Settings: they are already where they meant
+          // to be, and moving them would lose the rest of the page. The session
+          // is untouched either way — this route sets no cookie and the change
+          // invalidates no claim the platform token carries.
+          if (onSuccess === "redirect") {
+            router.replace("/platform/dashboard");
+            return;
+          }
+
+          setChanged(true);
+          setValues({ currentPassword: "", newPassword: "", confirmPassword: "" });
         });
       }}
     >
       {error && (
         <Alert variant="error" role="alert">
           {error}
+        </Alert>
+      )}
+
+      {changed && !error && (
+        <Alert variant="success" role="status">
+          Your password has been changed. You are still signed in.
         </Alert>
       )}
 

@@ -135,8 +135,19 @@ export default async function UniversityDashboardPage() {
  * buries the second in the first.
  */
 function NeedsAttention({ summary }: { summary: DashboardSummary }) {
-  const inactiveStudents = summary.students.total - summary.students.active;
-  const facultyOnLeave = summary.faculty.total - summary.faculty.active;
+  // Both halves must be known before a difference means anything. When either
+  // count is null the figure is not "0 inactive students" — it is unknown, and
+  // an unknown row is omitted from a list whose whole purpose is naming things
+  // that need action.
+  const inactiveStudents =
+    summary.students.total !== null && summary.students.active !== null
+      ? summary.students.total - summary.students.active
+      : null;
+
+  const facultyOnLeave =
+    summary.faculty.total !== null && summary.faculty.active !== null
+      ? summary.faculty.total - summary.faculty.active
+      : null;
 
   const items = [
     {
@@ -151,7 +162,7 @@ function NeedsAttention({ summary }: { summary: DashboardSummary }) {
           : undefined,
     },
     {
-      show: inactiveStudents > 0,
+      show: inactiveStudents !== null && inactiveStudents > 0,
       tone: "warning" as const,
       label: "Students not active",
       value: formatNumber(inactiveStudents),
@@ -159,7 +170,7 @@ function NeedsAttention({ summary }: { summary: DashboardSummary }) {
       detail: "On leave, suspended, withdrawn or transferred",
     },
     {
-      show: facultyOnLeave > 0,
+      show: facultyOnLeave !== null && facultyOnLeave > 0,
       tone: "warning" as const,
       label: "Faculty on leave",
       value: formatNumber(facultyOnLeave),

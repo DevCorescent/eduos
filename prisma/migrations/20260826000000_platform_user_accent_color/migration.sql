@@ -1,0 +1,12 @@
+-- Super Admin console accent, per platform operator.
+--
+-- Additive and nullable: every existing row keeps NULL, which the application
+-- reads as "the product default". No backfill is required and no existing
+-- column, index or constraint on "PlatformUser" is touched.
+--
+-- Stored as text rather than a Postgres enum on purpose. The set of accents is
+-- a presentation choice that the application validates with Zod on the way in
+-- and re-validates on the way out; an enum would make adding or retiring one a
+-- migration, and would turn a value the application no longer recognises into
+-- a read error instead of a fallback to the default.
+ALTER TABLE "PlatformUser" ADD COLUMN "accentColor" TEXT;

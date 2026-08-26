@@ -217,26 +217,20 @@ export async function getCertificateTemplate(
 export async function listCertificates(
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<CertificateRow>>> {
-  // BACKEND GAP: there is no tenant-wide certificate collection route. Only
-  // /api/certificates/issue, /api/certificates/[id]/revoke,
-  // /api/certificates/verify/[certNo] and the per-student
-  // /api/students/[id]/certificates exist, so "every certificate this
-  // university has issued" cannot be assembled without a new endpoint.
+  // The route this calls now exists — app/api/certificates/route.ts, guarded by
+  // UNIVERSITY_ADMIN and scoped to the caller's tenant.
   //
-  // Calling the non-existent route returned a 404 whose body is Next.js's HTML
-  // error page, which surfaced to the user as an unreadable-response error.
-  // Reported rather than worked around: an empty page with an explicit reason
-  // is honest, and no client-side fan-out over every student is attempted.
+  // A FAILURE IS RETURNED, NOT CONVERTED INTO AN EMPTY PAGE
+  //   While the endpoint was missing, this function answered the 404 with
+  //   `success: true` and no rows. That reached the Certificates screen as a
+  //   successful empty result, so a university holding four issued certificates
+  //   was told "None issued yet" — and the screen's own failure branch, which
+  //   renders "Couldn't load certificates", could never be reached. The
+  //   envelope is now passed through untouched, exactly as
+  //   listStudentCertificates below already does, so a 401, 403 or 500 lands in
+  //   that branch and says so.
   const result = await apiList<Certificate>("/api/certificates", "certificates", params);
-  if (!result.success) {
-    return {
-      success: true,
-      data: {
-        items: [],
-        pagination: { page: params?.page ?? 1, limit: params?.limit ?? 20, total: 0, totalPages: 0 },
-      },
-    };
-  }
+  if (!result.success) return result;
 
   return {
     success: true,

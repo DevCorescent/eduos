@@ -13,6 +13,7 @@
 
 import type { ApiResponse, ListParams, PaginatedResult, PlatformUser } from "@/types";
 import { apiList, apiRequest } from "./client";
+import type { PlatformAccent } from "@/lib/constants/platformAccent";
 
 /** The one platform role W1.3 supports. Mirrors PLATFORM_ROLE_NAMES. */
 export type PlatformRoleName = "PLATFORM_ADMIN";
@@ -120,4 +121,58 @@ export async function changeOwnPlatformPassword(input: {
     method: "POST",
     body: input,
   });
+}
+
+// --- Self-service operator settings -----------------------------------------
+
+/**
+ * The signed-in operator's own account, for the Super Admin Settings screen.
+ *
+ * Takes NO id. The subject is the platform session, resolved server-side by
+ * GET /api/super-admin/settings — so there is no parameter here through which a
+ * caller could ask for somebody else's account. Reading another operator stays
+ * getPlatformUser(id) above, which is the administrative route.
+ *
+ * The envelope is returned untouched: a 401, 403 or 500 reaches the screen as a
+ * failure and is rendered as one. Nothing is substituted on the failure path.
+ */
+export async function getOwnPlatformSettings(): Promise<ApiResponse<PlatformUser>> {
+  const result = await apiRequest<{ operator: PlatformUser }>("/api/super-admin/settings");
+  return result.success ? { success: true, data: result.data.operator } : result;
+}
+
+/**
+ * Update the signed-in operator's own profile.
+ *
+ * Names and the console accent only — the route's schema is strict and defines
+ * no other key, so role, activation and email cannot be sent from here even by
+ * mistake. Those remain administrative operations on
+ * PATCH /api/platform/users/[id].
+ */
+export async function updateOwnPlatformProfile(input: {
+  firstName?: string;
+  lastName?: string;
+  /** One of PLATFORM_ACCENTS. The route re-validates against the same set. */
+  accentColor?: PlatformAccent;
+}): Promise<ApiResponse<PlatformUser>> {
+  const result = await apiRequest<{ operator: PlatformUser }>("/api/super-admin/settings", {
+    method: "PATCH",
+    body: input,
+  });
+
+  return result.success ? { success: true, data: result.data.operator } : result;
+}
+
+/**
+ * End the platform session.
+ *
+ * NOT services/auth.ts logout(). That posts to /api/auth/logout, which clears
+ * the TENANT cookies — edu_access and edu_refresh. A platform operator holds
+ * neither: their session is edu_platform, minted by
+ * /api/super-admin/auth/login and cleared only by the route below. Calling the
+ * tenant endpoint would report success while leaving the platform session
+ * entirely intact, which is a sign-out that does not sign anybody out.
+ */
+export async function platformLogout(): Promise<ApiResponse<null>> {
+  return apiRequest<null>("/api/super-admin/auth/logout", { method: "POST" });
 }
