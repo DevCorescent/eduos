@@ -115,7 +115,7 @@ export async function resolveTenantForRequest(): Promise<ResolvedTenant | null> 
 
   if (!host) return null;
 
-  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost:3000";
+  const rootDomain = process.env.ROOT_DOMAIN ?? "localhost:3000";
 
   return requestScoped(`tenant:host:${host}`, async () => {
     // 1. A configured domain. Exact match on the normalised hostname; the row

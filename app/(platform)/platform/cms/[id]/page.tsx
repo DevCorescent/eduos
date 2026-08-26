@@ -41,7 +41,7 @@ export default async function PlatformTenantCmsPage({
 
   // The platform console runs on the root host, so the institution's address
   // has to be constructed rather than read from this request's own headers.
-  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? "localhost:3000";
+  const rootDomain = process.env.ROOT_DOMAIN ?? "localhost:3000";
   const previewUrl = `http://${tenant.slug}.${rootDomain}/`;
 
   return (

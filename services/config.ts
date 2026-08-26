@@ -20,4 +20,4 @@
  * so the tenant subdomain is preserved; this is the fallback for calls made
  * outside a request scope.
  */
-export const API_BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "";
+export const API_BASE_URL = process.env.APP_URL ?? "";
