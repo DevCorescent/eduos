@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
@@ -57,6 +58,16 @@ export function TenantStatusControl({ tenant }: TenantStatusControlProps) {
   const [selected, setSelected] = useState<TenantStatus>(tenant.status);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * True when the last attempt failed because the PLATFORM SESSION had expired.
+   *
+   * Distinguished from every other failure because the recovery is different
+   * and the operator cannot guess it: nothing about the console looks signed
+   * out — it was server-rendered while the session was still valid — so a bare
+   * "Unauthorized" reads as "this university may not be changed" rather than
+   * "your session ended". See the message rendered below.
+   */
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const isBlocked = BLOCKING_STATUSES.includes(tenant.status);
   const willBlock = BLOCKING_STATUSES.includes(selected);
@@ -64,11 +75,25 @@ export function TenantStatusControl({ tenant }: TenantStatusControlProps) {
 
   async function apply(status: TenantStatus) {
     setError(null);
+    setSessionExpired(false);
     setIsSaving(true);
     const result = await updateTenant(tenant.id, { status });
     setIsSaving(false);
 
     if (!result.success) {
+      // The platform session lasts one hour; a console left open longer than
+      // that holds an expired edu_platform cookie. requirePlatformAdmin then
+      // answers 401 UNAUTHORIZED, which this panel used to render verbatim as
+      // "Unauthorized" — a dead end that looked like a permission refusal.
+      //
+      // NOTHING about the authorization is changed here: the request is still
+      // refused, and it should be. What changes is that the operator is told
+      // WHY and given the one action that resolves it.
+      if (result.code === "UNAUTHORIZED") {
+        setSessionExpired(true);
+        return;
+      }
+
       setError(result.error);
       return;
     }
@@ -91,7 +116,17 @@ export function TenantStatusControl({ tenant }: TenantStatusControlProps) {
           data is deleted, and setting the status back restores access.
         </p>
 
-        {error && (
+        {sessionExpired && (
+          <Alert variant="error" className="mt-3">
+            Your platform session has expired, so this change was not saved. Sign in again to
+            continue.{" "}
+            <Link href="/super-admin/login" className="font-medium underline underline-offset-2">
+              Sign in
+            </Link>
+          </Alert>
+        )}
+
+        {error && !sessionExpired && (
           <Alert variant="error" className="mt-3">
             {error}
           </Alert>

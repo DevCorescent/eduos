@@ -48,6 +48,29 @@ export function Modal({ isOpen, onClose, title, description, size = "md", childr
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
 
+  /**
+   * The latest onClose, held in a ref so the effect below does not depend on it.
+   *
+   * WHY THIS REF EXISTS — IT IS A FOCUS BUG, NOT A TIDY-UP
+   *   onClose used to be a dependency of the focus effect. Callers pass an
+   *   inline handler, which is a NEW function on every render, so any state
+   *   change inside a modal — a keystroke in a form field — re-ran that effect.
+   *   Its cleanup returns focus to the element that opened the modal and its
+   *   body then focuses the dialog, so the field lost focus after EVERY
+   *   character typed and the user had to click back in to type the next one.
+   *
+   *   Fixing it in each form (useCallback on every close handler) would have
+   *   left the trap armed for every future caller. The effect simply must not
+   *   restart because a callback's identity changed: it manages focus and body
+   *   scroll, and both belong to the modal being OPEN, not to which function
+   *   closes it.
+   */
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
   // Unique per instance. Hardcoded ids would collide as soon as two modals are
   // mounted together — a confirm dialog opened from inside a form modal, say —
   // pointing both aria-labelledby attributes at whichever rendered first.
@@ -61,7 +84,9 @@ export function Modal({ isOpen, onClose, title, description, size = "md", childr
     dialogRef.current?.focus();
 
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      // Through the ref, so Escape always calls the CURRENT handler without the
+      // listener having to be torn down and rebuilt when that handler changes.
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKeyDown);
 
@@ -73,7 +98,9 @@ export function Modal({ isOpen, onClose, title, description, size = "md", childr
       document.body.style.overflow = originalOverflow;
       triggerRef.current?.focus();
     };
-  }, [isOpen, onClose]);
+    // isOpen ALONE. This effect opens and closes a modal; it must run when that
+    // changes and at no other time.
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
