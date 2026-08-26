@@ -78,6 +78,8 @@ export interface TenantBrandingRow {
   faviconUrl: string | null;
   primaryColor: string | null;
   accentColor: string | null;
+  /** The four theme tokens that have no column. Resolved by the route. */
+  settings?: unknown;
 }
 
 export async function getMyBranding(): Promise<ApiResponse<TenantBrandingRow>> {
@@ -95,6 +97,18 @@ export interface BrandingInput {
   faviconUrl?: string | null;
   primaryColor?: string | null;
   accentColor?: string | null;
+  /**
+   * The four tokens stored in Tenant.settings.theme.
+   *
+   * Same null-clears-it rule as the fields above, applied per token, which is
+   * what "reset this one surface to the product default" means.
+   */
+  theme?: {
+    sidebar?: string | null;
+    sidebarText?: string | null;
+    sidebarActive?: string | null;
+    header?: string | null;
+  };
 }
 
 export async function updateMyBranding(

@@ -188,8 +188,13 @@ export function Sidebar({
                           // reading. A tint-on-tint highlight, which is what
                           // this was, disappears against a coloured panel.
                           isActive
-                            ? "bg-nav-active text-heading shadow-soft"
-                            : "text-on-surface-variant hover:bg-white/50 hover:text-heading"
+                            // text-nav-text, not text-heading: the token is a
+                            // new alias defaulted to --text-heading on :root, so
+                            // every portal without a university theme — the
+                            // platform console included — renders exactly as
+                            // before, while a tenant portal can repaint it.
+                            ? "bg-nav-active text-nav-text shadow-soft"
+                            : "text-nav-text/80 hover:bg-white/50 hover:text-nav-text"
                         )}
                       >
                         <span className="shrink-0 [&>svg]:size-5" aria-hidden="true">

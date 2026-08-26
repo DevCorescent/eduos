@@ -96,6 +96,43 @@ export const updateBrandingSchema = z
     accentColor: z.string().trim().refine(isValidBrandColour, {
       message: "Use a hex colour such as #1A73E8.",
     }).nullish(),
+
+    /**
+     * The four theme tokens that have no column of their own.
+     *
+     * Same predicate as the two colours above — isValidBrandColour — so a
+     * university cannot express anything but a hex colour here either. That is
+     * what makes these safe to interpolate into a stylesheet: a hex colour
+     * cannot contain a brace, a semicolon or a url(), so no value accepted here
+     * can close a declaration and open another.
+     *
+     * null CLEARS a token, returning that surface to the product default. That
+     * is different from omitting the key, which leaves it unchanged — the same
+     * distinction the four fields above already draw.
+     *
+     * Nested under `theme` rather than flattened so the route can tell at a
+     * glance which keys are columns and which belong in Tenant.settings.
+     */
+    theme: z
+      .object({
+        sidebar: z.string().trim().refine(isValidBrandColour, {
+          message: "Use a hex colour such as #1A73E8.",
+        }).nullish(),
+        sidebarText: z.string().trim().refine(isValidBrandColour, {
+          message: "Use a hex colour such as #1A73E8.",
+        }).nullish(),
+        sidebarActive: z.string().trim().refine(isValidBrandColour, {
+          message: "Use a hex colour such as #1A73E8.",
+        }).nullish(),
+        header: z.string().trim().refine(isValidBrandColour, {
+          message: "Use a hex colour such as #1A73E8.",
+        }).nullish(),
+      })
+      // .strict() here too: a token this release does not define — or a
+      // semantic name like `danger` — is a 400 rather than a key silently
+      // written into the settings column and ignored forever after.
+      .strict()
+      .optional(),
   })
   .strict()
   .refine((v) => Object.keys(v).length > 0, {

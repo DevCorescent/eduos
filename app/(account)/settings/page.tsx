@@ -10,6 +10,10 @@ import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { getCurrentUser, getNotificationPreferences } from "@/services/account";
 import { getPortalSession } from "@/services/session";
+import { themeForTenant } from "@/lib/services/tenantTheme";
+import { ROLES } from "@/constants/roles";
+import { Palette } from "lucide-react";
+import { UniversityAppearanceForm } from "./UniversityAppearanceForm";
 import { roleLabel } from "@/constants/roles";
 import { formatDate } from "@/utils/format";
 import { ProfileForm } from "./ProfileForm";
@@ -36,6 +40,16 @@ export default async function SettingsPage() {
   // The layout above has already redirected an anonymous visitor; this is the
   // narrow case of a session that resolves to no user record.
   if (!session) redirect("/login");
+
+  // The university-branding section is for the administrator of THIS
+  // university and nobody else. The role comes from the verified session, and
+  // the API refuses every other role independently — this only decides whether
+  // to render a section the caller could not use.
+  const isUniversityAdmin = session.roles.includes(ROLES.UNIVERSITY_ADMIN);
+
+  // session.tenantId, fixed at login. There is no path here that could read
+  // another university's colours.
+  const universityTheme = isUniversityAdmin ? await themeForTenant(session.tenantId) : null;
 
   const header = (
     <PageHeader
@@ -93,6 +107,20 @@ export default async function SettingsPage() {
         >
           <PasswordForm />
         </Card>
+
+        {isUniversityAdmin && universityTheme && (
+          <Card
+            header={
+              <SectionHeading
+                icon={<Palette className="size-4" />}
+                title="University appearance"
+                description="Colours for your university's portals. Everyone at your university sees these — students, faculty, staff and parents."
+              />
+            }
+          >
+            <UniversityAppearanceForm initial={universityTheme} />
+          </Card>
+        )}
 
         <Card
           header={

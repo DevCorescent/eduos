@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getPortalSession } from "@/services/session";
 import { PortalShell } from "@/components/layout/PortalShell";
+import { UniversityTheme } from "@/components/layout/UniversityTheme";
+import { themeForTenant } from "@/lib/services/tenantTheme";
 import { PARENT_NAV, filterNav } from "@/constants/navigation";
 import { ROLES, homeRouteForRoles } from "@/constants/roles";
 import { mustChangePassword } from "@/lib/auth/mustChangePassword";
@@ -38,14 +40,22 @@ export default async function ParentPortalLayout({ children }: { children: React
 
   if (await mustChangePassword(session.sub)) redirect("/change-password");
 
+
+  // This university's own colours, from its own row. session.tenantId is
+  // fixed at login and not client-controlled, so a portal can only ever be
+  // painted with the theme of the tenant the caller belongs to.
+  const universityTheme = await themeForTenant(session.tenantId);
+
   return (
-    <PortalShell
-      sections={filterNav(PARENT_NAV, session.roles)}
-      user={topbarUserFromSession(session)}
-      portalName="Parent"
-      homeHref="/parent/dashboard"
-    >
-      {children}
-    </PortalShell>
+    <UniversityTheme theme={universityTheme}>
+      <PortalShell
+        sections={filterNav(PARENT_NAV, session.roles)}
+        user={topbarUserFromSession(session)}
+        portalName="Parent"
+        homeHref="/parent/dashboard"
+      >
+        {children}
+      </PortalShell>
+    </UniversityTheme>
   );
 }
