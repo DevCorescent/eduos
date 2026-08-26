@@ -14,6 +14,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireModule } from "@/lib/middleware/requireModule";
 import { curriculumIdParamSchema } from "@/lib/validations/curriculum";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -151,7 +152,7 @@ const CURRICULUM_SELECT = {
 //              state, since nothing in the schema requires a curriculum to carry
 //              any subject.
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -160,6 +161,12 @@ export async function GET(
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const { tenant } = tenantGuard;
 

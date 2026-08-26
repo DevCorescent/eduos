@@ -13,6 +13,7 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireModule } from "@/lib/middleware/requireModule";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createFacultySchema, facultyQuerySchema } from "@/lib/validations/faculty";
 import { generateIdentifier } from "@/lib/services/identifier.service";
@@ -76,6 +77,12 @@ export async function GET(request: NextRequest) {
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const { tenant } = tenantGuard;
 
@@ -162,6 +169,12 @@ export async function POST(request: NextRequest) {
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const { tenant } = tenantGuard;
 

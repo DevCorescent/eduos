@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireModule } from "@/lib/middleware/requireModule";
 import { applicationIdParamSchema, updateApplicationSchema } from "@/lib/validations/admission";
 import { getApplication, updateApplication } from "@/lib/services/admission.service";
 import { recordAudit } from "@/lib/services/audit.service";
@@ -25,13 +26,19 @@ type Params = Promise<{ applicationId: string }>;
 
 // GET — one application belonging to this university.
 // STATUS: 200 · 400 · 401 · 403 · 404 · 500
-export async function GET(_request: NextRequest, { params }: { params: Params }) {
+export async function GET(request: NextRequest, { params }: { params: Params }) {
   try {
     const guard = await requireRole("UNIVERSITY_ADMIN");
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const parsed = applicationIdParamSchema.safeParse(await params);
     if (!parsed.success) {
@@ -58,6 +65,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Params }
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const parsedParams = applicationIdParamSchema.safeParse(await params);
     if (!parsedParams.success) {

@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { evaluationSchemeController } from "@/lib/controllers/evaluationScheme.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireModule } from "@/lib/middleware/requireModule";
 import { EVALUATION_SCHEME_MANAGE_ROLES } from "@/lib/constants/evaluationScheme";
 import { evaluationSchemeIdParamSchema } from "@/lib/validations/evaluationScheme";
 import { buildRequestContext } from "@/lib/utils/request-context";
@@ -55,6 +56,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const parsedParam = evaluationSchemeIdParamSchema.safeParse(await context.params);
     if (!parsedParam.success) return validationFailure(parsedParam.error);

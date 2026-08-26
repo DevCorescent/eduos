@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireModule } from "@/lib/middleware/requireModule";
 import { documentIdParamSchema, studentIdParamSchema } from "@/lib/validations/student";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -59,7 +60,7 @@ import { validationDetails } from "@/lib/utils/validation-error";
 //              zero count rather than raising when the row is absent — a P2025
 //              handler here would be unreachable code.
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string; docId: string }> }
 ) {
   try {
@@ -68,6 +69,12 @@ export async function DELETE(
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const { tenant } = tenantGuard;
 
