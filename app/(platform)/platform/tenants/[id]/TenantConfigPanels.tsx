@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/layout/EmptyState";
 import { StateView } from "@/components/shared/StateView";
 import { useDisclosure } from "@/hooks/useDisclosure";
 import { useToast } from "@/providers/ToastProvider";
+import { swatchFor } from "@/lib/utils/colour";
 import {
   createTenantAcademicYear,
   createTenantCampus,
@@ -512,42 +513,30 @@ function BrandingPanel({
             onChange={(e) => setForm((f) => ({ ...f, faviconUrl: e.target.value }))}
             placeholder="https://cdn.example.com/favicon.ico"
           />
-          <Input
+          <ColourField
             label="Primary colour"
             value={form.primaryColor}
-            onChange={(e) => setForm((f) => ({ ...f, primaryColor: e.target.value }))}
+            onChange={(value) => setForm((f) => ({ ...f, primaryColor: value }))}
             error={fieldErrors.primaryColor}
             placeholder="#1d4ed8"
           />
-          <Input
+          <ColourField
             label="Accent colour"
             value={form.accentColor}
-            onChange={(e) => setForm((f) => ({ ...f, accentColor: e.target.value }))}
+            onChange={(value) => setForm((f) => ({ ...f, accentColor: value }))}
             error={fieldErrors.accentColor}
             placeholder="#f59e0b"
           />
         </div>
 
         <div className="flex items-center gap-3">
+          {/* The two unlabelled swatches that used to sit here are gone: each
+              colour now shows its own swatch beside its own label, which says
+              WHICH colour it is. Two indicators for the same value, one of them
+              anonymous, is worse than one that is named. */}
           <Button type="submit" isLoading={isSaving} leftIcon={<Palette className="size-4" />}>
             Save branding
           </Button>
-          {/* Swatches only when a valid colour is present, so an invalid value
-              never renders as a misleading block of the wrong colour. */}
-          {HEX.test(form.primaryColor) && (
-            <span
-              aria-hidden="true"
-              className="size-6 rounded-full border border-border"
-              style={{ backgroundColor: form.primaryColor }}
-            />
-          )}
-          {HEX.test(form.accentColor) && (
-            <span
-              aria-hidden="true"
-              className="size-6 rounded-full border border-border"
-              style={{ backgroundColor: form.accentColor }}
-            />
-          )}
         </div>
       </form>
     </Card>
@@ -555,6 +544,78 @@ function BrandingPanel({
 }
 
 // --- Shared -----------------------------------------------------------------
+
+/**
+ * A colour, chosen visually or typed as hex.
+ *
+ * WHY BOTH CONTROLS AND NOT JUST A PICKER
+ *   A brand guideline specifies an exact value — "#1D4ED8, exactly" — and
+ *   nudging a gradient until the readout matches is not how anyone enters a
+ *   known colour. The text box stays the source of truth and keeps the label,
+ *   the placeholder and the validation error the form already had; the picker
+ *   is added beside it for choosing a colour you do NOT already know.
+ *
+ * WHY THE PICKER'S VALUE IS DERIVED RATHER THAN STORED
+ *   <input type="color"> speaks only #rrggbb. It cannot represent an empty
+ *   field or the three-digit #abc that this project's HEX_COLOUR regex — and
+ *   therefore the branding API — accepts. Feeding it a value it cannot parse
+ *   makes it silently show black, so `swatch` below expands #abc to #aabbcc for
+ *   DISPLAY and falls back to a neutral grey when the field is empty or invalid.
+ *
+ *   That derivation never travels back to the form. Typing #abc leaves #abc
+ *   stored and #abc saved: the picker showing an expanded form of it does not
+ *   rewrite what the operator entered, because silently normalising a value the
+ *   backend already accepts would change what they chose without telling them.
+ *   Only actually USING the picker writes a value, and that value is the
+ *   six-digit one the control produces.
+ *
+ * Mirrors ColorControl in components/cms/fieldControls.tsx, which established
+ * this swatch-plus-hex pattern for the CMS editor.
+ */
+function ColourField({
+  label,
+  value,
+  onChange,
+  error,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error?: string;
+  placeholder?: string;
+}) {
+  // Display only — see the header above. Never written back to the form.
+  const swatch = swatchFor(value);
+
+  return (
+    <div className="flex items-end gap-2">
+      <input
+        type="color"
+        value={swatch}
+        // The text box carries the visible <label>; this control needs its own
+        // accessible name, and "Primary colour" alone would announce two
+        // controls identically.
+        aria-label={`${label} — colour picker`}
+        onChange={(event) => onChange(event.target.value)}
+        className="mb-px size-10 shrink-0 cursor-pointer rounded-md border border-border bg-surface p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      />
+
+      {/* The project's own Input, so the label association, the error slot and
+          the field styling are the ones this form already used. */}
+      <Input
+        label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        error={error}
+        placeholder={placeholder}
+        spellCheck={false}
+        containerClassName="min-w-0 flex-1"
+      />
+    </div>
+  );
+}
+
 
 function PanelHeader({
   title,
