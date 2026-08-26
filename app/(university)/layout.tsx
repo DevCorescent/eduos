@@ -5,6 +5,7 @@ import { mustChangePassword } from "@/lib/auth/mustChangePassword";
 import { PortalShell } from "@/components/layout/PortalShell";
 import { NotificationBell } from "@/components/shared/NotificationBell";
 import { UNIVERSITY_NAV, filterNav } from "@/constants/navigation";
+import { enabledModulesForTenant } from "@/lib/services/tenantModules";
 import { ROLES, UNIVERSITY_ROLES, hasAnyRole, homeRouteForRoles } from "@/constants/roles";
 import { topbarUserFromSession } from "@/utils/user";
 
@@ -49,10 +50,18 @@ export default async function UniversityLayout({ children }: { children: ReactNo
     redirect(homeRouteForRoles(session.roles));
   }
 
+  // The tenant's own module selection, read from Subscription.features. A link
+  // whose module is off is removed from the tree entirely — see filterNav.
+  //
+  // session.tenantId, not a value from the request: it was fixed at login and
+  // is not client-controlled, so one university's navigation can never be built
+  // from another's configuration.
+  const modules = await enabledModulesForTenant(session.tenantId);
+
   return (
     <PortalShell
       topbarActions={<NotificationBell />}
-      sections={filterNav(UNIVERSITY_NAV, session.roles)}
+      sections={filterNav(UNIVERSITY_NAV, session.roles, modules)}
       user={topbarUserFromSession(session)}
       portalName="University"
       homeHref="/dashboard"

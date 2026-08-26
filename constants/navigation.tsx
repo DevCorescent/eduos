@@ -50,6 +50,7 @@ import {
 } from "lucide-react";
 import type { SidebarSection } from "@/components/layout/Sidebar";
 import { ROLES, UNIVERSITY_ROLES } from "./roles";
+import { MODULE_PAGE_RULES, pathAllowed } from "@/lib/constants/moduleRoutes";
 
 /**
  * A nav entry before role filtering.
@@ -346,12 +347,30 @@ export const STUDENT_NAV: NavGroup[] = [
  * The empty-group sweep is what prevents a heading like "Administration"
  * rendering above nothing for a head of department.
  */
-export function filterNav(groups: NavGroup[], roles: readonly string[]): SidebarSection[] {
+export function filterNav(
+  groups: NavGroup[],
+  roles: readonly string[],
+  /**
+   * The tenant's enabled modules, for the university console.
+   *
+   * Omitted by every portal that is not module-governed — the platform console,
+   * and the student, faculty and parent portals — and those trees are then
+   * filtered by role alone, exactly as before. Passing undefined is therefore
+   * "no module gating", not "no modules enabled": the two are different
+   * questions and only the university layout can answer the second.
+   */
+  modules?: ReadonlySet<string>
+): SidebarSection[] {
   return groups
     .map((group) => ({
       label: group.label,
       items: group.items
         .filter((item) => !item.roles || item.roles.some((role) => roles.includes(role)))
+        // A link the module selection closes is REMOVED, not disabled or
+        // hidden with CSS: it is not a destination this university has, and
+        // rendering it greyed out would still tell every operator which
+        // modules exist and invite a support ticket about each one.
+        .filter((item) => modules === undefined || pathAllowed(item.href, modules, MODULE_PAGE_RULES))
         .map(({ label, href, icon }) => ({ label, href, icon })),
     }))
     .filter((group) => group.items.length > 0);

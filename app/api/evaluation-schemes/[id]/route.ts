@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { evaluationSchemeController } from "@/lib/controllers/evaluationScheme.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireModule } from "@/lib/middleware/requireModule";
 import {
   EVALUATION_SCHEME_MANAGE_ROLES,
   EVALUATION_SCHEME_READ_ROLES,
@@ -47,13 +48,19 @@ type RouteContext = { params: Promise<{ id: string }> };
 //              id is ever confirmed to exist elsewhere.
 // RESPONSE   : { success: true, data: EvaluationSchemeDetailDTO }
 // STATUS     : 200 · 400 · 401 · 403 · 404 · 500
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   try {
     const guard = await requireRole(...EVALUATION_SCHEME_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const parsedParam = evaluationSchemeIdParamSchema.safeParse(await context.params);
     if (!parsedParam.success) return validationFailure(parsedParam.error);
@@ -93,6 +100,12 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const parsedParam = evaluationSchemeIdParamSchema.safeParse(await context.params);
     if (!parsedParam.success) return validationFailure(parsedParam.error);
@@ -140,6 +153,12 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const parsedParam = evaluationSchemeIdParamSchema.safeParse(await context.params);
     if (!parsedParam.success) return validationFailure(parsedParam.error);

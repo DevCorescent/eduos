@@ -14,6 +14,8 @@ import {
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StateView } from "@/components/shared/StateView";
 import { resolveFailureState } from "@/lib/ui-state";
+import { MODULE_PAGE_RULES, pathAllowed } from "@/lib/constants/moduleRoutes";
+import { enabledModulesForTenant } from "@/lib/services/tenantModules";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { Badge } from "@/components/ui/Badge";
@@ -42,6 +44,9 @@ export default async function UniversityDashboardPage() {
   if (!session) redirect("/login");
 
   const result = await getDashboardSummary();
+
+  // session.tenantId, fixed at login and not client-controlled.
+  const modules = await enabledModulesForTenant(session.tenantId);
 
   const header = (
     <PageHeader
@@ -121,7 +126,7 @@ export default async function UniversityDashboardPage() {
         <div className="lg:col-span-2">
           <NeedsAttention summary={summary} />
         </div>
-        <QuickLinks activeProgrammes={summary.activeProgrammes} />
+        <QuickLinks activeProgrammes={summary.activeProgrammes} modules={modules} />
       </div>
     </>
   );
@@ -225,7 +230,14 @@ function NeedsAttention({ summary }: { summary: DashboardSummary }) {
   );
 }
 
-function QuickLinks({ activeProgrammes }: { activeProgrammes: number | null }) {
+function QuickLinks({
+  activeProgrammes,
+  modules,
+}: {
+  activeProgrammes: number | null;
+  /** The tenant's enabled modules, resolved by the page from its own session. */
+  modules: ReadonlySet<string>;
+}) {
   const links = [
     { label: "Campuses", href: "/setup/campuses", icon: Building2 },
     { label: "Programmes", href: "/setup/programmes", icon: GraduationCap, badge: activeProgrammes },
@@ -233,7 +245,11 @@ function QuickLinks({ activeProgrammes }: { activeProgrammes: number | null }) {
     { label: "Faculty", href: "/faculty", icon: UserCog },
     { label: "Academic Years", href: "/calendar/academic-years", icon: CalendarRange },
     { label: "Courses", href: "/curriculum/courses", icon: BookOpen },
-  ];
+    // A shortcut is a navigation entry like any other: filtered by the SAME
+    // rule table the sidebar and the API guard use, so a module cannot be
+    // closed in one place and offered in another. Three of these six point at
+    // governed areas; the other three are always-on.
+  ].filter((link) => pathAllowed(link.href, modules, MODULE_PAGE_RULES));
 
   return (
     <Card header={<h2 className="text-sm font-semibold text-heading">Jump to</h2>} noPadding>

@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { evaluationSchemeController } from "@/lib/controllers/evaluationScheme.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
+import { requireModule } from "@/lib/middleware/requireModule";
 import {
   EVALUATION_SCHEME_MANAGE_ROLES,
   EVALUATION_SCHEME_READ_ROLES,
@@ -52,6 +53,12 @@ export async function GET(request: NextRequest) {
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     const parsedQuery = listEvaluationSchemesQuerySchema.safeParse(
       Object.fromEntries(request.nextUrl.searchParams)
@@ -97,6 +104,12 @@ export async function POST(request: NextRequest) {
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and
+    // tenant so a 403 here can only ever describe the caller's own
+    // university. Ungoverned paths cost no query.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
 
     // A malformed body is a client error, so it is caught here rather than
     // being allowed to fall through to the 500 handler.
