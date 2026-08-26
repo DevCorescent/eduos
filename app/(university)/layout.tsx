@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getPortalSession } from "@/services/session";
 import { mustChangePassword } from "@/lib/auth/mustChangePassword";
 import { PortalShell } from "@/components/layout/PortalShell";
+import { UniversityTheme } from "@/components/layout/UniversityTheme";
+import { themeForTenant } from "@/lib/services/tenantTheme";
 import { NotificationBell } from "@/components/shared/NotificationBell";
 import { UNIVERSITY_NAV, filterNav } from "@/constants/navigation";
 import { enabledModulesForTenant } from "@/lib/services/tenantModules";
@@ -58,15 +60,23 @@ export default async function UniversityLayout({ children }: { children: ReactNo
   // from another's configuration.
   const modules = await enabledModulesForTenant(session.tenantId);
 
+
+  // This university's own colours, from its own row. session.tenantId is
+  // fixed at login and not client-controlled, so a portal can only ever be
+  // painted with the theme of the tenant the caller belongs to.
+  const universityTheme = await themeForTenant(session.tenantId);
+
   return (
-    <PortalShell
-      topbarActions={<NotificationBell />}
-      sections={filterNav(UNIVERSITY_NAV, session.roles, modules)}
-      user={topbarUserFromSession(session)}
-      portalName="University"
-      homeHref="/dashboard"
-    >
-      {children}
-    </PortalShell>
+    <UniversityTheme theme={universityTheme}>
+      <PortalShell
+        topbarActions={<NotificationBell />}
+        sections={filterNav(UNIVERSITY_NAV, session.roles, modules)}
+        user={topbarUserFromSession(session)}
+        portalName="University"
+        homeHref="/dashboard"
+      >
+        {children}
+      </PortalShell>
+    </UniversityTheme>
   );
 }

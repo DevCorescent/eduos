@@ -188,6 +188,10 @@
   --nav: var(--nav-surface);
   --nav-solid: var(--nav-surface-solid);
   --nav-active: var(--nav-active-surface);
+  /* Sidebar label colour. Introduced so a university can set it; defaulted to
+     the value the sidebar already used, so every portal that does NOT carry a
+     university theme — the platform console above all — renders identically. */
+  --nav-text: var(--text-heading);
 
   --muted: var(--bg-secondary);
   --muted-foreground: var(--text-muted);
@@ -295,6 +299,7 @@
   --color-nav: var(--nav);
   --color-nav-solid: var(--nav-solid);
   --color-nav-active: var(--nav-active);
+  --color-nav-text: var(--nav-text);
   --color-on-surface-variant: var(--text-body);
   --color-overlay: var(--overlay);
 
@@ -769,4 +774,64 @@ h6 {
   --primary-bg-foreground: #582626;
   --ring: #a54a4a;
   --gradient-primary: linear-gradient(135deg, #c06b6b 0%, #803838 100%);
+}
+
+/* ============================================================================
+   UNIVERSITY THEME
+   ============================================================================
+   Set by the tenant portal layouts as data-university-theme on a wrapper, with
+   the six --university-* values supplied inline from Tenant.primaryColor,
+   Tenant.accentColor and Tenant.settings.theme.
+
+   SCOPE
+     This block redefines custom properties on ONE element. Properties inherit,
+     so the override reaches that element's subtree — the authenticated tenant
+     portal — and nothing else. :root is never touched, so the platform console,
+     the sign-in pages and every unauthenticated surface keep resolving these
+     from :root exactly as before. A tenant that has set nothing still gets the
+     product defaults, because resolveUniversityTheme fills every token.
+
+   WHAT A UNIVERSITY MAY REPAINT, AND WHAT IT MAY NOT
+     Brand surfaces only: the primary ramp and its gradient, the focus ring, the
+     sidebar, the active nav item and the top bar.
+
+     NOT --success, --warning, --danger, --info or any of their tints. Those
+     encode MEANING, and a maroon university must not be able to make a failed
+     payment read as a successful one. No declaration below names one, and the
+     accompanying test reads this file to prove it.
+
+     NOT --accent either. That token is a page SURFACE in this design system,
+     not a brand colour; painting it with an arbitrary university colour would
+     put body text on an unpredictable background. The university's accent is
+     given the focus ring instead — a real, visible, non-semantic surface.
+
+   The hover and active shades are derived with color-mix rather than asked for
+   separately: an administrator picks a brand colour, not three shades of one,
+   and deriving them keeps the ramp coherent whatever they choose.
+   ========================================================================= */
+
+[data-university-theme] {
+  /* Primary — buttons, links, the main call to action. */
+  --primary: var(--university-primary);
+  --primary-hover: color-mix(in srgb, var(--university-primary) 85%, black);
+  --primary-active: color-mix(in srgb, var(--university-primary) 70%, black);
+  --gradient-primary: linear-gradient(
+    135deg,
+    var(--university-primary) 0%,
+    color-mix(in srgb, var(--university-primary) 70%, black) 100%
+  );
+
+  /* Accent — focus and highlight. Deliberately NOT a page surface. */
+  --ring: var(--university-accent);
+
+  /* Sidebar. --nav-surface feeds .glass-nav; --nav and --nav-solid feed the
+     Tailwind utilities the shell uses. */
+  --nav-surface: var(--university-sidebar);
+  --nav: var(--university-sidebar);
+  --nav-solid: var(--university-sidebar);
+  --nav-active: var(--university-sidebar-active);
+  --nav-text: var(--university-sidebar-text);
+
+  /* Top bar. --bg-glass is what .glass-plain paints with. */
+  --bg-glass: var(--university-header);
 }

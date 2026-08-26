@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { getPortalSession } from "@/services/session";
 import { PortalShell } from "@/components/layout/PortalShell";
+import { UniversityTheme } from "@/components/layout/UniversityTheme";
+import { themeForTenant } from "@/lib/services/tenantTheme";
 import { NotificationBell } from "@/components/shared/NotificationBell";
 import {
   FACULTY_NAV,
@@ -57,15 +59,23 @@ export default async function AccountLayout({ children }: { children: ReactNode 
 
   const { nav, portalName, homeHref } = shellFor(session.roles);
 
+
+  // This university's own colours, from its own row. session.tenantId is
+  // fixed at login and not client-controlled, so a portal can only ever be
+  // painted with the theme of the tenant the caller belongs to.
+  const universityTheme = await themeForTenant(session.tenantId);
+
   return (
-    <PortalShell
-      topbarActions={<NotificationBell />}
-      sections={filterNav(nav, session.roles)}
-      user={topbarUserFromSession(session)}
-      portalName={portalName}
-      homeHref={homeHref}
-    >
-      {children}
-    </PortalShell>
+    <UniversityTheme theme={universityTheme}>
+      <PortalShell
+        topbarActions={<NotificationBell />}
+        sections={filterNav(nav, session.roles)}
+        user={topbarUserFromSession(session)}
+        portalName={portalName}
+        homeHref={homeHref}
+      >
+        {children}
+      </PortalShell>
+    </UniversityTheme>
   );
 }

@@ -29,6 +29,8 @@ import { prisma } from "@/lib/db/prisma";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { updateBrandingSchema } from "@/lib/validations/domain";
+import { mergeThemeIntoSettings } from "@/lib/domain/tenant/theme";
+import { Prisma } from "@/app/generated/prisma/client";
 import { recordAudit } from "@/lib/services/audit.service";
 import { readRequestOrigin } from "@/lib/utils/requestOrigin";
 import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@/lib/constants/audit";
@@ -43,6 +45,10 @@ const BRANDING_SELECT = {
   faviconUrl: true,
   primaryColor: true,
   accentColor: true,
+  // Carries the four theme tokens that have no column — see
+  // lib/domain/tenant/theme.ts. Selected so a read can resolve the full theme
+  // and a write can merge into it without clobbering unrelated settings keys.
+  settings: true,
 } as const;
 
 // GET
@@ -120,10 +126,27 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json(fail("Tenant not found", "NOT_FOUND"), { status: 404 });
     }
 
+    // `theme` is not a column. Split it out, merge it into the EXISTING
+    // settings JSON, and write the remaining keys straight to their columns.
+    //
+    // READ-MERGE-WRITE, never replace: Tenant.settings is shared — the archive
+    // route stores an `archive` key in it and platform tenant update accepts a
+    // whole object — so overwriting the column would destroy data this feature
+    // has nothing to do with. `before.settings` is the value read a few lines
+    // above, inside the same request.
+    const { theme, ...columns } = parsed.data;
+
+    const data = theme
+      ? {
+          ...columns,
+          settings: mergeThemeIntoSettings(before.settings, theme) as Prisma.InputJsonValue,
+        }
+      : columns;
+
     const updated = await prisma.$transaction(async (tx) => {
       const row = await tx.tenant.update({
         where: { id: tenantGuard.tenant.id },
-        data: parsed.data,
+        data,
         select: BRANDING_SELECT,
       });
 
