@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { PLATFORM_ACCENTS } from "@/lib/constants/platformAccent";
 import { MODULE_KEYS } from "@/lib/constants/modules";
 import {
   BillingCycle,
@@ -316,6 +317,47 @@ export const updatePlatformUserSchema = createPlatformUserSchema
   .refine((data) => Object.keys(data).length > 0);
 
 export type UpdatePlatformUserInput = z.infer<typeof updatePlatformUserSchema>;
+
+/**
+ * Body schema for PATCH /api/super-admin/settings — an operator editing THEIR
+ * OWN profile.
+ *
+ * DELIBERATELY NARROWER THAN updatePlatformUserSchema
+ *   That schema serves an administrator editing SOMEBODY ELSE and therefore
+ *   accepts `role` and `isActive`. Neither may travel on a self-service body:
+ *   granting yourself a role is privilege escalation, and deactivating yourself
+ *   takes the console away mid-request with no route back — which is why
+ *   PATCH /api/platform/users/[id] already refuses that specific case. Omitting
+ *   the keys here means a caller cannot even express the attempt: `.strict()`
+ *   answers 400 rather than silently dropping them.
+ *
+ *   `email` is absent too. It is the account's unique identifier and the
+ *   subject of the platform session; changing it is an administrative act with
+ *   a uniqueness check behind it, and it stays on the administrator route.
+ *
+ * No id of any kind is accepted. The subject is the authenticated operator,
+ * resolved from the platform session by the route — never from the body.
+ */
+export const updateOwnPlatformProfileSchema = z
+  .object({
+    firstName: z.string().trim().min(1).max(100).optional(),
+    lastName: z.string().trim().min(1).max(100).optional(),
+    /**
+     * The operator's console accent.
+     *
+     * A closed enum, never a colour string: the value ends up as a data
+     * attribute selecting a block of CSS custom properties, so anything outside
+     * the set would either style nothing or put caller-controlled text where a
+     * style is chosen. z.enum answers 400 for the rest.
+     */
+    accentColor: z.enum(PLATFORM_ACCENTS).optional(),
+  })
+  .strict()
+  // An empty body is a client error rather than a no-op that still advances
+  // updatedAt — the same rule updatePlatformUserSchema applies.
+  .refine((data) => Object.keys(data).length > 0);
+
+export type UpdateOwnPlatformProfileInput = z.infer<typeof updateOwnPlatformProfileSchema>;
 
 /**
  * Body schema for POST /api/super-admin/auth/change-password.

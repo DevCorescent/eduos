@@ -12,6 +12,7 @@ import { Topbar, type TopbarUser } from "./Topbar";
 import { PortalBreadcrumb } from "./PortalBreadcrumb";
 import { useToast } from "@/providers/ToastProvider";
 import { logout } from "@/services/auth";
+import { platformLogout } from "@/services/platformUsers";
 
 export interface PortalShellProps {
   /** Nav tree, already filtered to the signed-in user's roles by the layout. */
@@ -50,6 +51,25 @@ export interface PortalShellProps {
    * @default "/settings"
    */
   settingsHref?: string;
+  /**
+   * Which session the top bar's "Sign out" ends.
+   *
+   * "tenant" — the default: POST /api/auth/logout, which clears edu_access and
+   *   edu_refresh, then returns to /login.
+   *
+   * "platform" — POST /api/super-admin/auth/logout, which clears edu_platform,
+   *   then returns to /super-admin/login.
+   *
+   * A prop for the same reason settingsHref is one, and for a sharper reason:
+   * the tenant call answers 200 for a platform operator while clearing nothing
+   * they hold, so the console reported a successful sign-out and left the
+   * operator signed in. A sign-out that does not sign anybody out is worse than
+   * no button, and it cannot be fixed by picking one endpoint for everybody —
+   * the two sessions are different credentials in different cookies.
+   *
+   * @default "tenant"
+   */
+  signOut?: "tenant" | "platform";
   children: ReactNode;
 }
 
@@ -89,6 +109,7 @@ export function PortalShell({
   homeLabel = "Dashboard",
   topbarActions,
   settingsHref = "/settings",
+  signOut = "tenant",
   children,
 }: PortalShellProps) {
   const router = useRouter();
@@ -101,7 +122,7 @@ export function PortalShell({
     // Goes through the service rather than fetch() directly, so signing out
     // clears the development mock identity as well as the real session cookies.
     // The service never throws — transport failures come back as an envelope.
-    const result = await logout();
+    const result = signOut === "platform" ? await platformLogout() : await logout();
 
     if (!result.success) {
       toast({
@@ -115,9 +136,12 @@ export function PortalShell({
     // replace(), not push(): the signed-in page must not be reachable with the
     // back button after signing out. refresh() then discards the cached Server
     // Component payload, which still holds the previous session's rendered data.
-    router.replace("/login");
+    // Back to the sign-in that can actually authenticate this caller. A
+    // platform operator belongs to no tenant and has no institution code to
+    // supply, so /login could never sign them back in.
+    router.replace(signOut === "platform" ? "/super-admin/login" : "/login");
     router.refresh();
-  }, [router, toast]);
+  }, [router, toast, signOut]);
 
   return (
     // h-dvh, not h-screen: on mobile browsers 100vh includes the address bar

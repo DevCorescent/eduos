@@ -18,6 +18,7 @@
 
 import { z } from "zod";
 import { CertificateType } from "@/app/generated/prisma/client";
+import { paginationQuerySchema } from "./pagination";
 
 /**
  * Body schema for POST /api/certificates/issue.
@@ -159,8 +160,29 @@ export const certificateNumberParamSchema = z.object({
 
 export type CertificateNumberParam = z.infer<typeof certificateNumberParamSchema>;
 
-// No query schema is declared. GET /api/students/[id]/certificates pages on the
-// shared contract, and paginationQuerySchema is consumed directly by the route
-// exactly as the timetable, attendance, assignment, examination, finance and
-// certificate-template routes consume it. The README defines no filter parameter
-// for any Phase 12 endpoint.
+// GET /api/students/[id]/certificates declares no query schema of its own: it
+// pages on the shared contract, and paginationQuerySchema is consumed directly
+// by the route exactly as the timetable, attendance, assignment, examination,
+// finance and certificate-template routes consume it.
+
+/**
+ * Query schema for GET /api/certificates — the tenant-wide collection.
+ *
+ * WHY THIS ONE DOES DECLARE q WHEN THE PER-STUDENT ROUTE DOES NOT
+ *   The per-student route is already narrowed to one person, so there is
+ *   nothing to search within it. The tenant-wide collection is not, and the
+ *   screen that reads it (certificates/templates) renders a search box and
+ *   sends ?q. Accepting the parameter and ignoring it would be worse than
+ *   rejecting it: the box would appear to work and would silently return every
+ *   certificate in the university for any search term.
+ *
+ *   The search is on certificateNo alone. That is the only free-text column
+ *   Certificate carries — the student's name lives on User, two relations away,
+ *   and searching it would mean a join this projection deliberately does not
+ *   take. Narrow and true beats broad and surprising.
+ */
+export const listCertificatesQuerySchema = paginationQuerySchema.extend({
+  q: z.string().trim().min(1).max(200).optional(),
+});
+
+export type ListCertificatesQuery = z.infer<typeof listCertificatesQuerySchema>;

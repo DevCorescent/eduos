@@ -85,9 +85,21 @@ export async function getStudent(id: string): Promise<ApiResponse<StudentWithUse
  * pulling a page and counting it, which is wrong the moment the result exceeds
  * one page.
  */
-export async function countStudents(params?: ListParams): Promise<number> {
+/**
+ * How many students match, or null when the count could not be read.
+ *
+ * NULL RATHER THAN 0 ON FAILURE
+ *   A caller refused by the API — a role the students collection does not admit
+ *   — used to receive 0 here, and 0 is a claim: it says this university has no
+ *   students. The dashboard rendered that claim as a stat tile, so a
+ *   DEPARTMENT_HOD whose request was answered 403 was shown "0 students" for an
+ *   institution with three. null is the honest answer, and formatNumber already
+ *   renders it as an em dash — the same treatment courses and fee demands
+ *   already received through countOf(), which has always returned null.
+ */
+export async function countStudents(params?: ListParams): Promise<number | null> {
   const result = await listStudents({ ...params, page: 1, limit: 1 });
-  return result.success ? result.data.pagination.total : 0;
+  return result.success ? result.data.pagination.total : null;
 }
 
 // --- Enrolment --------------------------------------------------------------

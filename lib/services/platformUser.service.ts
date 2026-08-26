@@ -40,6 +40,7 @@ const platformUserSelect = {
   lastName: true,
   isActive: true,
   mustChangePassword: true,
+  accentColor: true,
   lastLoginAt: true,
   createdAt: true,
   updatedAt: true,
@@ -56,6 +57,8 @@ export interface PlatformUserRecord {
   lastName: string;
   isActive: boolean;
   mustChangePassword: boolean;
+  /** Raw column. Callers normalise with resolveAccent(); null = product default. */
+  accentColor: string | null;
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
@@ -269,7 +272,10 @@ export async function createPlatformUser(
  */
 export async function updatePlatformUser(
   id: string,
-  input: UpdatePlatformUserInput
+  // Widened by the one column the self-service route may write. Kept as an
+  // intersection rather than folded into UpdatePlatformUserInput so the
+  // administrative schema stays exactly as narrow as it is.
+  input: UpdatePlatformUserInput & { accentColor?: string }
 ): Promise<ServiceResult<PlatformUserRecord>> {
   const existing = await prisma.platformUser.findUnique({
     where: { id },
@@ -304,6 +310,12 @@ export async function updatePlatformUser(
     lastName: input.lastName,
     email: input.email,
     isActive: input.isActive,
+    // Self-service only in practice. updatePlatformUserSchema — the schema the
+    // administrative route parses with — is .strict() and declares no
+    // accentColor, so an administrator editing somebody else can never produce
+    // this key; only updateOwnPlatformProfileSchema can, and that route acts on
+    // the caller alone. One update function rather than two.
+    accentColor: input.accentColor,
   };
 
   // One transaction, because a role replacement is a delete followed by a

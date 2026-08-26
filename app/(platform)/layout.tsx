@@ -4,6 +4,8 @@ import { PortalShell } from "@/components/layout/PortalShell";
 import { PLATFORM_NAV, filterNav } from "@/constants/navigation";
 import { getPlatformSession } from "@/lib/auth/platformSession";
 import { requirePlatformAdmin } from "@/lib/middleware/requirePlatformAdmin";
+import { getPlatformUser } from "@/lib/services/platformUser.service";
+import { accentAttribute, resolveAccent } from "@/lib/constants/platformAccent";
 
 /**
  * Platform Admin portal — the tenant onboarding and billing console.
@@ -55,34 +57,61 @@ export default async function PlatformLayout({ children }: { children: ReactNode
   // produce a null read here.
   if (!session) redirect("/super-admin/login");
 
+  // THIS operator's accent, read from their own PlatformUser row. resolveAccent
+  // turns null — and anything the application no longer recognises — into
+  // DEFAULT, so a malformed preference renders the console it always did rather
+  // than breaking it.
+  //
+  // A failed read is not an error state here: the console is not about
+  // appearance, and refusing to render it because a colour could not be
+  // resolved would be the wrong trade. It falls back to the default.
+  const operator = await getPlatformUser(guard.platformUserId);
+  const accent = resolveAccent(operator?.accentColor);
+
   return (
-    <PortalShell
-      // No notification bell: the Notification Centre is tenant-scoped, and a
-      // platform operator belongs to no tenant. Rendering it would issue a
-      // request that can only ever answer 401.
-      sections={filterNav(PLATFORM_NAV, ["PLATFORM_ADMIN"])}
-      user={{
-        name: session.email,
-        email: session.email,
-        roleLabel: "Platform Admin",
-      }}
-      portalName="Platform"
-      homeHref="/platform/dashboard"
-      // NOT /settings. That screen resolves its subject through
-      // getPortalSession() and reads a User row, a profile and notification
-      // preferences — all tenant records. A PlatformUser has none of them, so
-      // the account layout found no tenant session and redirected here to
-      // /login, which reads as being signed out despite edu_platform still
-      // being valid.
-      //
-      // This is the only page in the project that manages a platform
-      // operator's own account: it is guarded by getPlatformSession(), it
-      // names the operator it is signed in as, and it returns to the console
-      // when it is done. A tenant session reaches it and is sent to the
-      // platform sign-in, so it is no wider a door than the console itself.
-      settingsHref="/super-admin/change-password"
-    >
-      {children}
-    </PortalShell>
+    // The ONLY element in the application carrying this attribute, and the only
+    // place the accent is applied. CSS custom properties inherit, so the blocks
+    // in globals.css reach this subtree — the platform console — and nothing
+    // else. :root is untouched, so every tenant portal keeps resolving --primary
+    // exactly as before.
+    //
+    // DEFAULT emits no attribute at all (accentAttribute returns undefined), so
+    // an operator who never chose renders a DOM identical to the one before this
+    // feature existed.
+    <div data-platform-accent={accentAttribute(accent)} className="contents">
+      <PortalShell
+        // No notification bell: the Notification Centre is tenant-scoped, and a
+        // platform operator belongs to no tenant. Rendering it would issue a
+        // request that can only ever answer 401.
+        sections={filterNav(PLATFORM_NAV, ["PLATFORM_ADMIN"])}
+        user={{
+          name: session.email,
+          email: session.email,
+          roleLabel: "Platform Admin",
+        }}
+        portalName="Platform"
+        homeHref="/platform/dashboard"
+        // NOT /settings. That screen resolves its subject through
+        // getPortalSession() and reads a User row, a profile and notification
+        // preferences — all tenant records. A PlatformUser has none of them, so
+        // the account layout found no tenant session and redirected here to
+        // /login, which reads as being signed out despite edu_platform still
+        // being valid.
+        //
+        // The operator's own account screen. It lives in THIS route group, so it
+        // is guarded by the same requirePlatformAdmin() as every other console
+        // page and renders inside the same chrome — a tenant session never
+        // reaches it. /super-admin/change-password still exists and still serves
+        // the forced-change flow; this page reuses its form for the voluntary one.
+        settingsHref="/super-admin/settings"
+        // The console's own sign-out. The default clears the TENANT cookies,
+        // which a platform operator does not hold — it answered 200 and left
+        // edu_platform valid, so the top bar reported signing out while the
+        // console stayed open.
+        signOut="platform"
+      >
+        {children}
+      </PortalShell>
+    </div>
   );
 }

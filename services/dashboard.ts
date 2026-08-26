@@ -43,9 +43,15 @@ const SCAN_PAGE_CAP = 10;
 const UNSETTLED: readonly FeeDemand["status"][] = ["PENDING", "PARTIAL", "OVERDUE"];
 
 export interface DashboardSummary {
-  students: { total: number; active: number };
-  faculty: { total: number; active: number };
-  employees: { total: number };
+  /**
+   * null when the count could not be read — a refused or failed request, NOT a
+   * university with nobody in it. Every metric on this summary follows the same
+   * rule; students, faculty and employees were the three that previously
+   * reported 0 for a failure and so asserted something untrue.
+   */
+  students: { total: number | null; active: number | null };
+  faculty: { total: number | null; active: number | null };
+  employees: { total: number | null };
   /** Courses in the catalogue. null when the count could not be read. */
   courses: number | null;
   fees: {
