@@ -1018,6 +1018,12 @@ export interface CertificateTemplate {
   cssStyles: string | null;
   variables: Record<string, unknown> | null;
   isActive: boolean;
+  /** Version within this template's lineage. */
+  version: number;
+  /** Lineage root; null on the first version. */
+  parentTemplateId: string | null;
+  /** When this version became issuable; null while a draft. */
+  publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

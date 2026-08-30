@@ -28,6 +28,7 @@ import "server-only";
 
 import { prisma } from "@/lib/db/prisma";
 import { parseStoredBlocks, type CmsBlocks } from "@/lib/domain/cms/blocks";
+import { publicSiteOrigin } from "@/lib/domain/tenant/publicUrl";
 import {
   parseEnquireRail,
   parseFooterColumns,
@@ -200,4 +201,39 @@ export async function listPublicProgrammes(
     description: row.description,
     departmentName: row.department.name,
   }));
+}
+
+/**
+ * The address at which this university's public website is served.
+ *
+ * INPUT   : a tenant id and slug the CALLER has already established belong to
+ *           the authenticated session. Nothing here is taken from the request.
+ * RETURNS : an absolute URL, or null when the institution has no public address
+ *           configured — which the caller must show as "no address yet" rather
+ *           than papering over with the host it happens to be running on.
+ *
+ * WHY IT ASKS THE DATABASE
+ *   A custom domain only counts once it is verified AND active: an unverified
+ *   row is a domain somebody typed, not one that resolves to us, and linking to
+ *   it would send the administrator to whatever currently answers there. The
+ *   primary domain wins when an institution has several, which is what
+ *   `isPrimary` is for.
+ */
+export async function publicSiteUrl(tenant: {
+  id: string;
+  slug: string;
+}): Promise<string | null> {
+  const domain = await prisma.domain.findFirst({
+    where: { tenantId: tenant.id, verified: true, isActive: true },
+    orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+    select: { domain: true },
+  });
+
+  const origin = publicSiteOrigin({
+    slug: tenant.slug,
+    customDomain: domain?.domain,
+    rootDomain: process.env.NEXT_PUBLIC_ROOT_DOMAIN,
+  });
+
+  return origin === null ? null : `${origin}/`;
 }

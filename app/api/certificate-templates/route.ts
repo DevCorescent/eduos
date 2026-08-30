@@ -59,6 +59,11 @@ const CERTIFICATE_TEMPLATE_SELECT = {
   cssStyles: true,
   variables: true,
   isActive: true,
+  // Version metadata, so the list and the editor can show which version a
+  // template is and whether it has been published.
+  version: true,
+  parentTemplateId: true,
+  publishedAt: true,
   createdAt: true,
   updatedAt: true,
 } as const;

@@ -27,10 +27,11 @@
 //   on the server, because a client check is a convenience and never a control.
 // ============================================================================
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
+  Copy,
   ExternalLink,
   Eye,
   Plus,
@@ -67,8 +68,18 @@ export interface BlockEditorProps {
    * published state — it is copied into pages rather than served to anyone.
    */
   onPublish?: () => Promise<string | null>;
-  /** Opened in a new tab by the preview button. Omitted where there is none. */
-  previewUrl?: string;
+  /**
+   * Opened in a new tab by the preview button.
+   *
+   * NULL is meaningful and different from omitted: omitted means this surface
+   * has no preview at all (the platform template), null means this institution
+   * has no published website to look at yet. The second gets a disabled button
+   * and an explanation, because an enabled button that opens a sign-in form is
+   * worse than no button.
+   */
+  previewUrl?: string | null;
+  /** Why the preview is unavailable, shown when previewUrl is null. */
+  previewUnavailable?: string;
   /** What that button says. The template previews a template, not a "site". */
   previewLabel?: string;
   /** Shown above the editor, e.g. "Editing: Demo University". */
@@ -80,6 +91,7 @@ export function BlockEditor({
   onSave,
   onPublish,
   previewUrl,
+  previewUnavailable = "Publish your website to open it.",
   previewLabel = "View site",
   contextLabel,
 }: BlockEditorProps) {
@@ -101,6 +113,28 @@ export function BlockEditor({
    * a save that rejects it with a message nobody can act on.
    */
   const validation = useMemo(() => blocksSchema.safeParse(blocks), [blocks]);
+
+  /**
+   * Warn before a navigation that would discard edits.
+   *
+   * The browser's own dialog rather than a custom one: this fires for a tab
+   * close and a back button, neither of which any in-page confirmation can
+   * intercept. The text is the browser's — nothing may customise it — so the
+   * screen ALSO shows "unsaved changes" beside the section count, which is
+   * where an editor actually looks.
+   */
+  useEffect(() => {
+    if (!isDirty) return;
+
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      // Assigning returnValue is what older browsers still key off.
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [isDirty]);
 
   const update = useCallback((path: (string | number)[], value: unknown) => {
     setBlocks((current) => setAt({ list: current }, ["list", ...path], value).list as DraftBlock[]);
@@ -127,59 +161,120 @@ export function BlockEditor({
     setDirty(true);
   }, []);
 
+  /**
+   * Copy a section, inserted directly below the original.
+   *
+   * A NEW ID, DEEP-CLONED PROPS
+   *   Ids identify a block within the array and React keys off them, so a
+   *   duplicate that reused the id would make two sections that cannot be moved
+   *   or deleted independently. structuredClone rather than a spread because
+   *   props nest — a shallow copy would leave the two sections sharing one
+   *   items array, and editing either would edit both.
+   */
+  const duplicate = useCallback((index: number) => {
+    setBlocks((current) => {
+      const source = current[index];
+      if (!source) return current;
+
+      const copy: DraftBlock = {
+        ...structuredClone(source),
+        id: crypto.randomUUID(),
+      };
+
+      const next = [...current];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+    setDirty(true);
+  }, []);
+
   const remove = useCallback((index: number) => {
     setBlocks((current) => current.filter((_, i) => i !== index));
     setDirty(true);
   }, []);
 
-  async function handleSave() {
+  /**
+   * Persist the draft.
+   *
+   * RETURNS whether it succeeded, so publish can save first and stop if that
+   * save failed rather than publishing the older copy behind the editor's back.
+   *
+   * A failed save leaves `blocks` exactly as they are. Nothing here clears or
+   * refetches state on the error path: the edits are still on screen and the
+   * administrator can fix the problem and press Save again.
+   */
+  async function persist(): Promise<boolean> {
     if (!validation.success) {
       toast({
         variant: "error",
         title: "Fix the highlighted fields",
         description: "Some sections are incomplete, so nothing was saved.",
       });
-      return;
+      return false;
     }
 
-    setSaving(true);
     const error = await onSave(validation.data);
-    setSaving(false);
 
     if (error) {
-      toast({ variant: "error", title: "Could not save", description: error });
-      return;
+      toast({
+        variant: "error",
+        title: "Couldn't save your draft",
+        description: `${error} Your changes are still on this page.`,
+      });
+      return false;
     }
 
     setDirty(false);
-    toast({ variant: "success", title: "Draft saved" });
+    return true;
+  }
+
+  async function handleSave() {
+    // Re-entrancy guard. The button shows a spinner, but a double click can
+    // land two events before React has re-rendered it, and two concurrent PUTs
+    // of the same page is a write nobody asked for.
+    if (isSaving || isPublishing) return;
+
+    setSaving(true);
+    const saved = await persist();
+    setSaving(false);
+
+    if (saved) toast({ variant: "success", title: "Draft saved" });
   }
 
   async function handlePublish() {
     if (!onPublish) return;
+    if (isSaving || isPublishing) return;
 
-    if (isDirty) {
-      // Publishing takes what is SAVED, not what is on screen. Publishing over
-      // unsaved edits would put an older page live while the editor showed a
-      // newer one — the single most confusing thing this screen could do.
-      toast({
-        variant: "error",
-        title: "Save before publishing",
-        description: "Publishing makes the saved draft live, and you have unsaved changes.",
-      });
+    setPublishing(true);
+
+    // Publishing ships what is SAVED, so unsaved edits are saved first. The
+    // alternative — refusing until the admin presses Save — makes the two
+    // buttons a sequence they have to know about, and publishing an older page
+    // while the editor shows a newer one is the single most confusing thing
+    // this screen could do. If that save fails, publishing stops here: nothing
+    // public changes, and the error already named the reason.
+    if (isDirty && !(await persist())) {
+      setPublishing(false);
       return;
     }
 
-    setPublishing(true);
     const error = await onPublish();
     setPublishing(false);
 
     if (error) {
-      toast({ variant: "error", title: "Could not publish", description: error });
+      toast({
+        variant: "error",
+        title: "Couldn't publish the website",
+        description: `${error} Nothing was changed publicly.`,
+      });
       return;
     }
 
-    toast({ variant: "success", title: "Your website is live" });
+    toast({
+      variant: "success",
+      title: "Published",
+      description: "Your website is live at your public address.",
+    });
   }
 
   return (
@@ -194,16 +289,27 @@ export function BlockEditor({
             )}
             <p className="text-sm text-foreground">
               {blocks.length} section{blocks.length === 1 ? "" : "s"}
-              {isDirty && <span className="ml-2 text-warning">· unsaved changes</span>}
+              {isDirty && (
+                <span className="ml-2 font-medium text-warning">· Unsaved changes</span>
+              )}
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {previewUrl && (
+            {previewUrl !== undefined && (
               <Button
                 variant="outlined"
                 size="sm"
-                onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}
+                // Disabled rather than hidden when there is nothing to open: a
+                // button that disappears reads as a bug, and the title says why.
+                disabled={!previewUrl}
+                title={previewUrl ? previewUrl : previewUnavailable}
+                onClick={() => {
+                  if (!previewUrl) return;
+                  // noopener so the opened tab cannot reach back through
+                  // window.opener into an authenticated admin session.
+                  window.open(previewUrl, "_blank", "noopener,noreferrer");
+                }}
                 leftIcon={<ExternalLink className="size-4" />}
               >
                 {previewLabel}
@@ -285,6 +391,12 @@ export function BlockEditor({
                         onClick={() => move(index, 1)}
                       >
                         <ChevronDown className="size-4" />
+                      </IconButton>
+                      <IconButton
+                        label="Duplicate section"
+                        onClick={() => duplicate(index)}
+                      >
+                        <Copy className="size-4" />
                       </IconButton>
                       <IconButton label="Remove section" destructive onClick={() => remove(index)}>
                         <Trash2 className="size-4" />

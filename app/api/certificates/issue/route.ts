@@ -22,6 +22,8 @@ import { generateIdentifier } from "@/lib/services/identifier.service";
 import { recordAudit } from "@/lib/services/audit.service";
 import { readRequestOrigin } from "@/lib/utils/requestOrigin";
 import { AUDIT_ACTIONS, AUDIT_RESOURCES } from "@/lib/constants/audit";
+import { AppError } from "@/lib/errors/AppError";
+import { handleRouteError } from "@/lib/utils/api-response";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 // PHASE 27 student event "Certificate Issued". Emitted after commit.
@@ -98,7 +100,9 @@ export async function POST(request: NextRequest) {
     const [template, student] = await Promise.all([
       prisma.certificateTemplate.findFirst({
         where: { id: scalars.templateId, tenantId: tenant.id },
-        select: { id: true },
+        // htmlTemplate/cssStyles/version are read so the design can be
+        // SNAPSHOT onto the certificate — see the create below.
+        select: { id: true, htmlTemplate: true, cssStyles: true, version: true },
       }),
       prisma.student.findFirst({
         where: { id: scalars.studentId, tenantId: tenant.id },
@@ -157,6 +161,16 @@ export async function POST(request: NextRequest) {
           ...scalars,
           certificateNo,
           data: data as Prisma.InputJsonValue | undefined,
+          // The design, frozen at this instant. An official document must not
+          // change afterwards, and rendering from templateId would mean a
+          // redesign in 2027 silently rewrote a certificate issued today.
+          // Versioning keeps the history readable; THIS is what makes the
+          // document itself immutable.
+          templateSnapshot: {
+            version: template.version,
+            html: template.htmlTemplate,
+            css: template.cssStyles,
+          } as Prisma.InputJsonValue,
           tenantId: tenant.id,
         },
         select: CERTIFICATE_SELECT,
@@ -217,6 +231,15 @@ export async function POST(request: NextRequest) {
           status: 404,
         });
       }
+    }
+
+    // An AppError carries a message written for the caller and a status that
+    // says what to do about it. The identifier engine raises one when the
+    // institution has no CERTIFICATE sequence configured — a setting an
+    // administrator can fix in a minute — and flattening that to "Internal
+    // server error" sent them looking for a fault that does not exist.
+    if (err instanceof AppError) {
+      return handleRouteError("POST /api/certificates/issue", err);
     }
 
     console.error("[POST /api/certificates/issue]", err);

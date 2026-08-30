@@ -11,34 +11,62 @@
 //   page they belong to — which here is "the caller's own", because the API
 //   resolves the tenant from the host and takes no id. So there is nothing to
 //   pass and nothing to get wrong.
+//
+// WHY IT REFRESHES THE ROUTE
+//   The status badge and the "last saved / last published" line are rendered by
+//   the Server Component above, from the row. Without a refresh they would
+//   still describe the state the page loaded in — an admin would publish, see
+//   "Published" in the toast and "Unpublished changes" in the badge, and have no
+//   way to tell which was true. router.refresh() re-runs the server read and
+//   leaves this component's own state alone, so the edits on screen survive it.
 // ============================================================================
 
+import { useRouter } from "next/navigation";
 import type { CmsBlocks } from "@/lib/domain/cms/blocks";
 import { BlockEditor } from "@/components/cms/BlockEditor";
 import { publishMyPage, saveMyPage } from "@/services/cms";
 
 export interface WebsiteEditorProps {
   initialBlocks: CmsBlocks;
-  /** Where "View site" points — the institution's own hostname. */
-  previewUrl: string;
+  /**
+   * The institution's own public address, or null when it has no published
+   * website yet — the editor disables "View site" and says why rather than
+   * opening a page that redirects visitors to the staff sign-in form.
+   */
+  previewUrl: string | null;
+  /** Shown on the disabled button when previewUrl is null. */
+  previewUnavailable: string;
 }
 
-export function WebsiteEditor({ initialBlocks, previewUrl }: WebsiteEditorProps) {
+export function WebsiteEditor({
+  initialBlocks,
+  previewUrl,
+  previewUnavailable,
+}: WebsiteEditorProps) {
+  const router = useRouter();
+
   return (
     <BlockEditor
       initialBlocks={initialBlocks}
       previewUrl={previewUrl}
+      previewUnavailable={previewUnavailable}
       // Both handlers return an error MESSAGE or null. The editor owns the
       // toast; this owns the transport. Returning the envelope's own error text
       // means the reader sees what the API actually said, not a generic
       // "something went wrong" invented here.
       onSave={async (blocks) => {
         const result = await saveMyPage({ blocks });
-        return result.success ? null : result.error;
+        if (!result.success) return result.error;
+
+        router.refresh();
+        return null;
       }}
       onPublish={async () => {
         const result = await publishMyPage();
-        return result.success ? null : result.error;
+        if (!result.success) return result.error;
+
+        router.refresh();
+        return null;
       }}
     />
   );
