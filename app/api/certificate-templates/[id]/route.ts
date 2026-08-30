@@ -17,6 +17,7 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
+import { applyTemplateEdit } from "@/lib/services/certificateTemplateVersions";
 import {
   certificateTemplateIdParamSchema,
   updateCertificateTemplateSchema,
@@ -56,6 +57,11 @@ const CERTIFICATE_TEMPLATE_SELECT = {
   cssStyles: true,
   variables: true,
   isActive: true,
+  // Version metadata, so the list and the editor can show which version a
+  // template is and whether it has been published.
+  version: true,
+  parentTemplateId: true,
+  publishedAt: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -295,24 +301,41 @@ export async function PATCH(
       return NextResponse.json(fail("Certificate template not found", "NOT_FOUND"), { status: 404 });
     }
 
-    const { variables, ...scalars } = parsedBody.data;
+    // The split into scalars and the JSON column moved into
+    // applyTemplateEdit, which now owns the write: it decides between updating
+    // in place and forking a new version, and both paths need the same shape.
+    // The tenant scoping it applies is the same — id AND tenantId — so the
+    // write still cannot reach another university's row.
+    // GAP — template versioning. A design edit to a template that has ALREADY
+    // ISSUED certificates writes a NEW version rather than mutating the row a
+    // graduate's document points at. A status-only change still applies in
+    // place. See lib/services/certificateTemplateVersions.ts for the rule.
+    //
+    // The tenant is the one requireTenant resolved, never a value from the
+    // request, so this cannot reach another university's lineage.
+    const edit = await applyTemplateEdit(
+      tenantGuard.tenant.id,
+      parsedParams.data.id,
+      parsedBody.data as never
+    );
 
-    // Scoped by tenantId as well as id, so the write cannot reach another
-    // tenant's row even if the id were guessed. Single statement, so the update
-    // is atomic on its own. The scalars spread carries only the keys the body
-    // actually supplied, so every omitted column keeps its stored value. The JSON
-    // column is cast at this boundary because Zod infers an unknown-valued
-    // record, which Prisma's InputJsonValue does not accept directly.
-    const certificateTemplate = await prisma.certificateTemplate.update({
-      where: { id: certificateTemplateId, tenantId: tenant.id },
-      data: {
-        ...scalars,
-        variables: variables as Prisma.InputJsonValue | undefined,
-      },
+    if (!edit.ok) {
+      return NextResponse.json(fail("Certificate template not found", "NOT_FOUND"), { status: 404 });
+    }
+
+    const certificateTemplate = await prisma.certificateTemplate.findFirst({
+      where: { id: edit.template.id, tenantId: tenantGuard.tenant.id },
       select: CERTIFICATE_TEMPLATE_SELECT,
     });
 
-    return NextResponse.json(ok(certificateTemplate, "Certificate template updated"));
+    return NextResponse.json(
+      ok(
+        certificateTemplate,
+        edit.forked
+          ? `Saved as version ${edit.template.version}. Certificates already issued keep the design they were issued with.`
+          : "Certificate template updated"
+      )
+    );
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       // Currently unreachable — CertificateTemplate declares no unique

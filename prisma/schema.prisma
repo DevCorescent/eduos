@@ -2530,12 +2530,30 @@ model CertificateTemplate {
   cssStyles    String?
   variables    Json?
   isActive     Boolean         @default(true)
+
+  /// Version number within one template's lineage, starting at 1.
+  ///
+  /// Editing a template that has already ISSUED something does not change it —
+  /// a new row is written with version + 1, because a certificate handed to a
+  /// graduate must keep the design it was issued under.
+  version Int @default(1)
+
+  /// The first row of this lineage. Null on that first row itself.
+  ///
+  /// Lineage rather than a self-referential chain so "every version of this
+  /// template" is one indexed query instead of a walk.
+  parentTemplateId String?
+
+  /// When this version became issuable. Null while it is a draft.
+  publishedAt DateTime?
+
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   certificates Certificate[]
   tenant       Tenant          @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
+  @@index([parentTemplateId])
 }
 
 model Certificate {
@@ -2546,6 +2564,19 @@ model Certificate {
   certificateNo String              @unique
   type          CertificateType
   data          Json?
+
+  /// The template EXACTLY as it was when this certificate was issued —
+  /// { version, html, css }.
+  ///
+  /// The point of an official document is that it does not change. Rendering
+  /// from templateId would mean a design edit in 2027 silently rewrote a
+  /// certificate issued in 2026, so the markup travels with the certificate
+  /// instead. Nullable: rows issued before this column existed keep rendering
+  /// from their template, which is the best that can be said of them.
+  ///
+  /// NOT exposed by the public verification endpoint — see its own SELECT.
+  templateSnapshot Json?
+
   issuedAt      DateTime            @default(now())
   expiresAt     DateTime?
   pdfUrl        String?

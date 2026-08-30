@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Alert } from "@/components/ui/Alert";
@@ -14,6 +13,13 @@ import {
 } from "@/lib/domain/cms/site";
 import { findPage, findSite } from "@/lib/repositories/cms.repository";
 import { resolveTenantForRequest } from "@/lib/services/tenant";
+import { publicSiteUrl } from "@/lib/services/site";
+import {
+  PUBLISH_STATE_LABEL,
+  isPubliclyVisible,
+  publishState,
+} from "@/lib/domain/cms/publishState";
+import { formatRelative } from "@/utils/format";
 import { WebsiteEditor } from "./WebsiteEditor";
 import { SiteChromeForm } from "./SiteChromeForm";
 
@@ -76,13 +82,29 @@ export default async function WebsitePage() {
     typography: parseTypography(site?.typography),
   };
 
-  // The institution's own hostname, so "View site" opens the page as a visitor
-  // sees it rather than as the portal does. Built from the request's own host
-  // because that is the address this administrator actually reached us on.
-  const headerList = await headers();
-  const host = headerList.get("x-forwarded-host") ?? headerList.get("host") ?? "";
-  const proto = headerList.get("x-forwarded-proto") ?? "http";
-  const previewUrl = host ? `${proto}://${host}/` : "/";
+  // WHERE "VIEW SITE" POINTS
+  //   The institution's own public address — its verified custom domain, or its
+  //   subdomain of the platform root — resolved from the TENANT, never from the
+  //   host this administrator happens to be on. On the platform root host an
+  //   anonymous visitor resolves to no tenant at all, so the old
+  //   request-host link handed the admin a redirect to the staff sign-in form
+  //   and called it their website.
+  //
+  //   The tenant comes from the session-backed resolver above, so a client
+  //   cannot ask for another institution's address by any means.
+  const siteUrl = await publicSiteUrl(tenant);
+
+  const state = publishState(page);
+  const live = isPubliclyVisible(state);
+
+  // Offered only when there is something published to look at. A draft is
+  // private by design, and "View site" must never be the thing that shows it.
+  const previewUrl = live ? siteUrl : null;
+
+  const previewUnavailable =
+    siteUrl === null
+      ? "No public address is configured for your institution yet."
+      : "No published website is available yet. Press Publish to make this page live.";
 
   return (
     <>
@@ -90,39 +112,82 @@ export default async function WebsitePage() {
         title="Website"
         subtitle="Your public landing page — what visitors see at your own address."
         action={
-          page ? (
-            <StatusBadge
-              label={
-                page.status === "PUBLISHED"
-                  ? "Live"
-                  : page.status === "ARCHIVED"
-                    ? "Taken down"
-                    : "Draft"
-              }
-              variant={page.status === "PUBLISHED" ? "success" : "neutral"}
-              size="md"
-            />
-          ) : undefined
+          <StatusBadge
+            label={PUBLISH_STATE_LABEL[state]}
+            // Amber for unpublished changes: it is neither a healthy "live and
+            // current" nor a failure — it is work waiting to go out, and the
+            // badge is the only place that distinction is visible.
+            variant={
+              state === "PUBLISHED"
+                ? "success"
+                : state === "UNPUBLISHED_CHANGES"
+                  ? "warning"
+                  : "neutral"
+            }
+            size="md"
+          />
         }
       />
 
-      {!page && (
+      {/* The two facts an editor needs before pressing anything: when this was
+          last saved, and when visitors last saw a change. Rendered from the row
+          rather than from client state, so they cannot drift from the truth. */}
+      <p className="-mt-2 mb-6 text-sm text-muted-foreground">
+        Last saved {page ? formatRelative(page.updatedAt.toISOString()) : "never"}
+        {" · "}
+        Last published{" "}
+        {page?.publishedAt ? formatRelative(page.publishedAt.toISOString()) : "never"}
+      </p>
+
+      {state === "NEVER_PUBLISHED" && (
         <Alert variant="info" title="Your website is not published yet" className="mb-6">
           Build your page below and press Publish. Until then, your address sends
           visitors to the sign-in screen.
         </Alert>
       )}
 
-      {page?.status === "PUBLISHED" && (
-        <Alert variant="info" title="Editing a live page" className="mb-6">
-          Changes are saved as a draft and stay private until you publish them.{" "}
-          <Link href={previewUrl} className="font-medium underline" target="_blank">
-            See what is live now
+      {state === "UNPUBLISHED_CHANGES" && (
+        <Alert variant="warning" title="You have changes that visitors cannot see yet" className="mb-6">
+          Your saved draft differs from the published website. Visitors still see
+          the version you published{" "}
+          {page?.publishedAt ? formatRelative(page.publishedAt.toISOString()) : "earlier"}.
+          Press Publish to make these changes live.{" "}
+          {previewUrl && (
+            <Link href={previewUrl} className="font-medium underline" target="_blank" rel="noopener noreferrer">
+              See what is live now
+            </Link>
+          )}
+        </Alert>
+      )}
+
+      {state === "PUBLISHED" && previewUrl && (
+        <Alert variant="info" title="Your website is live" className="mb-6">
+          Everything you have saved is published.{" "}
+          <Link href={previewUrl} className="font-medium underline" target="_blank" rel="noopener noreferrer">
+            Open your website
           </Link>
         </Alert>
       )}
 
-      <WebsiteEditor initialBlocks={blocks} previewUrl={previewUrl} />
+      {state === "ARCHIVED" && (
+        <Alert variant="warning" title="Your website has been taken down" className="mb-6">
+          Visitors to your address are sent to the sign-in screen. Press Publish
+          to put it back online.
+        </Alert>
+      )}
+
+      {live && siteUrl === null && (
+        <Alert variant="warning" title="No public address is configured" className="mb-6">
+          Your page is published, but your institution has no verified domain or
+          platform subdomain, so there is no address to open it at.
+        </Alert>
+      )}
+
+      <WebsiteEditor
+        initialBlocks={blocks}
+        previewUrl={previewUrl}
+        previewUnavailable={previewUnavailable}
+      />
 
       <div className="mt-8">
         <SiteChromeForm initialValue={chromeValue} />

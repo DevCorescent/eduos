@@ -206,11 +206,12 @@ export async function listCertificateTemplates(
   );
 }
 
-export async function getCertificateTemplate(
-  id: string
-): Promise<ApiResponse<CertificateTemplate>> {
-  return apiRequest<CertificateTemplate>(`/api/certificate-templates/${id}`);
-}
+// getCertificateTemplate lives in services/certificateTemplates.ts, which the
+// builder's client components can import — finance.ts pulls in server-only code
+// through ./reference. Re-exported here so existing server callers are
+// unchanged and there is still exactly one implementation.
+export { getCertificateTemplate } from "./certificateTemplates";
+
 
 // --- Certificates -----------------------------------------------------------
 

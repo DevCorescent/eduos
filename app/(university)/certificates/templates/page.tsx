@@ -11,6 +11,7 @@ import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/Badge";
 import { buttonStyles } from "@/components/ui/Button";
+import { TemplateRowActions } from "./TemplateRowActions";
 import { Card } from "@/components/ui/Card";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { listCertificateTemplates, listCertificates } from "@/services/finance";
@@ -40,9 +41,17 @@ export default async function CertificateTemplatesPage({
       title="Certificates"
       subtitle="Templates the university issues from, and the documents issued so far."
       action={
-        <Link href="/certificates/issue" className={buttonStyles()}>
-          Issue certificate
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/certificates/templates/new"
+            className={buttonStyles({ variant: "secondary" })}
+          >
+            Create template
+          </Link>
+          <Link href="/certificates/issue" className={buttonStyles()}>
+            Issue certificate
+          </Link>
+        </div>
       }
     />
   );
@@ -104,10 +113,23 @@ export default async function CertificateTemplatesPage({
       header: "Status",
       render: (template) => (
         <StatusBadge
-          label={template.isActive ? "Active" : "Inactive"}
+          label={template.isActive ? "Active" : "Draft"}
           variant={template.isActive ? "success" : "neutral"}
         />
       ),
+    },
+    {
+      key: "updatedAt",
+      header: "Last updated",
+      render: (template) => (
+        <span className="text-muted-foreground">{formatDate(template.updatedAt)}</span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "",
+      align: "right",
+      render: (template) => <TemplateRowActions template={template} />,
     },
   ];
 
@@ -156,6 +178,21 @@ export default async function CertificateTemplatesPage({
           label={row.isRevoked ? "Revoked" : "Valid"}
           variant={row.isRevoked ? "danger" : "success"}
         />
+      ),
+    },
+    {
+      key: "view",
+      header: <span className="sr-only">View</span>,
+      render: (row) => (
+        // The document itself, rendered from the design it was ISSUED with.
+        // Separate from Verify below, which is the public check an employer
+        // performs against the certificate number.
+        <Link
+          href={`/certificates/issued/${row.id}`}
+          className="text-xs font-medium text-primary hover:underline"
+        >
+          View
+        </Link>
       ),
     },
     {
