@@ -62,7 +62,28 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q } = parsed.data;
+
+    // The tenant predicate is never optional and never overridable: it comes
+    // from requireTenant, and the search is composed INSIDE it. So ?q can only
+    // ever remove rows from an already tenant-scoped set — there is no value of
+    // q that reaches another institution's schools.
+    //
+    // `mode: "insensitive"` is what makes "ENGINEERING" and "engineering" one
+    // search; `contains` is what makes "eng" match "School of Engineering"
+    // rather than only a name equal to it.
+    const where: Prisma.SchoolWhereInput = {
+      tenantId: tenant.id,
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" as const } },
+              { code: { contains: q, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    };
+
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The explicit ordering is required for correctness, not
@@ -70,12 +91,12 @@ export async function GET(request: NextRequest) {
     // skip rows.
     const [schools, total] = await prisma.$transaction([
       prisma.school.findMany({
-        where: { tenantId: tenant.id },
+        where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.school.count({ where: { tenantId: tenant.id } }),
+      prisma.school.count({ where }),
     ]);
 
     return NextResponse.json(

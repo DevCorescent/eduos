@@ -16,10 +16,34 @@ import { paginationQuerySchema } from "./pagination";
 /**
  * Query schema for GET /api/schools.
  *
- * Pagination is the shared contract; no school-specific filter is defined,
- * because README Phase 3 specifies listing only.
+ * Pagination is the shared contract, extended with an optional free-text ?q —
+ * the same contract GET /api/campuses uses, so the two setup collections are
+ * searched the same way and neither has to be learned separately.
+ *
+ * WHAT ?q SEARCHES
+ *   Name and code: the two required, identifying columns on School, and the
+ *   two an administrator uses to refer to one. deanName and email are people
+ *   and contact details rather than identifiers — matching a school because a
+ *   fragment of its dean's name contained the typed letters would be a result
+ *   nobody could account for.
+ *
+ * AN EMPTY ?q IS "NO SEARCH", NOT AN ERROR
+ *   Clearing the box removes the key entirely, but a hand-edited or bookmarked
+ *   "?q=" must not answer 400 for what is plainly a request for the whole list.
+ *   It is normalised to undefined so the route has one shape to reason about.
+ *
+ * tenantId is deliberately absent, exactly as in the create schema: the tenant
+ * comes from requireTenant, so no query can widen the search past its own
+ * institution.
  */
-export const listSchoolsQuerySchema = paginationQuerySchema;
+export const listSchoolsQuerySchema = paginationQuerySchema.extend({
+  q: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .transform((value) => (value === undefined || value === "" ? undefined : value)),
+});
 
 export type ListSchoolsQuery = z.infer<typeof listSchoolsQuerySchema>;
 

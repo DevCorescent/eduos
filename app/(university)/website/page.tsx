@@ -12,6 +12,8 @@ import {
   parseTypography,
 } from "@/lib/domain/cms/site";
 import { findPage, findSite } from "@/lib/repositories/cms.repository";
+import { prisma } from "@/lib/db/prisma";
+import { defaultLandingBlocks } from "@/lib/services/cmsProvisioning";
 import { resolveTenantForRequest } from "@/lib/services/tenant";
 import { publicSiteUrl } from "@/lib/services/site";
 import {
@@ -61,10 +63,28 @@ export default async function WebsitePage() {
   // path of a screen that cannot render until both have arrived.
   const [page, site] = await Promise.all([findPage(tenant.id), findSite(tenant.id)]);
 
-  // The draft is what an editor edits. An institution that has never opened
-  // this screen has no row at all, which is an ordinary starting state: the
-  // editor renders an empty canvas and the row appears on first save.
-  const blocks = parseStoredBlocks(page?.draftBlocks);
+  // The draft is what an editor edits.
+  //
+  // NO ROW AT ALL is the uninitialised state — the row appears on first save,
+  // so an institution that has never opened this screen has none. Universities
+  // provisioned before the CMS was wired into onboarding are all in it, and
+  // what they used to get was an empty canvas: a Website screen reading "0
+  // sections", with no indication that a default site existed to start from.
+  //
+  // Those open on a COPY OF THE DEFAULT TEMPLATE instead, held in the editor
+  // and marked unsaved. Nothing is written here: this is a read, and the
+  // institution's page is created by the same first Save as before. An admin
+  // who wants an empty page can still delete the sections and save.
+  //
+  // A row that EXISTS with no sections is deliberately left alone. It can only
+  // have been produced by somebody saving an empty page, and silently
+  // refilling it would overwrite a draft that a person chose.
+  const storedBlocks = parseStoredBlocks(page?.draftBlocks);
+  const isUninitialised = page === null;
+  const blocks = isUninitialised ? await defaultLandingBlocks(prisma) : storedBlocks;
+
+  // True only when the content on screen has never been written anywhere.
+  const startsUnsaved = isUninitialised && blocks.length > 0;
 
   // Parsed here rather than handed over raw. The chrome editor validates
   // against the route's own schema, and a Json column holding a shape that
@@ -139,10 +159,19 @@ export default async function WebsitePage() {
         {page?.publishedAt ? formatRelative(page.publishedAt.toISOString()) : "never"}
       </p>
 
-      {state === "NEVER_PUBLISHED" && (
+      {state === "NEVER_PUBLISHED" && !startsUnsaved && (
         <Alert variant="info" title="Your website is not published yet" className="mb-6">
           Build your page below and press Publish. Until then, your address sends
           visitors to the sign-in screen.
+        </Alert>
+      )}
+
+      {startsUnsaved && (
+        <Alert variant="info" title="This is the standard starting website" className="mb-6">
+          Your institution has not built a page yet, so the sections below are a
+          copy of the platform&apos;s default site for you to edit. Nothing has
+          been saved and nothing is public — press Save draft to keep it, then
+          Publish when you want visitors to see it.
         </Alert>
       )}
 
@@ -187,6 +216,7 @@ export default async function WebsitePage() {
         initialBlocks={blocks}
         previewUrl={previewUrl}
         previewUnavailable={previewUnavailable}
+        initiallyUnsaved={startsUnsaved}
       />
 
       <div className="mt-8">

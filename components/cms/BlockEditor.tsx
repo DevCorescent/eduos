@@ -84,6 +84,17 @@ export interface BlockEditorProps {
   previewLabel?: string;
   /** Shown above the editor, e.g. "Editing: Demo University". */
   contextLabel?: string;
+  /**
+   * Start in the unsaved state.
+   *
+   * Set when `initialBlocks` did not come from a saved record — an institution
+   * with no page yet, whose editor is pre-filled with the platform's default
+   * template. The content is real and on screen, but nothing has been written,
+   * so the editor must say "Unsaved changes", must warn before the tab closes,
+   * and Publish must save first rather than publishing a page that does not
+   * exist yet.
+   */
+  initiallyUnsaved?: boolean;
 }
 
 export function BlockEditor({
@@ -94,6 +105,7 @@ export function BlockEditor({
   previewUnavailable = "Publish your website to open it.",
   previewLabel = "View site",
   contextLabel,
+  initiallyUnsaved = false,
 }: BlockEditorProps) {
   const { toast } = useToast();
 
@@ -103,7 +115,7 @@ export function BlockEditor({
   const [openId, setOpenId] = useState<string | null>(initialBlocks[0]?.id ?? null);
   const [isSaving, setSaving] = useState(false);
   const [isPublishing, setPublishing] = useState(false);
-  const [isDirty, setDirty] = useState(false);
+  const [isDirty, setDirty] = useState(initiallyUnsaved);
 
   /**
    * Client-side validation of the whole page, recomputed as it is edited.

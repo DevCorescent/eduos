@@ -66,7 +66,40 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q, campusId, schoolId } = parsed.data;
+
+    // The tenant predicate is never optional and never overridable: it comes
+    // from requireTenant, and every filter is composed INSIDE it.
+    //
+    // THAT IS ALSO WHAT MAKES THE ID FILTERS SAFE. campusId and schoolId are
+    // foreign keys supplied by the client, so either could name a row in a
+    // different university. Because tenantId is ANDed alongside them, such an
+    // id matches no department rather than reaching across the boundary — the
+    // answer is an empty list, not another institution's data.
+    //
+    // The three conditions are ANDed, not ORed: the toolbar reads as a
+    // narrowing — this text, in this campus, in this school — and an OR would
+    // widen the result the moment a second control was touched.
+    //
+    // `mode: "insensitive"` is what makes "COMPUTER" and "computer" one search;
+    // `contains` is what makes "comp" match "Computer Science" rather than only
+    // a name equal to it.
+    const where: Prisma.DepartmentWhereInput = {
+      tenantId: tenant.id,
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" as const } },
+              { code: { contains: q, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+      // schoolId is nullable, so filtering by a school correctly excludes
+      // standalone departments — they belong to no school to match.
+      ...(campusId ? { campusId } : {}),
+      ...(schoolId ? { schoolId } : {}),
+    };
+
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The explicit ordering is required for correctness, not
@@ -74,12 +107,12 @@ export async function GET(request: NextRequest) {
     // skip rows. Ordering matches the campus and school listings.
     const [departments, total] = await prisma.$transaction([
       prisma.department.findMany({
-        where: { tenantId: tenant.id },
+        where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.department.count({ where: { tenantId: tenant.id } }),
+      prisma.department.count({ where }),
     ]);
 
     return NextResponse.json(

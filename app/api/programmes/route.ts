@@ -67,7 +67,38 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q, departmentId, type } = parsed.data;
+
+    // The tenant predicate is never optional and never overridable: it comes
+    // from requireTenant, and every filter is composed INSIDE it.
+    //
+    // THAT IS ALSO WHAT MAKES THE ID FILTER SAFE. departmentId is a foreign key
+    // supplied by the client, so it could name a department in a different
+    // university. Because tenantId is ANDed alongside it, such an id matches no
+    // programme rather than reaching across the boundary — the answer is an
+    // empty list, not another institution's data.
+    //
+    // The conditions are ANDed, not ORed: the toolbar reads as a narrowing —
+    // this text, in this department, of this type — and an OR would widen the
+    // result the moment a second control was touched.
+    //
+    // `mode: "insensitive"` is what makes "COMPUTER" and "computer" one search;
+    // `contains` is what makes "comp" match "Computer Science" rather than only
+    // a name equal to it.
+    const where: Prisma.ProgrammeWhereInput = {
+      tenantId: tenant.id,
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" as const } },
+              { code: { contains: q, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+      ...(departmentId ? { departmentId } : {}),
+      ...(type ? { type } : {}),
+    };
+
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The explicit ordering is required for correctness, not
@@ -75,12 +106,12 @@ export async function GET(request: NextRequest) {
     // skip rows. Ordering matches every previous collection endpoint.
     const [programmes, total] = await prisma.$transaction([
       prisma.programme.findMany({
-        where: { tenantId: tenant.id },
+        where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.programme.count({ where: { tenantId: tenant.id } }),
+      prisma.programme.count({ where }),
     ]);
 
     return NextResponse.json(
