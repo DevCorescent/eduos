@@ -8,7 +8,12 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { hasUnpublishedChanges, publishState, isPubliclyVisible } from "./publishState";
+import {
+  hasUnpublishedChanges,
+  publishState,
+  isPubliclyVisible,
+  PUBLISH_STATE_LABEL,
+} from "./publishState";
 
 const blocks = [{ id: "a", type: "hero", props: { headline: "Hello" } }];
 
@@ -113,5 +118,15 @@ describe("isPubliclyVisible", () => {
     assert.equal(isPubliclyVisible("UNPUBLISHED_CHANGES"), true);
     assert.equal(isPubliclyVisible("NEVER_PUBLISHED"), false);
     assert.equal(isPubliclyVisible("ARCHIVED"), false);
+  });
+});
+
+describe("PUBLISH_STATE_LABEL", () => {
+  it("says the public is seeing the DEFAULT site, not that nothing exists", () => {
+    // The distinction matters: a visitor to an unpublished university's address
+    // gets the platform default, so "Draft" would understate what is public.
+    assert.equal(PUBLISH_STATE_LABEL.NEVER_PUBLISHED, "Using default website");
+    assert.equal(PUBLISH_STATE_LABEL.PUBLISHED, "Published");
+    assert.equal(PUBLISH_STATE_LABEL.UNPUBLISHED_CHANGES, "Unpublished changes");
   });
 });

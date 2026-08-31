@@ -37,6 +37,11 @@ export interface WebsiteEditorProps {
   /** Shown on the disabled button when previewUrl is null. */
   previewUnavailable: string;
   /**
+   * What the button says. It names WHICH site a click opens — the institution's
+   * published page, or the default one visitors see until it publishes.
+   */
+  previewLabel?: string;
+  /**
    * True when the blocks on screen are the default template rather than a
    * saved draft — see the page's own note. The editor then reports unsaved
    * changes and Publish saves before it publishes.
@@ -48,6 +53,7 @@ export function WebsiteEditor({
   initialBlocks,
   previewUrl,
   previewUnavailable,
+  previewLabel,
   initiallyUnsaved,
 }: WebsiteEditorProps) {
   const router = useRouter();
@@ -57,6 +63,7 @@ export function WebsiteEditor({
       initialBlocks={initialBlocks}
       previewUrl={previewUrl}
       previewUnavailable={previewUnavailable}
+      previewLabel={previewLabel}
       initiallyUnsaved={initiallyUnsaved}
       // Both handlers return an error MESSAGE or null. The editor owns the
       // toast; this owns the transport. Returning the envelope's own error text
