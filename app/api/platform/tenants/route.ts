@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
+import { Prisma } from "@/app/generated/prisma/client";
 import { requirePlatformAdmin } from "@/lib/middleware/requirePlatformAdmin";
 import { provisionTenantSchema, listTenantsQuerySchema } from "@/lib/validations/platform";
 import {
@@ -26,7 +27,10 @@ import { validationDetails } from "@/lib/utils/validation-error";
 // GET
 // ACCESS     : PLATFORM_ADMIN (platform session — W1.2)
 // VALIDATION : listTenantsQuerySchema — ?page (default 1) and ?limit
-//              (default 20, max 100), both coerced from search params.
+//              (default 20, max 100), both coerced from search params, plus the
+//              three filters the directory's controls send: ?q over name and
+//              slug, ?status and ?type. Each is optional, and an empty value
+//              means "no filter" rather than an invalid enum member.
 // FLOW       : Authorise → validate query → read one page of tenants alongside
 //              the total count in a single transaction → return both.
 //              requireTenant is deliberately NOT used: platform routes are
@@ -55,19 +59,50 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q, status, type } = parsed.data;
+
+    // `mode: "insensitive"` is what makes "AKTU", "Aktu" and "aktu" one search;
+    // `contains` is what makes "tech" match "Technical University" rather than
+    // only a name equal to it. The same shape GET /api/campuses and
+    // GET /api/programmes already use, so the collections behave identically.
+    //
+    // An omitted status or type contributes NOTHING to the predicate, which is
+    // exactly what "All statuses" and "All types" mean — the controls remove
+    // their key from the URL, the schema turns an empty one into undefined, and
+    // the spread below then adds no restriction at all.
+    //
+    // This is a PLATFORM collection: it deliberately spans every institution,
+    // so there is no tenant predicate here and none is implied. requirePlatformAdmin
+    // above is what makes that safe.
+    const where: Prisma.TenantWhereInput = {
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" as const } },
+              { slug: { contains: q, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+      ...(status ? { status } : {}),
+      ...(type ? { type } : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two
     // reads and leave the page metadata inconsistent with the rows returned.
     // The explicit ordering is required for correctness, not presentation:
     // offset pagination over an unordered result can repeat or skip rows.
+    //
+    // The SAME `where` on both: a count taken over a wider predicate than the
+    // page would report a total the list cannot fill, and pagination would then
+    // offer pages that come back empty.
     const [tenants, total] = await prisma.$transaction([
       prisma.tenant.findMany({
+        where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.tenant.count(),
+      prisma.tenant.count({ where }),
     ]);
 
     return NextResponse.json(

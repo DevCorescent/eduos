@@ -60,21 +60,54 @@ const STUDENT_SELECT = {
   updatedAt: true,
 } as const;
 
+/**
+ * The listing's select: every Student column above, plus the linked User.
+ *
+ * WHY THE LIST JOINS AND THE CREATE DOES NOT
+ *   A Student carries no name — it lives on the User the record points at. The
+ *   list screen renders that name and its search box says "Search by name or
+ *   enrolment number", so the list has to return it. POST keeps STUDENT_SELECT
+ *   unchanged: nothing consumes a name from a create response, and widening it
+ *   would be a contract change nothing asked for.
+ *
+ * EXACTLY THE FIVE FIELDS StudentWithUser DECLARES
+ *   `Pick<User, "id" | "firstName" | "lastName" | "email" | "avatarUrl">` — see
+ *   types/entities.ts. phone, displayName, isActive, isVerified and passwordHash
+ *   are NOT selected: an explicit column list is what keeps a future column off
+ *   this response by default rather than by somebody remembering to exclude it.
+ */
+const STUDENT_LIST_SELECT = {
+  ...STUDENT_SELECT,
+  user: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      avatarUrl: true,
+    },
+  },
+} as const;
+
 // Student holds no BigInt, Decimal or Json column, so the shared serialize()
 // helper is not applied here.
 
 // GET
 // ACCESS     : UNIVERSITY_ADMIN
 // VALIDATION : listStudentsQuerySchema — ?page (default 1) and ?limit (default
-//              20, max 100), from the shared pagination contract. No search
-//              parameter is defined: the project implements none on any
-//              existing collection endpoint.
+//              20, max 100) from the shared pagination contract, plus the four
+//              parameters this screen's controls send: ?q, ?status,
+//              ?programmeId and ?batchId. Each is optional, and an empty value
+//              means "no filter" rather than an invalid enum member.
 // FLOW       : Authorise → resolve tenant → read one page of that tenant's
-//              students alongside the total in a single transaction.
+//              students, joined to the linked User for the name, alongside the
+//              total in a single transaction.
 //              Both queries are filtered by the tenant id that requireTenant
 //              proved equal to the caller's own, so no cross-tenant row is
 //              reachable.
-// RESPONSE   : { success: true, data: { students, pagination } }
+// RESPONSE   : { success: true, data: { students, pagination } }, where each
+//              student carries `user` — id, firstName, lastName, email and
+//              avatarUrl, and nothing else.
 // STATUS     : 200 OK · 400 VALIDATION_ERROR · 401 UNAUTHORIZED
 //              403 FORBIDDEN · 404 NOT_FOUND · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
@@ -108,8 +141,61 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
-    const where = { tenantId: tenant.id };
+    const { page, limit, q, status, programmeId, batchId } = parsed.data;
+
+    // The tenant predicate is never optional and never overridable: it comes
+    // from requireTenant, and every filter is composed INSIDE it. So no value
+    // of ?q, ?status, ?programmeId or ?batchId can reach another institution's
+    // students — an id naming another tenant's batch simply matches nothing.
+    //
+    // The name is NOT a column on Student; it lives on the User the record
+    // points at, which is why ?q reaches through the `user` relation. Those
+    // nested predicates are still ANDed under tenantId, so they cannot widen
+    // the set beyond this tenant.
+    //
+    // WHY THE TERM IS SPLIT ON WHITESPACE
+    //   There is no full-name column — only firstName and lastName — and Prisma
+    //   cannot concatenate two columns inside a `where`. A plain OR over the two
+    //   therefore matches "Priya" and matches "Sharma" but NEVER matches "Priya
+    //   Sharma" typed in full, which is the most natural thing to type into a
+    //   box labelled "Search by name". types/entities.ts records that exact
+    //   trap on StudentWithUser.fullName.
+    //
+    //   So every whitespace-separated term must match SOMEWHERE: "Priya Sharma"
+    //   succeeds because "Priya" hits firstName and "Sharma" hits lastName, and
+    //   it succeeds whichever order they are typed in. A single term behaves
+    //   exactly as the plain OR did. "priya zzz" correctly matches nothing.
+    //
+    //   This uses only the columns the schema already has. Concatenating them
+    //   would need raw SQL or a denormalised column, and neither is warranted
+    //   for a search box.
+    //
+    // `mode: "insensitive"` is what makes "PRIYA", "Priya" and "priya" one
+    // search; `contains` is what makes "pri" match "Priya" rather than only a
+    // name equal to it.
+    //
+    // An omitted filter contributes NOTHING to the predicate, which is exactly
+    // what "All statuses", "All programmes" and "All batches" mean.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    const where: Prisma.StudentWhereInput = {
+      tenantId: tenant.id,
+      ...(terms.length > 0
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { enrollmentNo: { contains: term, mode: "insensitive" as const } },
+                { user: { firstName: { contains: term, mode: "insensitive" as const } } },
+                { user: { lastName: { contains: term, mode: "insensitive" as const } } },
+                { user: { email: { contains: term, mode: "insensitive" as const } } },
+              ],
+            })),
+          }
+        : {}),
+      ...(status ? { status } : {}),
+      ...(programmeId ? { programmeId } : {}),
+      ...(batchId ? { batchId } : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The ordering is required for correctness, not presentation:
@@ -122,7 +208,9 @@ export async function GET(request: NextRequest) {
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * limit,
         take: limit,
-        select: STUDENT_SELECT,
+        // The listing select — Student columns plus the five User fields the
+        // StudentWithUser contract declares. POST below keeps STUDENT_SELECT.
+        select: STUDENT_LIST_SELECT,
       }),
       prisma.student.count({ where }),
     ]);

@@ -2,16 +2,16 @@
 // MODULE : Services — Students
 // PURPOSE: Student reads for the university portal.
 //
-//          One asymmetry to know about: the live GET /api/students returns
-//          Student rows with no name on them — the route selects scalar columns
-//          only and expands no relation, because joining userRoles would return
-//          one row per role. A student's name lives on the linked User.
+//          A student's name lives on the linked User, not on Student. The
+//          LISTING now joins it: GET /api/students selects the five User fields
+//          StudentWithUser declares, so listStudents composes a real name
+//          instead of the empty placeholders it used to return. That gap was
+//          visible as a blank Student column on /students and as a search box
+//          labelled "Search by name" that could not match one.
 //
-//          So listStudents returns StudentWithUser, and the live branch below
-//          composes it. Today it cannot — there is no users-by-id endpoint that
-//          takes a set — so the live path returns rows whose name fields are
-//          empty and says so. The mock path is complete. Adding `include: {
-//          user: ... }` to the route removes the gap and changes only this file.
+//          The DETAIL read below still has the gap — GET /api/students/[id]
+//          expands no relation — so getStudent continues to return empty name
+//          fields. Closing that is the same one-line join on that route.
 // ============================================================================
 
 import type {
@@ -29,29 +29,38 @@ import type {
 } from "@/types";
 import { apiList, apiRequest } from "./client";
 
+/**
+ * One row as GET /api/students returns it.
+ *
+ * Declared here rather than widening the shared `Student` interface: that type
+ * documents itself as mirroring the scalar columns, and the DETAIL endpoint
+ * still returns exactly those. Only this collection joins the user, so only
+ * this call site needs to know.
+ */
+type StudentListRow = Student & {
+  user: StudentWithUser["user"];
+};
+
 export async function listStudents(
   params?: ListParams
 ): Promise<ApiResponse<PaginatedResult<StudentWithUser>>> {
-  const result = await apiList<Student>("/api/students", "students", params);
+  const result = await apiList<StudentListRow>("/api/students", "students", params);
   if (!result.success) return result;
 
-  // The rows genuinely carry no name. Filled with placeholders rather than
-  // left undefined so a column renders an em dash instead of throwing on
-  // `user.firstName` — and so the gap is visible rather than silent.
+  // `fullName` is flattened alongside the nested user because a table cell and
+  // an avatar both want one string — see StudentWithUser. Composed here rather
+  // than sent by the API: it is a display convenience derived from two columns,
+  // not a column of its own, and the API returns the columns.
+  //
+  // trim() covers the row whose User has an empty lastName: "Priya " would
+  // otherwise render with a trailing space and sort oddly.
   return {
     success: true,
     data: {
       ...result.data,
       items: result.data.items.map((student) => ({
         ...student,
-        user: {
-          id: student.userId,
-          firstName: "",
-          lastName: "",
-          email: "",
-          avatarUrl: null,
-        },
-        fullName: "",
+        fullName: `${student.user.firstName} ${student.user.lastName}`.trim(),
       })),
     },
   };

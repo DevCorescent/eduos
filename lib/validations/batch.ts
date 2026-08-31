@@ -13,8 +13,54 @@
 import { z } from "zod";
 import { paginationQuerySchema } from "./pagination";
 
-/** Query schema for GET /api/batches. */
-export const listBatchesQuerySchema = paginationQuerySchema;
+/**
+ * A filter value that may legitimately arrive empty.
+ *
+ * The same definition the other setup collections use (see campus.ts and
+ * department.ts). The filter controls remove their key from the URL when reset
+ * to "All programmes"/"All years", but a hand-edited or bookmarked
+ * "?programmeId=" must mean "no filter" rather than answer 400 to an obviously
+ * well-meant URL.
+ *
+ * NO FORMAT ASSERTION on the ids. They are opaque foreign keys, and asserting a
+ * cuid shape would turn an unrecognised-but-well-formed id into a 400 when an
+ * empty result is the accurate answer. An id naming nothing — or naming another
+ * tenant's row — simply matches no batches, because the tenant predicate is
+ * ANDed alongside it in the route.
+ */
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
+ * Query schema for GET /api/batches.
+ *
+ * Pagination is the shared contract, extended with the three parameters the
+ * Batches screen's controls actually send: a free-text ?q, and the
+ * ?programmeId and ?academicYearId filters. Nothing else is accepted — an
+ * unknown key is dropped by Zod before the handler sees it, which is what keeps
+ * a client-supplied tenantId from ever reaching the query.
+ *
+ * WHAT ?q SEARCHES
+ *   name and code — the two required, identifying columns on Batch, and the
+ *   same pair GET /api/campuses, /api/schools, /api/departments and
+ *   /api/programmes search, so every setup collection behaves identically.
+ *
+ * WHY THIS EXISTED BEFORE AND DID NOTHING
+ *   The page has always rendered an ENABLED search box and two ENABLED filters
+ *   and has always sent these three keys. The schema was pagination-only, so
+ *   Zod dropped them and the route read every batch in the tenant. A control
+ *   that accepts input and silently returns the unfiltered list is worse than
+ *   no control, because the reader believes they have searched.
+ */
+export const listBatchesQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  programmeId: optionalFilter,
+  academicYearId: optionalFilter,
+});
 
 export type ListBatchesQuery = z.infer<typeof listBatchesQuerySchema>;
 

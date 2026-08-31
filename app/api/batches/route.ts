@@ -59,16 +59,46 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q, programmeId, academicYearId } = parsed.data;
 
+    // The tenant predicate is never optional and never overridable: it comes
+    // from requireTenant, and the search and filters are composed INSIDE it. So
+    // no value of ?q, ?programmeId or ?academicYearId can reach another
+    // institution's batches — an id naming another tenant's programme simply
+    // matches nothing.
+    //
+    // `mode: "insensitive"` is what makes "CSE", "cse" and "Cse" one search;
+    // `contains` is what makes "2024" match "B.Tech CSE 2024" rather than only
+    // a name equal to it. The same shape GET /api/campuses and
+    // GET /api/programmes already use.
+    //
+    // An omitted filter contributes NOTHING to the predicate, which is exactly
+    // what "All programmes" and "All years" mean.
+    const where: Prisma.BatchWhereInput = {
+      tenantId: tenant.id,
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" as const } },
+              { code: { contains: q, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+      ...(programmeId ? { programmeId } : {}),
+      ...(academicYearId ? { academicYearId } : {}),
+    };
+
+    // The SAME `where` on both: a count taken over a wider predicate than the
+    // page would report a total the list cannot fill, and pagination would then
+    // offer pages that come back empty.
     const [batches, total] = await prisma.$transaction([
       prisma.batch.findMany({
-        where: { tenantId: tenant.id },
+        where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.batch.count({ where: { tenantId: tenant.id } }),
+      prisma.batch.count({ where }),
     ]);
 
     return NextResponse.json(

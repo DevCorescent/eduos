@@ -36,16 +36,6 @@ function ProvisionLink() {
   );
 }
 
-/**
- * The backend query schema for this collection accepts page and limit only —
- * every other key is dropped by Zod before the handler sees it. The controls
- * stay visible and disabled rather than being deleted, so the screen keeps its
- * shape for when the parameters land.
- */
-const UNSUPPORTED_SEARCH =
-  "Search will work once the backend adds a ?q parameter to this endpoint.";
-const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
-
 export const metadata: Metadata = {
   title: "Tenants",
 };
@@ -123,14 +113,19 @@ export default async function TenantsPage({ searchParams }: { searchParams: Sear
     <>
       {header}
 
+      {/* Live controls. They were rendered disabled while the endpoint accepted
+          page and limit only; GET /api/platform/tenants now takes ?q, ?status
+          and ?type, so the `unsupported` prop is gone and each control writes
+          its key to the URL. "All statuses" and "All types" write an empty
+          value, which useListParams removes from the URL entirely — that is how
+          they mean "no restriction", and the schema treats an empty key the
+          same way for a hand-edited URL. */}
       <ListToolbar
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name or code…" />}
+        search={<ListSearch placeholder="Search by name or code…" />}
         filters={
           <>
             <ListFilter
               paramKey="status"
-              unsupported={UNSUPPORTED_FILTER}
               label="Status"
               hideLabel
               allLabel="All statuses"
@@ -141,7 +136,6 @@ export default async function TenantsPage({ searchParams }: { searchParams: Sear
             />
             <ListFilter
               paramKey="type"
-              unsupported={UNSUPPORTED_FILTER}
               label="Type"
               hideLabel
               allLabel="All types"
