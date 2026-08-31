@@ -14,12 +14,51 @@ import { z } from "zod";
 import { paginationQuerySchema } from "./pagination";
 
 /**
+ * An optional filter value from the query string.
+ *
+ * Empty and whitespace-only collapse to undefined. The filter controls write an
+ * empty value when reset to "All campuses"/"All schools", and useListParams
+ * removes the key — but a hand-edited or bookmarked "?campusId=" must mean "no
+ * filter" rather than answer 400 to an obviously well-meant URL.
+ *
+ * NO FORMAT ASSERTION. These are opaque foreign keys, and asserting a cuid
+ * shape would turn an unrecognised-but-well-formed id into a 400 when an empty
+ * result is the accurate answer. An id naming nothing — or naming another
+ * tenant's row — simply matches no departments, because the tenant predicate is
+ * ANDed alongside it in the route.
+ */
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
  * Query schema for GET /api/departments.
  *
- * Pagination is the shared contract; no department-specific filter is defined,
- * because README Phase 3 specifies listing only.
+ * Pagination is the shared contract, extended with the three parameters this
+ * screen's controls actually send: a free-text ?q, and the ?campusId and
+ * ?schoolId filters. Nothing else is accepted — an unknown key is dropped by
+ * Zod before the handler sees it, which is what keeps a client-supplied
+ * tenantId from ever reaching the query.
+ *
+ * WHAT ?q SEARCHES
+ *   Name and code — the two required, identifying columns on Department, and
+ *   the same pair GET /api/campuses and GET /api/schools search, so the three
+ *   setup collections behave identically. hodName and email are a person and a
+ *   contact detail rather than identifiers.
+ *
+ * WHY BOTH IDs ARE PLAIN COLUMNS HERE
+ *   Department carries campusId AND schoolId directly, so neither filter needs
+ *   to reach through a relation. schoolId is nullable — a standalone department
+ *   belongs to no school — so filtering by a school correctly excludes them.
  */
-export const listDepartmentsQuerySchema = paginationQuerySchema;
+export const listDepartmentsQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  campusId: optionalFilter,
+  schoolId: optionalFilter,
+});
 
 export type ListDepartmentsQuery = z.infer<typeof listDepartmentsQuerySchema>;
 

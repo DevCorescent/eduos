@@ -15,12 +15,64 @@ import { DurationUnit, ProgrammeType } from "@/app/generated/prisma/client";
 import { paginationQuerySchema } from "./pagination";
 
 /**
+ * An optional free-text or id value from the query string.
+ *
+ * Empty and whitespace-only collapse to undefined. The filter controls write an
+ * empty value when reset to "All departments", and useListParams removes the
+ * key — but a hand-edited or bookmarked "?departmentId=" must mean "no filter"
+ * rather than answer 400 to an obviously well-meant URL.
+ *
+ * NO FORMAT ASSERTION on the id. It is an opaque foreign key, and asserting a
+ * cuid shape would turn an unrecognised-but-well-formed id into a 400 when an
+ * empty result is the accurate answer. An id naming nothing — or naming another
+ * tenant's department — simply matches no programme, because the tenant
+ * predicate is ANDed alongside it in the route.
+ */
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
  * Query schema for GET /api/programmes.
  *
- * Pagination is the shared contract; no programme-specific filter is defined,
- * because README Phase 3 specifies listing only.
+ * Pagination is the shared contract, extended with the three parameters this
+ * screen's controls actually send: a free-text ?q, the ?departmentId filter and
+ * the ?type filter. Nothing else is accepted — an unknown key is dropped by Zod
+ * before the handler sees it, which is what keeps a client-supplied tenantId
+ * from ever reaching the query.
+ *
+ * WHAT ?q SEARCHES
+ *   Name and code — the two required, identifying columns on Programme, and the
+ *   same pair the campus, school and department listings search, so every setup
+ *   collection behaves identically.
+ *
+ * WHY THERE IS NO ?campusId OR ?schoolId HERE
+ *   Programme has neither column. It carries departmentId alone, and campus and
+ *   school are reached only THROUGH that department. This screen's own controls
+ *   are Department and Type, so those are what the schema accepts. Adding
+ *   campus and school filters would mean new controls and a nested relation
+ *   filter — a change to the page, not a fix to it.
+ *
+ * ?type IS A CLOSED SET
+ *   Unlike the opaque id, ProgrammeType is an enum the API defines, so a value
+ *   outside it is a client error worth naming rather than silently ignoring.
+ *   The control can only ever send a member of the set.
  */
-export const listProgrammesQuerySchema = paginationQuerySchema;
+export const listProgrammesQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  departmentId: optionalFilter,
+  type: z
+    .preprocess(
+      // Reset writes an empty value; treat it as "no filter" BEFORE the enum
+      // check, so "all types" is not reported as an invalid ProgrammeType.
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.nativeEnum(ProgrammeType).optional()
+    )
+    .optional(),
+});
 
 export type ListProgrammesQuery = z.infer<typeof listProgrammesQuerySchema>;
 

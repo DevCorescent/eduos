@@ -65,20 +65,44 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q } = parsed.data;
+
+    // The tenant predicate is never optional and never overridable: it comes
+    // from requireTenant, and the search is composed INSIDE it. So ?q can only
+    // ever remove rows from an already tenant-scoped set — there is no value of
+    // q that reaches another institution's campuses.
+    //
+    // `mode: "insensitive"` is what makes "DELHI", "Delhi" and "delhi" one
+    // search; `contains` is what makes "delhi" match "New Delhi Campus" rather
+    // than only a name equal to it.
+    const where: Prisma.CampusWhereInput = {
+      tenantId: tenant.id,
+      ...(q
+        ? {
+            OR: [
+              { name: { contains: q, mode: "insensitive" as const } },
+              { code: { contains: q, mode: "insensitive" as const } },
+            ],
+          }
+        : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The explicit ordering is required for correctness, not
     // presentation: offset pagination over an unordered result can repeat or
     // skip rows.
+    //
+    // The SAME `where` on both: a count taken over a wider predicate than the
+    // page would report a total the list cannot fill, and pagination would
+    // offer pages that come back empty.
     const [campuses, total] = await prisma.$transaction([
       prisma.campus.findMany({
-        where: { tenantId: tenant.id },
+        where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.campus.count({ where: { tenantId: tenant.id } }),
+      prisma.campus.count({ where }),
     ]);
 
     return NextResponse.json(

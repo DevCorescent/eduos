@@ -20,16 +20,6 @@ import {
 } from "@/actions/setup";
 import type { Department } from "@/types";
 
-/**
- * The backend query schema for this collection accepts page and limit only —
- * every other key is dropped by Zod before the handler sees it. The controls
- * stay visible and disabled rather than being deleted, so the screen keeps its
- * shape for when the parameters land.
- */
-const UNSUPPORTED_SEARCH =
-  "Search will work once the backend adds a ?q parameter to this endpoint.";
-const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
-
 export const metadata: Metadata = { title: "Departments" };
 
 const PAGE_SIZE = 20;
@@ -213,21 +203,20 @@ export default async function DepartmentsPage({
       {header}
 
       <ListToolbar
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search departments…" />}
+        search={<ListSearch placeholder="Search departments…" />}
         filters={
           <>
             <ListFilter
               paramKey="campusId"
-              unsupported={UNSUPPORTED_FILTER}
               label="Campus"
               hideLabel
               allLabel="All campuses"
               options={campusOptions}
             />
+            {/* Options narrow to the chosen campus (schoolsForFilter above), so
+                the two controls cannot be set to a contradictory pair. */}
             <ListFilter
               paramKey="schoolId"
-              unsupported={UNSUPPORTED_FILTER}
               label="School"
               hideLabel
               allLabel="All schools"

@@ -36,12 +36,19 @@ export interface WebsiteEditorProps {
   previewUrl: string | null;
   /** Shown on the disabled button when previewUrl is null. */
   previewUnavailable: string;
+  /**
+   * True when the blocks on screen are the default template rather than a
+   * saved draft — see the page's own note. The editor then reports unsaved
+   * changes and Publish saves before it publishes.
+   */
+  initiallyUnsaved?: boolean;
 }
 
 export function WebsiteEditor({
   initialBlocks,
   previewUrl,
   previewUnavailable,
+  initiallyUnsaved,
 }: WebsiteEditorProps) {
   const router = useRouter();
 
@@ -50,6 +57,7 @@ export function WebsiteEditor({
       initialBlocks={initialBlocks}
       previewUrl={previewUrl}
       previewUnavailable={previewUnavailable}
+      initiallyUnsaved={initiallyUnsaved}
       // Both handlers return an error MESSAGE or null. The editor owns the
       // toast; this owns the transport. Returning the envelope's own error text
       // means the reader sees what the API actually said, not a generic

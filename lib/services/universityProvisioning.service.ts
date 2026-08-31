@@ -33,6 +33,7 @@ import { generateTemporaryPassword } from "@/lib/services/platformUser.service";
 import { INITIAL_TENANT_ROLE } from "@/lib/validations/platform";
 import type { ProvisionAdminInput, ProvisionTenantInput } from "@/lib/validations/platform";
 import { Prisma } from "@/app/generated/prisma/client";
+import { provisionDefaultWebsite } from "./cmsProvisioning";
 
 /** Prisma client or an interactive transaction — either can run these writes. */
 type DbClient = Prisma.TransactionClient | typeof prisma;
@@ -206,6 +207,16 @@ export async function provisionUniversity(
       await tx.subscription.create({
         data: { tenantId: tenant.id, startDate: new Date() },
       });
+
+      // The institution's starting website: a COPY of the platform's
+      // default-landing template into its own draft. Without this a new
+      // university opened its Website screen on "0 sections" — the template
+      // existed, but nothing had ever copied it into a tenant.
+      //
+      // Inside the transaction, so a university is never left half-provisioned
+      // with a tenant but no page. It creates a DRAFT and publishes nothing, so
+      // onboarding still puts no page live at the institution's address.
+      await provisionDefaultWebsite(tx, tenant.id, tenant.name);
 
       if (!admin) return { tenant, admin: null, temporaryPassword: null };
 

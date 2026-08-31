@@ -27,16 +27,6 @@ import {
   type Programme,
 } from "@/types";
 
-/**
- * The backend query schema for this collection accepts page and limit only —
- * every other key is dropped by Zod before the handler sees it. The controls
- * stay visible and disabled rather than being deleted, so the screen keeps its
- * shape for when the parameters land.
- */
-const UNSUPPORTED_SEARCH =
-  "Search will work once the backend adds a ?q parameter to this endpoint.";
-const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
-
 export const metadata: Metadata = { title: "Programmes" };
 
 const PAGE_SIZE = 20;
@@ -257,13 +247,11 @@ export default async function ProgrammesPage({
       {header}
 
       <ListToolbar
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search programmes…" />}
+        search={<ListSearch placeholder="Search programmes…" />}
         filters={
           <>
             <ListFilter
               paramKey="departmentId"
-              unsupported={UNSUPPORTED_FILTER}
               label="Department"
               hideLabel
               allLabel="All departments"
@@ -271,7 +259,6 @@ export default async function ProgrammesPage({
             />
             <ListFilter
               paramKey="type"
-              unsupported={UNSUPPORTED_FILTER}
               label="Type"
               hideLabel
               allLabel="All types"
