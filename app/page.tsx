@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { getPortalSession } from "@/services/session";
 import { homeRouteForRoles } from "@/constants/roles";
 import { resolveTenantForRequest } from "@/lib/services/tenant";
-import { getPublishedPage, getSiteChrome } from "@/lib/services/site";
+import { getPublicLanding, getSiteChrome } from "@/lib/services/site";
 import { typographyCssVars } from "@/lib/domain/cms/typography";
 import { SiteHeader } from "@/components/site/SiteHeader";
 import { SiteFooter } from "@/components/site/SiteFooter";
@@ -47,8 +47,12 @@ export async function generateMetadata(): Promise<Metadata> {
   const tenant = await resolveTenantForRequest();
   if (!tenant) return {};
 
-  const page = await getPublishedPage(tenant.id, LANDING_PATH);
+  const page = await getPublicLanding(tenant.id, LANDING_PATH);
   if (!page) return {};
+
+  // The default site carries no authored SEO — see getPublicLanding. The root
+  // layout's per-tenant title template supplies the institution's own name.
+  if (page.source === "DEFAULT") return {};
 
   // §7.3 "SEO metadata". The institution's own values win; the root layout's
   // per-tenant title template supplies the fallback.
@@ -74,12 +78,18 @@ export default async function RootPage() {
     redirect(homeRouteForRoles(session.roles));
   }
 
-  const page = await getPublishedPage(tenant.id, LANDING_PATH);
+  // Published content if there is any, otherwise the platform's default-landing
+  // template. A university therefore has a public presence from the day it is
+  // created, instead of sending a prospective student to a staff sign-in form.
+  //
+  // THE DRAFT IS NEVER CONSULTED. getPublicLanding reads publishedBlocks and
+  // the shared template and has no access to draftBlocks, so an institution's
+  // unpublished work cannot reach this route by any path.
+  const page = await getPublicLanding(tenant.id, LANDING_PATH);
 
-  // A university whose landing page has never been published. Falling back to
-  // the old redirect keeps every existing tenant working exactly as before —
-  // this route gains a public website only for institutions that have actually
-  // published one, so shipping it changes nothing for the rest.
+  // Nothing published AND no usable template — the platform has authored no
+  // default site. The old redirect is still the right answer here, because
+  // there is genuinely nothing to show.
   if (!page) {
     const session = await getPortalSession();
     if (!session) redirect("/login");

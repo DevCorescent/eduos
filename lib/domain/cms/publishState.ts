@@ -92,9 +92,16 @@ export function publishState(
     : "PUBLISHED";
 }
 
-/** The words shown on the badge, and the tone it is drawn in. */
+/**
+ * The words shown on the badge.
+ *
+ * NEVER_PUBLISHED reads "Using default website" rather than "Draft", because
+ * that is what a visitor to the institution's address actually gets: the
+ * platform's default site, not a blank page. "Draft" described the editor's
+ * state and left the public one unstated.
+ */
 export const PUBLISH_STATE_LABEL: Record<PublishState, string> = {
-  NEVER_PUBLISHED: "Draft",
+  NEVER_PUBLISHED: "Using default website",
   PUBLISHED: "Published",
   UNPUBLISHED_CHANGES: "Unpublished changes",
   ARCHIVED: "Taken down",

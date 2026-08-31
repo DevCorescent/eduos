@@ -29,6 +29,7 @@ import "server-only";
 import { prisma } from "@/lib/db/prisma";
 import { parseStoredBlocks, type CmsBlocks } from "@/lib/domain/cms/blocks";
 import { publicSiteOrigin } from "@/lib/domain/tenant/publicUrl";
+import { defaultLandingBlocks } from "@/lib/services/cmsProvisioning";
 import {
   parseEnquireRail,
   parseFooterColumns,
@@ -236,4 +237,63 @@ export async function publicSiteUrl(tenant: {
   });
 
   return origin === null ? null : `${origin}/`;
+}
+
+/** What the public route is actually rendering, and where it came from. */
+export interface PublicLanding extends PublishedPage {
+  /**
+   * PUBLISHED — this institution's own page, as it published it.
+   * DEFAULT    — the platform's default-landing template, because it has not
+   *              published one yet.
+   */
+  source: "PUBLISHED" | "DEFAULT";
+}
+
+/**
+ * The landing page a VISITOR should see at a university's public address.
+ *
+ * THE RULE, AND THE ONE THING IT MUST NEVER DO
+ *   Published content wins. If there is none, the platform's default-landing
+ *   template is rendered so the institution has a public presence from the day
+ *   it is created — rather than sending a prospective student to a staff
+ *   sign-in form, which is what this route used to do.
+ *
+ *   The DRAFT IS NEVER CONSIDERED. Not as content, and not as a signal that a
+ *   draft exists: the fallback is the shared template, never the institution's
+ *   unpublished work. That is the whole protection, and it is structural —
+ *   this function reads publishedBlocks and the template, and has no access to
+ *   draftBlocks at all.
+ *
+ * TENANT-AWARE IN BOTH BRANCHES
+ *   The published branch is scoped by tenantId. The default branch renders the
+ *   same template for everyone, but WRAPPED in the caller's own branding,
+ *   chrome and typography — so two universities on the default site show their
+ *   own name, logo, menu and footer, and neither can see the other's content.
+ *
+ * RETURNS null only when there is no published page AND no usable template,
+ * which is the caller's cue to fall back to its previous redirect.
+ */
+export async function getPublicLanding(
+  tenantId: string,
+  path: string
+): Promise<PublicLanding | null> {
+  const published = await getPublishedPage(tenantId, path);
+  if (published) return { ...published, source: "PUBLISHED" };
+
+  // The SAME template provisioning copies into a new university's draft — one
+  // definition of "the default website", not a second copy living here.
+  const blocks = await defaultLandingBlocks(prisma);
+  if (blocks.length === 0) return null;
+
+  return {
+    // No stored SEO for the default site: it is not this institution's authored
+    // page, and inventing a description on its behalf would put words in its
+    // mouth. The root layout's per-tenant title template still applies.
+    title: "",
+    blocks,
+    seoTitle: null,
+    seoDescription: null,
+    ogImageUrl: null,
+    source: "DEFAULT",
+  };
 }

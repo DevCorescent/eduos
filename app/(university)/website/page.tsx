@@ -117,14 +117,23 @@ export default async function WebsitePage() {
   const state = publishState(page);
   const live = isPubliclyVisible(state);
 
-  // Offered only when there is something published to look at. A draft is
-  // private by design, and "View site" must never be the thing that shows it.
-  const previewUrl = live ? siteUrl : null;
+  // ALWAYS offered when the institution has a public address.
+  //
+  // There is always something real to open: an institution that has published
+  // shows its own site, and one that has not shows the platform's default —
+  // never a blank page and never the sign-in form. The only thing that can
+  // disable this button now is having no address to point it at.
+  //
+  // It still never shows the draft. What the button opens is the public URL,
+  // and that route reads publishedBlocks or the shared template; it has no
+  // access to draftBlocks. Withholding the button was protecting nothing.
+  const previewUrl = siteUrl;
 
-  const previewUnavailable =
-    siteUrl === null
-      ? "No public address is configured for your institution yet."
-      : "No published website is available yet. Press Publish to make this page live.";
+  const previewUnavailable = "No public address is configured for your institution yet.";
+
+  // Says which of the two a click will actually show, so "View site" is never
+  // ambiguous about whose design is on the other side of it.
+  const previewLabel = live ? "View published site" : "Preview default site";
 
   return (
     <>
@@ -160,9 +169,15 @@ export default async function WebsitePage() {
       </p>
 
       {state === "NEVER_PUBLISHED" && !startsUnsaved && (
-        <Alert variant="info" title="Your website is not published yet" className="mb-6">
-          Build your page below and press Publish. Until then, your address sends
-          visitors to the sign-in screen.
+        <Alert variant="info" title="Visitors are seeing the default website" className="mb-6">
+          You have not published your own page yet, so your address shows the
+          standard eduOS website with your institution&apos;s name and branding.
+          Press Publish to replace it with the page below.{" "}
+          {previewUrl && (
+            <Link href={previewUrl} className="font-medium underline" target="_blank" rel="noopener noreferrer">
+              See what visitors see now
+            </Link>
+          )}
         </Alert>
       )}
 
@@ -170,8 +185,9 @@ export default async function WebsitePage() {
         <Alert variant="info" title="This is the standard starting website" className="mb-6">
           Your institution has not built a page yet, so the sections below are a
           copy of the platform&apos;s default site for you to edit. Nothing has
-          been saved and nothing is public — press Save draft to keep it, then
-          Publish when you want visitors to see it.
+          been saved yet, and visitors currently see that same default site —
+          press Save draft to keep your changes, then Publish when you want
+          them to replace it.
         </Alert>
       )}
 
@@ -205,10 +221,10 @@ export default async function WebsitePage() {
         </Alert>
       )}
 
-      {live && siteUrl === null && (
+      {siteUrl === null && (
         <Alert variant="warning" title="No public address is configured" className="mb-6">
-          Your page is published, but your institution has no verified domain or
-          platform subdomain, so there is no address to open it at.
+          Your institution has no verified domain or platform subdomain, so there
+          is no address at which to open your website.
         </Alert>
       )}
 
@@ -216,6 +232,7 @@ export default async function WebsitePage() {
         initialBlocks={blocks}
         previewUrl={previewUrl}
         previewUnavailable={previewUnavailable}
+        previewLabel={previewLabel}
         initiallyUnsaved={startsUnsaved}
       />
 
