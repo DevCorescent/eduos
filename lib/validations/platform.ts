@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { ROLES } from "@/constants/roles";
 import { PLATFORM_ACCENTS } from "@/lib/constants/platformAccent";
 import { MODULE_KEYS } from "@/lib/constants/modules";
 import {
@@ -462,6 +463,50 @@ export type ChangePlatformPasswordInput = z.infer<typeof changePlatformPasswordS
  * it as a role a new university starts life holding.
  */
 export const INITIAL_TENANT_ROLE = "UNIVERSITY_ADMIN";
+
+/**
+ * The system roles every provisioned university starts with.
+ *
+ * WHY THESE EXIST AT PROVISIONING RATHER THAN BEING TYPED BY AN ADMINISTRATOR
+ *   Authorization in this project is by role NAME: requireRole compares the
+ *   names a user holds against string constants compiled into lib/constants/*.
+ *   A role therefore confers nothing unless its name matches one of those
+ *   constants EXACTLY, which makes "create the role yourself" a spelling test
+ *   with a silent failure — a role named "Dept HOD" or "COE" is accepted,
+ *   looks identical in the roles table, and grants nothing.
+ *
+ *   The codebase already treats these as built-in rather than authored:
+ *   prisma/seed.ts creates them with isSystem true, createTenantAdmin marks the
+ *   administrator role the same way "so a tenant admin screen shows it as
+ *   built-in rather than as something they authored", and POST /api/roles
+ *   FORCES isSystem false — an administrator cannot create a system role even
+ *   if they spell one correctly. Provisioning only ever created the one role it
+ *   needed at the time; the rest were reachable only through the demo seed.
+ *
+ * WHY SUPER_ADMIN IS ABSENT
+ *   Same reason it is absent from INITIAL_TENANT_ROLE above, and the reason is
+ *   load-bearing rather than tidiness: it was the tenant-writable string behind
+ *   the W1.1 escalation. POST /api/users/[id]/roles still refuses to grant a
+ *   tenant role by that name. Provisioning must not create one either.
+ *
+ * WHY CAMPUS_ADMIN AND THE LEGACY `HOD` SPELLING ARE ABSENT
+ *   Neither is in prisma/seed.ts, which is the existing statement of the
+ *   intended set. `HOD` is the older spelling of DEPARTMENT_HOD — constants/roles
+ *   calls them the same office — and creating both would give one office two
+ *   rows in every new university. Adding either is a product decision, not a
+ *   provisioning fix.
+ *
+ * Derived from ROLES so this list cannot drift from the vocabulary the guards
+ * actually compare against.
+ */
+export const TENANT_SYSTEM_ROLES: readonly string[] = [
+  ROLES.UNIVERSITY_ADMIN,
+  ROLES.CONTROLLER_OF_EXAMINATION,
+  ROLES.DEPARTMENT_HOD,
+  ROLES.FACULTY,
+  ROLES.STUDENT,
+  ROLES.PARENT,
+];
 
 /**
  * The initial University Admin, as supplied when provisioning.
