@@ -40,6 +40,12 @@ export const AUDIT_ACTIONS = {
   ROLE_REVOKED: "ROLE_REVOKED",
 
   // §47 "Certificate generation logs"
+  // PRD 13.2 attendance corrections. Three actions, not one: an investigator
+  // asking "was this register changed" needs approval distinguished from a
+  // request that was refused.
+  ATTENDANCE_CORRECTION_REQUESTED: "ATTENDANCE_CORRECTION_REQUESTED",
+  ATTENDANCE_CORRECTION_APPROVED: "ATTENDANCE_CORRECTION_APPROVED",
+  ATTENDANCE_CORRECTION_REJECTED: "ATTENDANCE_CORRECTION_REJECTED",
   CERTIFICATE_ISSUED: "CERTIFICATE_ISSUED",
   CERTIFICATE_REVOKED: "CERTIFICATE_REVOKED",
 
@@ -115,6 +121,10 @@ export const AUDIT_RESOURCES = {
   DATA_IMPORT: "DATA_IMPORT",
   // W3 — the admission application a change acted on.
   APPLICATION: "APPLICATION",
+  // PRD 13.2 — the correction request a decision acted on. The register itself
+  // travels in the entry's before/after, which is what an attendance dispute
+  // actually turns on.
+  ATTENDANCE_CORRECTION: "ATTENDANCE_CORRECTION",
 } as const;
 
 export type AuditResource = (typeof AUDIT_RESOURCES)[keyof typeof AUDIT_RESOURCES];
@@ -129,6 +139,7 @@ export type AuditResource = (typeof AUDIT_RESOURCES)[keyof typeof AUDIT_RESOURCE
 export const LEGACY_ACTION_PREFIXES = [
   "ASSESSMENT_EVENT",
   "ATTENDANCE_LOCK",
+  "ATTENDANCE_CORRECTION",
   "COURSE_REGISTRATION",
   "EVALUATION_COMPONENT",
   "EVALUATION_RULE",

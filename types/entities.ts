@@ -346,6 +346,11 @@ export interface Department {
   name: string;
   code: string;
   hodName: string | null;
+  /**
+   * The User who heads this department — the column department-scoped
+   * authorization resolves. `hodName` above is display text and grants nothing.
+   */
+  hodUserId: string | null;
   email: string | null;
   createdAt: string;
   updatedAt: string;

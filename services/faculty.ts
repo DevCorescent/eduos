@@ -116,7 +116,11 @@ export interface AddFacultyInput {
   email: string;
   password: string;
   phone?: string;
-  employeeId: string;
+  /**
+   * Optional. Omit it and the identifier engine issues one — PRD 51
+   * "Automated employee IDs". Supplying a value keeps the manual path.
+   */
+  employeeId?: string;
   departmentId?: string;
   designation?: string;
   qualification?: string;
@@ -178,7 +182,11 @@ export interface AddEmployeeInput {
   email: string;
   password: string;
   phone?: string;
-  employeeId: string;
+  /**
+   * Optional. Omit it and the identifier engine issues one — PRD 51
+   * "Automated employee IDs". Supplying a value keeps the manual path.
+   */
+  employeeId?: string;
   departmentId?: string;
   designation?: string;
   type?: Employee["type"];

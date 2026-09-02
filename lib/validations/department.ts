@@ -87,6 +87,21 @@ export const createDepartmentSchema = z.object({
   name: z.string().trim().min(1),
   code: z.string().trim().min(1),
   hodName: z.string().trim().min(1).optional(),
+  /**
+   * The User who heads this department — the AUTHORITATIVE link.
+   *
+   * `hodName` above is free text and remains a display field; department-scoped
+   * authorization has never read it and still does not. This column is what
+   * lib/auth/departmentScope.ts resolves, so assigning it is what actually makes
+   * a DEPARTMENT_HOD able to see their department.
+   *
+   * EMPTY STRING IS ACCEPTED, AND MEANS "CLEAR", which is a deliberate
+   * exception to this file's usual rule that a nullable column cannot be reset.
+   * Department.hodUserId is @unique: moving a head from one department to
+   * another is impossible unless the first can be vacated first, so without a
+   * way to clear it the field would be write-once in practice.
+   */
+  hodUserId: z.string().trim().optional(),
   email: z.email().optional(),
 });
 

@@ -173,6 +173,12 @@ export class StudentProfileService {
 
   private async composeAcademic(tenantId: string, studentId: string) {
     try {
+      // ANY is safe HERE and only here: STUDENT_PROFILE_ROLES is
+      // [STUDENT, UNIVERSITY_ADMIN], the student id has already been confined
+      // to the caller's own by requireStudentProfileAccess, and neither role is
+      // department-narrowed. Adding DEPARTMENT_HOD to STUDENT_PROFILE_ROLES
+      // would make this line a way around the department confinement in
+      // ResultService.requireStudent — it would have to pass a real scope.
       const result = await this.results.getStudentResult(tenantId, studentId, { scope: "ANY" });
       const latest = result.semesters[result.semesters.length - 1];
 

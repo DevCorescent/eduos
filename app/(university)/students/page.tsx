@@ -59,7 +59,15 @@ export default async function StudentsPage({ searchParams }: { searchParams: Sea
     : batches;
 
   const editFields: FormField[] = [
-    { kind: "text", name: "enrollmentNo", label: "Enrolment number", required: true },
+    // Optional: the identifier engine issues one when this is blank
+    // (PRD 51 "Automated student IDs"). A value may still be typed for a
+    // migrated record whose number already exists on paper.
+    {
+      kind: "text",
+      name: "enrollmentNo",
+      label: "Enrolment number",
+      helperText: "Leave blank to generate one automatically.",
+    },
     {
       kind: "select",
       name: "programmeId",

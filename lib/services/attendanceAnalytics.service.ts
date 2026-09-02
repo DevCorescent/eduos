@@ -19,6 +19,7 @@ import {
   AttendanceStatus,
 } from "@/app/generated/prisma/client";
 import { AppError } from "@/lib/errors/AppError";
+import { isAttended as isAttendedStatus } from "@/lib/domain/attendance/attended";
 import { attendanceAnalyticsRepository } from "@/lib/repositories/attendanceAnalytics.repository";
 import type {
   AttendanceAnalyticsDTO,
@@ -65,9 +66,18 @@ const ASSUMED_FUTURE_CLASSES = 10;
  */
 const RECENT_TREND_WINDOW = 5;
 
-/** A session counts toward "attended" if the student was present or late. */
+/**
+ * A session counts toward "attended" per lib/domain/attendance/attended.ts.
+ *
+ * This module used to answer the question itself, counting PRESENT and LATE and
+ * treating EXCUSED as an absence — while hall-ticket eligibility, asking the
+ * SAME question about the SAME floor, forgave EXCUSED. A student with
+ * authorised absences was therefore issued a hall ticket as eligible while this
+ * service flagged them short and notified them they were below 75%. The rule
+ * now lives in one place; see that file for why EXCUSED counts.
+ */
 function isAttended(status: AttendanceStatus): boolean {
-  return status === AttendanceStatus.PRESENT || status === AttendanceStatus.LATE;
+  return isAttendedStatus(status);
 }
 
 /** The row shape returned by attendanceAnalyticsRepository.getDashboardAttendance(). */
@@ -103,7 +113,7 @@ export class AttendanceAnalyticsService {
     }
 
     const stats = this.calculateAttendance(attendance);
-    const requirement = this.calculateRequirement(stats.present, stats.total);
+    const requirement = this.calculateRequirement(stats.attended, stats.total);
     const subjectWise = await this.buildSubjectWise(tenantId, attendance);
 
     const lowAttendance = stats.percentage < MINIMUM_PERCENTAGE;
@@ -172,13 +182,13 @@ export class AttendanceAnalyticsService {
     );
 
     const stats = this.calculateAttendance(attendance);
-    const requirement = this.calculateRequirement(stats.present, stats.total);
+    const requirement = this.calculateRequirement(stats.attended, stats.total);
 
     return {
       studentId,
       currentPercentage: stats.percentage,
       totalConducted: stats.total,
-      totalAttended: stats.present,
+      totalAttended: stats.attended,
       classesCanMiss: requirement.classesCanMiss,
       minimumRequired: MINIMUM_PERCENTAGE,
     };
@@ -231,7 +241,7 @@ if (
       currentPercentage: stats.percentage,
       minimumRequired: MINIMUM_PERCENTAGE,
       prediction,
-      projectedPercentage: this.projectPercentage(attendance, stats.total, stats.present),
+      projectedPercentage: this.projectPercentage(attendance, stats.total, stats.attended),
     };
   }
 
@@ -275,10 +285,22 @@ if (
   // --------------------------------------------------------------------------
 
   /**
-   * Core present/absent/late/excused/percentage breakdown for one student's
-   * full attendance history. `present` and `late` are reported separately
-   * (the DTO needs both individually), while `percentage` treats both as
-   * attended, matching the university's own definition of attendance.
+   * Core present/absent/late/excused/attended/percentage breakdown for one
+   * student's full attendance history.
+   *
+   * `present`, `late`, `absent` and `excused` are the four raw counts, reported
+   * separately because the DTO shows each. `attended` is the DERIVED total the
+   * attendance floor is measured against, and is the only one callers should do
+   * arithmetic with — see the note on `present` below.
+   *
+   * CALLERS MUST NOT USE `present` AS "ATTENDED".
+   *   Three of them did. calculateRequirement, projectPercentage and the leave
+   *   calculator's `totalAttended` were all handed `stats.present`, which counts
+   *   PRESENT and nothing else. So `overallPercentage` was computed over one
+   *   numerator while `classesRequired`, `classesCanMiss` and
+   *   `projectedPercentage` were computed over a smaller one: a student sitting
+   *   comfortably above the floor was told how many more classes they had to
+   *   attend, and the leave calculator under-reported what they had attended.
    */
   private calculateAttendance(attendance: Attendance[]) {
     const total = attendance.length;
@@ -288,12 +310,15 @@ if (
     const absent = attendance.filter((a) => a.status === AttendanceStatus.ABSENT).length;
     const excused = attendance.filter((a) => a.status === AttendanceStatus.EXCUSED).length;
 
-    const attended = present + late;
+    // Not `present + late`: that spelled the rule a third time and excluded
+    // EXCUSED. Counted through the shared predicate so this total cannot drift
+    // from the one the eligibility gate applies.
+    const attended = attendance.filter((a) => isAttended(a.status)).length;
 
     const percentage =
       total === 0 ? 0 : Number(((attended / total) * 100).toFixed(2));
 
-    return { total, present, late, absent, excused, percentage };
+    return { total, present, late, absent, excused, attended, percentage };
   }
 
   /**

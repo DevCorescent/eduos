@@ -96,7 +96,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
       kind: "text",
       name: "employeeId",
       label: "Employee ID",
-      required: true,
+      helperText: "Leave blank to generate one automatically.",
       placeholder: "EMP/0025",
     },
     {
@@ -127,7 +127,12 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
   ];
 
   const editFields: FormField[] = [
-    { kind: "text", name: "employeeId", label: "Employee ID", required: true },
+    {
+      kind: "text",
+      name: "employeeId",
+      label: "Employee ID",
+      helperText: "Leave blank to generate one automatically.",
+    },
     {
       kind: "select",
       name: "departmentId",

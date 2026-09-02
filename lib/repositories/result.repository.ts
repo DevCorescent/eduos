@@ -89,8 +89,36 @@ export class ResultRepository {
   async findStudent(tenantId: string, studentId: string) {
     return prisma.student.findFirst({
       where: { id: studentId, tenantId },
-      select: { id: true, userId: true, enrollmentNo: true },
+      // programmeId is selected for the DEPARTMENT confinement in
+      // ResultService.requireStudent, which needs to know whose programme this
+      // student sits in before a head of department may read the record.
+      select: { id: true, userId: true, enrollmentNo: true, programmeId: true },
     });
+  }
+
+  /**
+   * Does this department own this programme?
+   *
+   * The question a DEPARTMENT-scoped result read reduces to. It is asked of
+   * Programme rather than of Student because Student.programmeId is a plain
+   * scalar with no relation to Programme in this schema, so the join cannot be
+   * expressed in the Student query and has to be a second, indexed read.
+   *
+   * tenantId is part of the predicate as well as departmentId: a department id
+   * is opaque, and pairing the two means even a wrong one cannot reach another
+   * institution's programmes.
+   */
+  async departmentOwnsProgramme(
+    tenantId: string,
+    departmentId: string,
+    programmeId: string
+  ): Promise<boolean> {
+    const programme = await prisma.programme.findFirst({
+      where: { id: programmeId, tenantId, departmentId },
+      select: { id: true },
+    });
+
+    return programme !== null;
   }
 
   /**

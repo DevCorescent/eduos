@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { studentComponentScoreController } from "@/lib/controllers/studentComponentScore.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { resolveDepartmentId } from "@/lib/auth/departmentScope";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import { MARK_READ_ROLES } from "@/lib/constants/studentComponentScore";
@@ -54,6 +55,11 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const guard = await requireRole(...MARK_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
+    // MARK_READ_ROLES admits DEPARTMENT_HOD. Without this a head read every
+    // mark in the university; with it they read their own department's.
+    const scope = await resolveDepartmentId(guard.session);
+    if (!scope.ok) return scope.response;
+
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
@@ -68,7 +74,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
 
     const sheet = await studentComponentScoreController.getMarksSheet(
       tenantGuard.tenant.id,
-      parsedParam.data.id
+      parsedParam.data.id,
+      scope.departmentId
     );
 
     return NextResponse.json(ok(sheet));

@@ -127,7 +127,12 @@ export interface EnrolStudentInput {
   email: string;
   password: string;
   phone?: string;
-  enrollmentNo: string;
+  /**
+   * Optional. Omit it and the identifier engine issues one — PRD 51
+   * "Automated student IDs". Supplying a value keeps the manual path, which the
+   * API still accepts for migrated records.
+   */
+  enrollmentNo?: string;
   programmeId?: string;
   batchId?: string;
   sectionId?: string;

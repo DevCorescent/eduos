@@ -31,6 +31,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { internalAssessmentController } from "@/lib/controllers/internalAssessment.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { resolveDepartmentId } from "@/lib/auth/departmentScope";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { INTERNAL_ASSESSMENT_ROLES } from "@/lib/constants/internalAssessment";
 import { internalAssessmentRulesQuerySchema } from "@/lib/validations/internalAssessment.validation";
@@ -66,6 +67,13 @@ export async function GET(request: NextRequest) {
     const guard = await requireRole(...INTERNAL_ASSESSMENT_ROLES);
     if (!guard.authorized) return guard.response;
 
+    // INTERNAL_ASSESSMENT_ROLES admits both spellings of head of department,
+    // and this surface WRITES marks. Resolved from the authenticated subject,
+    // so a head submitting another department's courseId or studentId is
+    // refused rather than served.
+    const scope = await resolveDepartmentId(guard.session);
+    if (!scope.ok) return scope.response;
+
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
@@ -76,7 +84,8 @@ export async function GET(request: NextRequest) {
 
     const rules = await internalAssessmentController.getRules(
       tenantGuard.tenant.id,
-      parsed.data
+      parsed.data,
+      scope.departmentId
     );
 
     return NextResponse.json(ok(rules));

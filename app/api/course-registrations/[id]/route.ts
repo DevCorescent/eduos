@@ -27,6 +27,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { courseRegistrationController } from "@/lib/controllers/courseRegistration.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { resolveDepartmentId } from "@/lib/auth/departmentScope";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import {
   REGISTRATION_MANAGE_ROLES,
@@ -67,6 +68,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const guard = await requireRole(...REGISTRATION_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
+    // A head of department reads enrolments against their own department's
+    // courses. See the service for why anything else answers 404, not 403.
+    const scope = await resolveDepartmentId(guard.session);
+    if (!scope.ok) return scope.response;
+
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
@@ -75,7 +81,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     const registration = await courseRegistrationController.getById(
       tenantGuard.tenant.id,
-      parsedParam.data.id
+      parsedParam.data.id,
+      scope.departmentId
     );
 
     return NextResponse.json(ok(registration));

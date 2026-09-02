@@ -16,6 +16,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { EXAMINATION_MANAGE_ROLES } from "@/lib/constants/examination";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
@@ -164,7 +165,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY");
+    const guard = await requireRole(...EXAMINATION_MANAGE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -325,7 +326,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY");
+    const guard = await requireRole(...EXAMINATION_MANAGE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();

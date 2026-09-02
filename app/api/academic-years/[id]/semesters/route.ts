@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { ACADEMIC_CALENDAR_READ_ROLES } from "@/lib/constants/examination";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { academicYearIdParamSchema } from "@/lib/validations/academic-year";
@@ -45,7 +46,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    const guard = await requireRole(...ACADEMIC_CALENDAR_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();

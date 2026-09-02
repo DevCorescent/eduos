@@ -12,12 +12,19 @@ import { markAttendanceAction } from "@/actions/academics";
 import { ATTENDANCE_STATUS_LABELS } from "@/constants/labels";
 import { cn } from "@/lib/utils";
 import { ATTENDANCE_STATUS_VALUES, type AttendanceStatus } from "@/types";
+import { RequestCorrectionButton } from "./RequestCorrectionButton";
 
 interface StudentRow {
   id: string;
   name: string;
   enrollmentNo: string;
   status: AttendanceStatus;
+  /**
+   * The existing register row for this student, when the session has already
+   * been marked. Absent on an unmarked session — there is nothing to correct
+   * until a mark exists.
+   */
+  attendanceId?: string;
 }
 
 export interface MarkAttendanceFormProps {
@@ -26,6 +33,11 @@ export interface MarkAttendanceFormProps {
   date: string;
   students: StudentRow[];
   alreadyMarked: boolean;
+  /**
+   * Whether to offer the correction affordance — ATTENDANCE_CORRECTION_REQUEST_ROLES.
+   * The POST route enforces the same set, so this only decides what is drawn.
+   */
+  canRequestCorrection?: boolean;
 }
 
 /** Per-status button styling, so the selected state reads at a glance. */
@@ -54,6 +66,7 @@ export function MarkAttendanceForm({
   date,
   students,
   alreadyMarked,
+  canRequestCorrection = false,
 }: MarkAttendanceFormProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -162,34 +175,50 @@ export function MarkAttendanceForm({
                 </div>
               </div>
 
-              {/* A radio group, not four independent buttons: exactly one
-                  status applies, and screen readers should hear it that way. */}
-              <div
-                role="radiogroup"
-                aria-label={`Attendance for ${student.name}`}
-                className="flex shrink-0 flex-wrap gap-1"
-              >
-                {ATTENDANCE_STATUS_VALUES.map((status) => {
-                  const isSelected = statuses[student.id] === status;
-                  return (
-                    <button
-                      key={status}
-                      type="button"
-                      role="radio"
-                      aria-checked={isSelected}
-                      onClick={() => setStatus(student.id, status)}
-                      className={cn(
-                        "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        isSelected
-                          ? STATUS_STYLES[status]
-                          : "bg-muted text-muted-foreground hover:bg-surface-active"
-                      )}
-                    >
-                      {ATTENDANCE_STATUS_LABELS[status]}
-                    </button>
-                  );
-                })}
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {/* A radio group, not four independent buttons: exactly one
+                    status applies, and screen readers should hear it that way.
+                    The correction control sits OUTSIDE it — a radiogroup may
+                    contain only its radios, or assistive technology counts it
+                    as a fifth choice of status. */}
+                <div
+                  role="radiogroup"
+                  aria-label={`Attendance for ${student.name}`}
+                  className="flex flex-wrap gap-1"
+                >
+                  {ATTENDANCE_STATUS_VALUES.map((status) => {
+                    const isSelected = statuses[student.id] === status;
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        role="radio"
+                        aria-checked={isSelected}
+                        onClick={() => setStatus(student.id, status)}
+                        className={cn(
+                          "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          isSelected
+                            ? STATUS_STYLES[status]
+                            : "bg-muted text-muted-foreground hover:bg-surface-active"
+                        )}
+                      >
+                        {ATTENDANCE_STATUS_LABELS[status]}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* student.status is the PERSISTED mark, not the local toggle
+                    state: a correction disputes what is recorded, not what the
+                    lecturer has unsaved on screen. */}
+                {canRequestCorrection && student.attendanceId && (
+                  <RequestCorrectionButton
+                    attendanceId={student.attendanceId}
+                    studentName={student.name}
+                    currentStatus={student.status}
+                  />
+                )}
               </div>
             </li>
           ))}

@@ -87,9 +87,8 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
       kind: "text",
       name: "employeeId",
       label: "Employee ID",
-      required: true,
       placeholder: "FAC/0043",
-      helperText: "Unique within this university.",
+      helperText: "Unique within this university. Leave blank to generate one automatically.",
     },
     {
       kind: "select",
@@ -112,7 +111,12 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
   ];
 
   const editFields: FormField[] = [
-    { kind: "text", name: "employeeId", label: "Employee ID", required: true },
+    {
+      kind: "text",
+      name: "employeeId",
+      label: "Employee ID",
+      helperText: "Leave blank to generate one automatically.",
+    },
     {
       kind: "select",
       name: "departmentId",

@@ -119,10 +119,18 @@ export class AssessmentEventRepository {
     tenantId: string,
     filter: AssessmentEventFilter,
     skip: number,
-    take: number
+    take: number,
+    departmentId: string | null = null
   ): Promise<[AssessmentEventRecord[], number]> {
     const where: Prisma.AssessmentEventWhereInput = {
       tenantId,
+      // AUTHORIZATION, not a filter. `departmentId` is resolved from the
+      // authenticated subject by resolveDepartmentScope and is null for every
+      // caller who is not narrowed. It sits on `course`, a DIFFERENT key from
+      // the caller's own `courseId` filter below, so the two INTERSECT rather
+      // than one replacing the other — a head asking for another department's
+      // course matches nothing instead of escaping the restriction.
+      ...(departmentId === null ? {} : { course: { departmentId } }),
       ...(filter.courseId === undefined ? {} : { courseId: filter.courseId }),
       ...(filter.semesterId === undefined ? {} : { semesterId: filter.semesterId }),
       ...(filter.sectionId === undefined ? {} : { sectionId: filter.sectionId }),
@@ -149,6 +157,31 @@ export class AssessmentEventRepository {
    *
    * COMPLEXITY : O(log n) on the primary key with a tenant predicate.
    */
+  /**
+   * Does this department own the course a sitting belongs to?
+   *
+   * Kept apart from findById rather than folded into its `where` because
+   * findById is also the read half of the write paths, which pass a transaction
+   * client positionally. Adding an authorization parameter there would have
+   * meant either reordering that signature or importing prisma into the
+   * service, which the port exists to prevent.
+   *
+   * tenantId is in the predicate as well: a department id is opaque, and
+   * pairing the two means a wrong one cannot reach another institution.
+   */
+  async courseBelongsToDepartment(
+    tenantId: string,
+    courseId: string,
+    departmentId: string
+  ): Promise<boolean> {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, departmentId },
+      select: { id: true },
+    });
+
+    return course !== null;
+  }
+
   async findById(
     tenantId: string,
     id: string,
@@ -346,6 +379,7 @@ export type AssessmentEventRepositoryPort = Pick<
   AssessmentEventRepository,
   | "listWithCount"
   | "findById"
+  | "courseBelongsToDepartment"
   | "findMaxSequence"
   | "create"
   | "update"

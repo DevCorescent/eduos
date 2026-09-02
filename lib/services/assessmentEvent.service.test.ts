@@ -38,6 +38,7 @@ import type { RequestContext } from "@/lib/utils/request-context";
 
 const TENANT_ID = "tenant_1";
 const EVENT_ID = "event_1";
+const DEPARTMENT_ID = "dept_cse";
 const COMPONENT_ID = "component_1";
 const COURSE_ID = "course_1";
 const SEMESTER_ID = "semester_1";
@@ -124,7 +125,25 @@ class FakeEventRepository implements AssessmentEventRepositoryPort {
   transactionCount = 0;
   facultyLookups = 0;
 
-  async listWithCount(): Promise<[AssessmentEventRecord[], number]> {
+  /** Whether the head's department owns the course. Set per test. */
+  departmentOwnsCourse = false;
+  departmentChecks = 0;
+
+  async courseBelongsToDepartment(): Promise<boolean> {
+    this.departmentChecks += 1;
+    return this.departmentOwnsCourse;
+  }
+
+  listDepartmentId: string | null | undefined = undefined;
+
+  async listWithCount(
+    _tenantId?: unknown,
+    _filter?: unknown,
+    _skip?: unknown,
+    _take?: unknown,
+    departmentId: string | null = null
+  ): Promise<[AssessmentEventRecord[], number]> {
+    this.listDepartmentId = departmentId;
     return this.page;
   }
 
@@ -627,5 +646,53 @@ describe("AssessmentEventService reads", () => {
     events.single = null;
 
     await rejectsWithStatus(service.getById(TENANT_ID, EVENT_ID), HTTP_STATUS.NOT_FOUND);
+  });
+
+  // --- Department confinement ---------------------------------------------
+  //
+  // ASSESSMENT_EVENT_READ_ROLES admits DEPARTMENT_HOD, and before this
+  // narrowing existed that yes was tenant-wide: a head read every sitting in
+  // the university.
+
+  it("serves a sitting whose course belongs to the caller's department", async () => {
+    const { service, events } = build();
+    events.single = buildEvent();
+    events.departmentOwnsCourse = true;
+
+    const result = await service.getById(TENANT_ID, EVENT_ID, DEPARTMENT_ID);
+
+    assert.equal(result.id, EVENT_ID);
+  });
+
+  it("raises 404 — not 403 — for a sitting outside the caller's department", async () => {
+    // The same answer an unknown id gets, deliberately. A 403 would confirm
+    // that a sitting with this id exists somewhere in the university, which is
+    // more than a head is entitled to learn from an id they guessed.
+    const { service, events } = build();
+    events.single = buildEvent();
+    events.departmentOwnsCourse = false;
+
+    await rejectsWithStatus(
+      service.getById(TENANT_ID, EVENT_ID, DEPARTMENT_ID),
+      HTTP_STATUS.NOT_FOUND
+    );
+  });
+
+  it("does not ask about the department for an unnarrowed caller", async () => {
+    const { service, events } = build();
+    events.single = buildEvent();
+
+    await service.getById(TENANT_ID, EVENT_ID);
+
+    assert.equal(events.departmentChecks, 0);
+  });
+
+  it("passes the department restriction down to the list query", async () => {
+    // Resolving a scope the query never receives protects nothing.
+    const { service, events } = build();
+
+    await service.list(TENANT_ID, { page: 1, limit: 20 }, DEPARTMENT_ID);
+
+    assert.equal(events.listDepartmentId, DEPARTMENT_ID);
   });
 });

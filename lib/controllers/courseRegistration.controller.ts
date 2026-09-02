@@ -45,14 +45,19 @@ export class CourseRegistrationController {
   /** GET /api/course-registrations */
   async list(
     tenantId: string,
-    query: ListCourseRegistrationsQuery
+    query: ListCourseRegistrationsQuery,
+    departmentId: string | null = null
   ): Promise<CourseRegistrationListDTO> {
-    return courseRegistrationService.list(tenantId, query);
+    return courseRegistrationService.list(tenantId, query, departmentId);
   }
 
   /** GET /api/course-registrations/[id] */
-  async getById(tenantId: string, id: string): Promise<CourseRegistrationDTO> {
-    return courseRegistrationService.getById(tenantId, id);
+  async getById(
+    tenantId: string,
+    id: string,
+    departmentId: string | null = null
+  ): Promise<CourseRegistrationDTO> {
+    return courseRegistrationService.getById(tenantId, id, departmentId);
   }
 
   /** POST /api/course-registrations */

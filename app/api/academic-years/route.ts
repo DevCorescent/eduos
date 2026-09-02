@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { ACADEMIC_CALENDAR_READ_ROLES } from "@/lib/constants/examination";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import {
   createAcademicYearSchema,
@@ -41,7 +42,7 @@ const UNIQUE_VIOLATION = "P2002";
 //              403 FORBIDDEN · 404 NOT_FOUND · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    const guard = await requireRole(...ACADEMIC_CALENDAR_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();

@@ -146,6 +146,11 @@ export async function createDepartmentAction(values: FormValues): Promise<Action
     name: str(values, "name"),
     code: str(values, "code"),
     hodName: optionalStr(values, "hodName"),
+    // str, not optionalStr: "" is the picker's "no head" option and must reach
+    // the API as an explicit clear. optionalStr would drop it, which on PATCH
+    // means "leave unchanged" — and a head could then never be released, so no
+    // head could ever move between departments (hodUserId is @unique).
+    hodUserId: str(values, "hodUserId"),
     email: optionalStr(values, "email"),
   };
   return withConflictField(await createDepartment(input));
@@ -163,6 +168,8 @@ export async function updateDepartmentAction(
     name: str(values, "name"),
     code: str(values, "code"),
     hodName: optionalStr(values, "hodName"),
+    // See createDepartmentAction: "" clears the head rather than being dropped.
+    hodUserId: str(values, "hodUserId"),
     email: optionalStr(values, "email"),
   };
   return withConflictField(await updateDepartment(id, input));

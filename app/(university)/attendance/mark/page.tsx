@@ -11,6 +11,9 @@ import { getSectionTimetable, getSessionAttendance } from "@/services/academics"
 import { MAX_LIST_LIMIT } from "@/types/api";
 import { allSections } from "@/services/reference";
 import { listStudents } from "@/services/students";
+import { getPortalSession } from "@/services/session";
+import { hasAnyRole } from "@/constants/roles";
+import { ATTENDANCE_CORRECTION_REQUEST_ROLES } from "@/lib/constants/attendanceCorrection";
 import { MarkAttendanceForm } from "./MarkAttendanceForm";
 
 export const metadata: Metadata = { title: "Mark Attendance" };
@@ -102,11 +105,24 @@ export default async function MarkAttendancePage({
 
   // Pre-fills the form with whatever was already recorded, so re-opening a
   // marked session shows the register as it stands rather than blank.
+  //
+  // The row id is kept alongside the status because a correction request is
+  // ABOUT that row: without it the requester would have to identify the record
+  // by student, course, date and session type, which is four chances to name a
+  // different register than the one they are disputing.
   const existingByStudent = new Map(
     (existingResult?.success ? existingResult.data : []).map((row) => [
       row.studentId,
-      row.status,
+      { id: row.id, status: row.status },
     ])
+  );
+
+  // ATTENDANCE_CORRECTION_REQUEST_ROLES. The POST route enforces the same set,
+  // so this only decides whether the control is drawn.
+  const session = await getPortalSession();
+  const canRequestCorrection = hasAnyRole(
+    session?.roles ?? [],
+    ATTENDANCE_CORRECTION_REQUEST_ROLES
   );
 
   return (
@@ -168,9 +184,11 @@ export default async function MarkAttendancePage({
             id: student.id,
             name: student.fullName,
             enrollmentNo: student.enrollmentNo,
-            status: existingByStudent.get(student.id) ?? "PRESENT",
+            status: existingByStudent.get(student.id)?.status ?? "PRESENT",
+            attendanceId: existingByStudent.get(student.id)?.id,
           }))}
           alreadyMarked={existingByStudent.size > 0}
+          canRequestCorrection={canRequestCorrection}
         />
       )}
     </>

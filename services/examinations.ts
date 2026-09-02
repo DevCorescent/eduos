@@ -122,6 +122,208 @@ export async function listFacultyExaminations(
   return { success: true, data: { ...result.data, items } };
 }
 
+/** The course and semester the API now joins onto every examination row. */
+type ExaminationWithJoin = Examination & {
+  course?: { code: string; name: string } | null;
+  semester?: { name: string } | null;
+};
+
+/**
+ * Every examination in the tenant, newest first.
+ *
+ * WHY THIS DOES NOT GO THROUGH courseIndex()
+ *   The reference indexes resolve names by scanning /api/courses, which is
+ *   COURSE_READ_ROLES. The Controller of Examination is deliberately NOT in
+ *   that set — the examination office does not get the institutional course
+ *   registry — so every name came back "—". GET /api/examinations now joins the
+ *   course and semester itself, and this function reads that join, which is why
+ *   it works for a caller who cannot read the catalogue.
+ *
+ * `resolveCounts` defaults to FALSE here, unlike the faculty list: the counts
+ * cost one request per row and the calendar does not show them.
+ */
+export interface ExaminationFilters extends ListParams {
+  /** ExaminationType. Validated against the enum by the route. */
+  type?: string;
+  semesterId?: string;
+}
+
+export async function listExaminations(
+  params?: ExaminationFilters,
+  options: ExaminationListOptions = {}
+): Promise<ApiResponse<PaginatedResult<ExaminationRow>>> {
+  const result = await apiList<ExaminationWithJoin>(
+    "/api/examinations",
+    "examinations",
+    params
+  );
+  if (!result.success) return result;
+
+  const resolveCounts = options.resolveCounts ?? false;
+
+  const items = await mapWithConcurrency(result.data.items, async (exam) => {
+    const { course, semester, ...examination } = exam;
+
+    const base: ExaminationRow = {
+      ...examination,
+      courseCode: course?.code ?? "—",
+      courseName: course?.name ?? "—",
+      semesterName: semester?.name ?? "—",
+      resultCount: 0,
+      publishedCount: 0,
+    };
+
+    if (!resolveCounts) return base;
+
+    const results = await apiList<ExamResult>(
+      `/api/examinations/${examination.id}/results`,
+      "results",
+      { limit: MAX_LIST_LIMIT }
+    );
+    const rows = results.success ? results.data.items : [];
+
+    return {
+      ...base,
+      resultCount: results.success ? results.data.pagination.total : 0,
+      publishedCount: rows.filter((row) => row.publishedAt !== null).length,
+    };
+  });
+
+  return { success: true, data: { ...result.data, items } };
+}
+
+/** The body POST /api/examinations accepts. See lib/validations/examination.ts. */
+export interface ScheduleExaminationInput {
+  semesterId: string;
+  courseId: string;
+  title: string;
+  type?: string;
+  date?: string;
+  startTime?: string;
+  endTime?: string;
+  venue?: string;
+  maxMarks: number;
+  passMark?: number;
+  duration?: number;
+  instructions?: string;
+}
+
+/** Schedule an examination. PRD 17.2 — Examination Configuration. */
+export async function scheduleExamination(
+  input: ScheduleExaminationInput
+): Promise<ApiResponse<Examination>> {
+  return apiRequest<Examination>("/api/examinations", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** One student's standing for one examination, as the eligibility route returns it. */
+export interface EligibilityRowDTO {
+  studentId: string;
+  enrollmentNo: string;
+  studentName: string;
+  courseRegistrationId: string;
+  registrationStatus: string;
+  sessionsHeld: number;
+  sessionsAttended: number;
+  decision:
+    | { eligible: true; attendancePercentage: number }
+    | { eligible: false; reason: string; attendancePercentage: number };
+  ticketNo: string | null;
+  seatNo: string | null;
+}
+
+export interface EligibilityReport {
+  examination: { id: string; title: string; courseId: string; semesterId: string };
+  rows: EligibilityRowDTO[];
+  summary: {
+    total: number;
+    eligible: number;
+    ineligible: number;
+    ticketsIssued: number;
+    seated: number;
+  };
+}
+
+/** The examination cohort with each student's eligibility. Examination office only. */
+export async function getExaminationEligibility(
+  examinationId: string
+): Promise<ApiResponse<EligibilityReport>> {
+  return apiRequest<EligibilityReport>(
+    `/api/examinations/${examinationId}/eligibility`
+  );
+}
+
+export interface IssueHallTicketsResult {
+  issuedCount: number;
+  alreadyIssuedCount: number;
+  ineligibleCount: number;
+}
+
+/**
+ * Issue hall tickets to the eligible cohort.
+ *
+ * No body: the cohort is derived from the examination server-side, so there is
+ * no student for a caller to name and none to manipulate.
+ */
+export async function issueHallTickets(
+  examinationId: string
+): Promise<ApiResponse<IssueHallTicketsResult>> {
+  return apiRequest<IssueHallTicketsResult>(
+    `/api/examinations/${examinationId}/hall-tickets`,
+    { method: "POST", body: {} }
+  );
+}
+
+export interface AllocateSeatsResult {
+  allocatedCount: number;
+  alreadyAllocatedCount: number;
+}
+
+/**
+ * Allocate seats to the tickets already issued for an examination.
+ *
+ * No body: the plan is derived server-side in enrolment order, so no seat and
+ * no student can be named by a caller.
+ */
+export async function allocateExaminationSeats(
+  examinationId: string
+): Promise<ApiResponse<AllocateSeatsResult>> {
+  return apiRequest<AllocateSeatsResult>(
+    `/api/examinations/${examinationId}/seats`,
+    { method: "POST", body: {} }
+  );
+}
+
+/** One student's own hall tickets. Resolved from their session, never an id. */
+export interface StudentHallTicket {
+  id: string;
+  ticketNo: string;
+  seatNo: string | null;
+  issuedAt: string;
+  examination: {
+    id: string;
+    title: string;
+    type: string;
+    date: string | null;
+    startTime: string | null;
+    endTime: string | null;
+    venue: string | null;
+    maxMarks: number;
+    course: { code: string; name: string } | null;
+    semester: { name: string } | null;
+  };
+}
+
+export async function getMyHallTickets(): Promise<ApiResponse<StudentHallTicket[]>> {
+  const result = await apiRequest<{ hallTickets: StudentHallTicket[] }>(
+    "/api/students/me/hall-tickets"
+  );
+
+  return result.success ? { success: true, data: result.data.hallTickets } : result;
+}
+
 /** One examination's results, joined to the students who sat it. */
 export interface ExamResultRow extends ExamResult {
   studentName: string;

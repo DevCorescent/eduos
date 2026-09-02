@@ -22,6 +22,7 @@
 // ============================================================================
 
 import { prisma } from "@/lib/db/prisma";
+import { isAttended } from "@/lib/domain/attendance/attended";
 import { NotificationCategory } from "@/app/generated/prisma/enums";
 import type { Prisma } from "@/app/generated/prisma/client";
 import { REPORTABLE_REGISTRATION_STATUSES } from "@/lib/repositories/result.repository";
@@ -262,9 +263,15 @@ export async function findAdminUserIds(
  * Attendance totals per student for one course, for the low-attendance check.
  *
  * GROUPED ACROSS THE WHOLE COHORT — a thirty-student register costs one
- * statement, not thirty. PRESENT and LATE both count as attended; a student who
- * arrived late attended. EXCUSED counts as held but not attended, matching the
- * treatment Phase 23's metrics module already applies.
+ * statement, not thirty.
+ *
+ * What counts as attended is lib/domain/attendance/attended.ts, not a rule
+ * restated here. This function previously counted PRESENT and LATE only, so a
+ * student whose absences were all EXCUSED was sent an "Attendance Below 75%"
+ * warning by this emitter while hall-ticket eligibility — the decision that
+ * warning exists to give notice of — held them eligible. The warning was
+ * telling students they were about to be detained for absences the university
+ * had already authorised.
  *
  * COST: one statement.
  */
@@ -287,7 +294,7 @@ export async function findAttendanceRatios(
     const entry = totals.get(row.studentId) ?? { held: 0, attended: 0 };
     entry.held += row._count._all;
 
-    if (row.status === "PRESENT" || row.status === "LATE") {
+    if (isAttended(row.status)) {
       entry.attended += row._count._all;
     }
 

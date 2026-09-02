@@ -23,7 +23,14 @@ import { COURSE_OUTCOME } from "@/lib/domain/result-engine/enums";
 // --- The fake repository ----------------------------------------------------
 
 interface FakeData {
-  student?: { id: string; userId: string; enrollmentNo: string } | null;
+  student?: {
+    id: string;
+    userId: string;
+    enrollmentNo: string;
+    programmeId?: string | null;
+  } | null;
+  /** Whether the department in a DEPARTMENT-scoped read owns the programme. */
+  departmentOwnsProgramme?: boolean;
   studentByUser?: { id: string } | null;
   semester?: { id: string; name: string; startDate: Date; endDate: Date } | null;
   registrations?: unknown[];
@@ -47,6 +54,10 @@ function fakeRepository(data: FakeData) {
     async findStudentByUserId() {
       calls.push("findStudentByUserId");
       return data.studentByUser ?? null;
+    },
+    async departmentOwnsProgramme() {
+      calls.push("departmentOwnsProgramme");
+      return data.departmentOwnsProgramme ?? false;
     },
     async findSemester() {
       calls.push("findSemester");
@@ -91,7 +102,12 @@ function fakeRepository(data: FakeData) {
 
 // --- Fixtures ---------------------------------------------------------------
 
-const STUDENT = { id: "student_1", userId: "user_1", enrollmentNo: "2024CS001" };
+const STUDENT = {
+  id: "student_1",
+  userId: "user_1",
+  enrollmentNo: "2024CS001",
+  programmeId: "programme_cse",
+};
 const ANY_ACCESS: ResultAccess = { scope: "ANY" };
 
 const SCHEME = {
@@ -259,6 +275,153 @@ describe("ResultService — authorisation", () => {
     });
 
     assert.equal(result.studentId, "student_1");
+  });
+
+  it("a DEPARTMENT-scoped head reads a student in their own department", async () => {
+    const { service } = serviceFor(baseData({ departmentOwnsProgramme: true }));
+
+    const result = await service.getStudentResult("tenant_1", "student_1", {
+      scope: "DEPARTMENT",
+      departmentId: "dept_cse",
+    });
+
+    assert.equal(result.studentId, "student_1");
+  });
+
+  it("a DEPARTMENT-scoped head reading ANOTHER department's student receives 403", async () => {
+    // The whole point of the scope. Before it existed RESULT_READ_ANY_ROLES
+    // admitted DEPARTMENT_HOD tenant-wide, and this call returned the record.
+    const { service } = serviceFor(baseData({ departmentOwnsProgramme: false }));
+
+    await expectAppError(
+      () =>
+        service.getStudentResult("tenant_1", "student_1", {
+          scope: "DEPARTMENT",
+          departmentId: "dept_other",
+        }),
+      403
+    );
+  });
+
+  it("a DEPARTMENT-scoped head is refused a student with NO programme", async () => {
+    // An unowned record cannot be shown to belong to this department, and
+    // "unknown" must never be read as "permitted".
+    const { service } = serviceFor(
+      baseData({
+        student: { ...STUDENT, programmeId: null },
+        departmentOwnsProgramme: true,
+      })
+    );
+
+    const error = await expectAppError(
+      () =>
+        service.getStudentResult("tenant_1", "student_1", {
+          scope: "DEPARTMENT",
+          departmentId: "dept_cse",
+        }),
+      403
+    );
+
+    assert.ok(error instanceof AppError);
+  });
+
+  it("does not ask about programme ownership for an unnarrowed caller", async () => {
+    // An examination-office read must not pay for a check that cannot apply.
+    const { service, calls } = serviceFor(baseData({ departmentOwnsProgramme: true }));
+
+    await service.getStudentResult("tenant_1", "student_1", ANY_ACCESS);
+
+    assert.ok(
+      !calls.includes("departmentOwnsProgramme"),
+      "ANY scope must not trigger the department check"
+    );
+  });
+
+  it("confines the transcript and the analytics the same way as the result", async () => {
+    // Three endpoints share requireStudent. A narrowing applied in one and
+    // forgotten in the others is the failure this asserts against.
+    for (const call of [
+      (s: ResultService) =>
+        s.getTranscript("tenant_1", "student_1", {
+          scope: "DEPARTMENT",
+          departmentId: "dept_other",
+        }),
+      (s: ResultService) =>
+        s.getAnalytics("tenant_1", "student_1", {
+          scope: "DEPARTMENT",
+          departmentId: "dept_other",
+        }),
+    ]) {
+      const { service } = serviceFor(baseData({ departmentOwnsProgramme: false }));
+      await expectAppError(() => call(service), 403);
+    }
+  });
+
+  it("a head asking for a student in ANOTHER TENANT gets the tenant's 404", async () => {
+    // findStudent is anchored on tenantId, so a student outside the caller's
+    // institution resolves to nothing and the department check is never
+    // reached. `student: null` is exactly what that query returns for a
+    // cross-tenant id — the 404 comes from tenancy, before authorisation, and
+    // an unknown id and another tenant's id are indistinguishable.
+    const { service, calls } = serviceFor(baseData({ student: null }));
+
+    await expectAppError(
+      () =>
+        service.getStudentResult("tenant_1", "student_OTHER_TENANT", {
+          scope: "DEPARTMENT",
+          departmentId: "dept_cse",
+        }),
+      404
+    );
+
+    assert.ok(
+      !calls.includes("departmentOwnsProgramme"),
+      "tenancy must refuse first; the department check must never see a " +
+        "student from another institution"
+    );
+  });
+
+  it("a head cannot reach another department by MANIPULATING the studentId", async () => {
+    // The path parameter is the only id a caller controls here, and it is never
+    // used to widen anything: it is looked up tenant-scoped, and the record
+    // that comes back is then tested against the department resolved from the
+    // caller's own session. Substituting any other student changes which record
+    // is tested, never whether the test is applied.
+    const { service } = serviceFor(baseData({ departmentOwnsProgramme: false }));
+
+    for (const forged of ["student_2", "student_OTHER", "../student_1", ""]) {
+      await expectAppError(
+        () =>
+          service.getStudentResult("tenant_1", forged, {
+            scope: "DEPARTMENT",
+            departmentId: "dept_cse",
+          }),
+        403
+      );
+    }
+  });
+
+  it("the department comes from the authority, never from the requested record", async () => {
+    // The inverse check. If the confinement ever compared the student's
+    // programme against a department taken from the REQUEST rather than from
+    // the session, every one of these would pass. Here the authority names
+    // dept_cse and the repository says the student is not in it, so the answer
+    // must be 403 no matter what the caller asked for.
+    const { service, calls } = serviceFor(baseData({ departmentOwnsProgramme: false }));
+
+    await expectAppError(
+      () =>
+        service.getTranscript("tenant_1", "student_1", {
+          scope: "DEPARTMENT",
+          departmentId: "dept_cse",
+        }),
+      403
+    );
+
+    assert.ok(
+      calls.includes("departmentOwnsProgramme"),
+      "the ownership question must actually be asked"
+    );
   });
 
   it("a STUDENT asking for ANOTHER student receives 403, not 404", async () => {

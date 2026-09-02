@@ -57,6 +57,18 @@ const TIMETABLE_SELECT = {
   sessionType: true,
   isActive: true,
   createdAt: true,
+  // The course a slot teaches, joined here rather than left to the caller.
+  //
+  // WHY: a lecturer's own schedule is meaningless as a list of opaque course
+  // ids, and FACULTY cannot resolve them — /api/courses is COURSE_READ_ROLES
+  // (UNIVERSITY_ADMIN and the head of department), deliberately. Without this
+  // join the client had nowhere to get a course name from, and
+  // services/academics.ts filled the gap with a literal "—" for every row.
+  //
+  // Two scalar columns on a relation the model already declares. No new
+  // authorization surface: a caller who may read the slot may read which
+  // course the slot is for.
+  course: { select: { code: true, name: true } },
 } as const;
 
 // Timetable holds no BigInt, Decimal or Json column, so the shared serialize()

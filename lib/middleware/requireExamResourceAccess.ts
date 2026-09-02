@@ -23,6 +23,7 @@
 import type { NextResponse } from "next/server";
 import { requireRole as defaultRequireRole } from "@/lib/middleware/requireRole";
 import { requireTenant as defaultRequireTenant } from "@/lib/middleware/requireTenant";
+import { resolveDepartmentScope as defaultResolveDepartmentScope } from "@/lib/auth/departmentScope";
 import { readRequestOrigin } from "@/lib/middleware/requireAttendanceLockAccess";
 import {
   EXAM_RESOURCE_ADMIN_ROLES,
@@ -40,19 +41,24 @@ export type ExamResourceAccessGuard =
 export interface ExamResourceAccessDeps {
   requireRole: typeof defaultRequireRole;
   requireTenant: typeof defaultRequireTenant;
+  resolveDepartmentScope: typeof defaultResolveDepartmentScope;
 }
 
 const DEFAULT_DEPS: ExamResourceAccessDeps = {
   requireRole: defaultRequireRole,
   requireTenant: defaultRequireTenant,
+  resolveDepartmentScope: defaultResolveDepartmentScope,
 };
 
 /**
  * Resolve a staff caller's repository authority and their tenant.
  *
- * ANY — an administrative caller: verifies, publishes, archives and deletes
- *       anything in their tenant.
- * OWN — a faculty member: reads everything, writes only their own uploads.
+ * ANY        — a university administrator: verifies, publishes, archives and
+ *              deletes anything in their tenant.
+ * DEPARTMENT — a head of department: the same operations, confined to their
+ *              own department's resources.
+ * OWN        — a faculty member: reads everything, writes only their own
+ *              uploads.
  *
  * COMPLEXITY : one or two role calls plus one tenant call.
  */
@@ -71,12 +77,27 @@ export async function requireExamResourceAccess(
       return { granted: false, response: tenantGuard.response };
     }
 
+    // EXAM_RESOURCE_ADMIN_ROLES admits BOTH spellings of head of department
+    // alongside UNIVERSITY_ADMIN, and this branch handed all three "ANY" —
+    // which the service defines as publishing, archiving and deleting anything
+    // in the tenant. A head could publish another department's answer key.
+    //
+    // The head/department rule is not restated here; resolveDepartmentScope
+    // owns it, including the precedence that leaves an administrator who also
+    // heads a department unnarrowed, and the refusal of an unassigned head.
+    const scope = await deps.resolveDepartmentScope(elevated.session);
+
+    if (!scope.ok) {
+      return { granted: false, response: scope.response };
+    }
+
     return {
       granted: true,
       access: {
         tenantId: tenantGuard.tenant.id,
         userId: elevated.session.sub,
-        scope: "ANY",
+        scope: scope.scope.restricted ? "DEPARTMENT" : "ANY",
+        departmentId: scope.scope.restricted ? scope.scope.departmentId : null,
         ipAddress: origin.ipAddress,
         userAgent: origin.userAgent,
       },
@@ -106,6 +127,8 @@ export async function requireExamResourceAccess(
       // uploadedById; nothing a client sends can influence it.
       userId: own.session.sub,
       scope: "OWN",
+      // A faculty member is bounded by uploadedById, not by a department.
+      departmentId: null,
       ipAddress: origin.ipAddress,
       userAgent: origin.userAgent,
     },

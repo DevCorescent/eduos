@@ -137,7 +137,13 @@ export async function getSectionTimetable(
 export async function getFacultyTimetable(
   facultyId: string
 ): Promise<ApiResponse<TimetableSlot[]>> {
-  const result = await apiList<Timetable>(
+  // The route joins the course, so the code and name are real values rather
+  // than the placeholders this function used to invent. facultyName stays a
+  // placeholder deliberately: this endpoint only ever returns the CALLER'S own
+  // slots, so naming the lecturer on every row would be repeating who is
+  // already logged in, and joining User for it would widen the projection for
+  // nothing.
+  const result = await apiList<Timetable & { course?: { code: string; name: string } | null }>(
     `/api/timetables/faculty/${facultyId}`,
     "timetables",
     { limit: 100 }
@@ -146,10 +152,10 @@ export async function getFacultyTimetable(
 
   return {
     success: true,
-    data: result.data.items.map((slot) => ({
+    data: result.data.items.map(({ course, ...slot }) => ({
       ...slot,
-      courseCode: "—",
-      courseName: "—",
+      courseCode: course?.code ?? "—",
+      courseName: course?.name ?? "—",
       facultyName: "—",
     })),
   };
@@ -198,7 +204,37 @@ export async function getSectionRoster(
   return result.success ? { success: true, data: result.data.roster } : result;
 }
 
-/** One session's register, for the mark-attendance screen. */
+/**
+ * One session's register, for the mark-attendance screen.
+ *
+ * THE ENDPOINT IGNORES EVERY ONE OF THESE PARAMETERS.
+ *   GET /api/attendance deliberately reads no filter — its own handler says so
+ *   and explains why: whether `date` names a day or a range, and whether a
+ *   filter is required at all, is an open contract question it declines to
+ *   settle by implication. So it answers with the TENANT'S WHOLE REGISTER and
+ *   the three arguments above travel as documentation of intent.
+ *
+ *   Left unfiltered that is not merely a wide read, it is a wrong answer. Every
+ *   session of a course carries the same students, so the caller's
+ *   `new Map(rows.map(r => [r.studentId, ...]))` keeps whichever row happens to
+ *   come last — a different DAY's mark. The register then pre-fills from the
+ *   wrong session, reports "already marked" for a day nobody has marked, and,
+ *   since C13, hands the correction control the wrong attendance id: a lecturer
+ *   disputing Monday's absence would have raised a request against a mark from
+ *   three weeks earlier.
+ *
+ *   Narrowed here rather than in the route for the reason getAttendanceReport
+ *   above gives: the route's shape is its published contract and other clients
+ *   may rely on the unfiltered rows. This function's contract is one session,
+ *   so this function is what must honour it.
+ *
+ * KNOWN LIMIT, STATED RATHER THAN HIDDEN
+ *   The narrowing happens after pagination, so it can only see the first
+ *   MAX_LIST_LIMIT records of the tenant's attendance. A session older than
+ *   that window returns empty — an unmarked register — rather than wrong marks.
+ *   Failing to the safe side is the point, but the real repair is a filter
+ *   contract on the route.
+ */
 export async function getSessionAttendance(
   sectionId: string,
   courseId: string,
@@ -210,7 +246,19 @@ export async function getSessionAttendance(
     date,
     limit: MAX_LIST_LIMIT,
   });
-  return result.success ? { success: true, data: result.data.items } : result;
+
+  if (!result.success) return result;
+
+  // date arrives as a full ISO timestamp; Attendance.date is @db.Date, so only
+  // the day it names is meaningful on either side.
+  const session = result.data.items.filter(
+    (row) =>
+      row.sectionId === sectionId &&
+      row.courseId === courseId &&
+      String(row.date).slice(0, 10) === date
+  );
+
+  return { success: true, data: session };
 }
 
 export interface MarkAttendanceEntry {
@@ -330,4 +378,76 @@ export async function getAttendanceReport(
  */
 export async function currentSemesterId(): Promise<string | null> {
   return (await currentSemester())?.id ?? null;
+}
+
+// --- Attendance corrections (PRD §13.2) -------------------------------------
+
+/** One correction request, as the API returns it. */
+export interface AttendanceCorrectionRow {
+  id: string;
+  attendanceId: string;
+  currentStatus: string;
+  requestedStatus: string;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  requestedById: string | null;
+  requestedAt: string;
+  reviewedById: string | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  attendance: {
+    id: string;
+    date: string;
+    status: string;
+    sessionType: string;
+    courseId: string | null;
+    sectionId: string | null;
+    student: { id: string; enrollmentNo: string } | null;
+  } | null;
+}
+
+/** The correction queue, newest first. Optionally narrowed to one status. */
+export async function listAttendanceCorrections(
+  status?: string
+): Promise<ApiResponse<AttendanceCorrectionRow[]>> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  const result = await apiRequest<{ requests: AttendanceCorrectionRow[] }>(
+    `/api/attendance/corrections${query}`
+  );
+
+  return result.success ? { success: true, data: result.data.requests } : result;
+}
+
+export interface RaiseAttendanceCorrectionInput {
+  attendanceId: string;
+  requestedStatus: string;
+  reason: string;
+}
+
+/**
+ * Raise a correction request.
+ *
+ * The register is NOT changed by this call — the mark keeps its value until a
+ * reviewer approves. Nothing here names the requester; the API takes it from
+ * the session.
+ */
+export async function raiseAttendanceCorrection(
+  input: RaiseAttendanceCorrectionInput
+): Promise<ApiResponse<AttendanceCorrectionRow>> {
+  return apiRequest<AttendanceCorrectionRow>("/api/attendance/corrections", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** Approve (applies the change) or reject (changes nothing) one request. */
+export async function reviewAttendanceCorrection(
+  id: string,
+  decision: "APPROVE" | "REJECT",
+  note?: string
+): Promise<ApiResponse<AttendanceCorrectionRow>> {
+  return apiRequest<AttendanceCorrectionRow>(`/api/attendance/corrections/${id}`, {
+    method: "PATCH",
+    body: { decision, ...(note ? { note } : {}) },
+  });
 }

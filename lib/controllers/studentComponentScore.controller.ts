@@ -38,8 +38,16 @@ const studentComponentScoreService = new StudentComponentScoreService(
 
 export class StudentComponentScoreController {
   /** GET /api/assessment-events/[id]/marks */
-  async getMarksSheet(tenantId: string, assessmentEventId: string): Promise<MarksSheetDTO> {
-    return studentComponentScoreService.getMarksSheet(tenantId, assessmentEventId);
+  async getMarksSheet(
+    tenantId: string,
+    assessmentEventId: string,
+    departmentId: string | null = null
+  ): Promise<MarksSheetDTO> {
+    return studentComponentScoreService.getMarksSheet(
+      tenantId,
+      assessmentEventId,
+      departmentId
+    );
   }
 
   /** POST /api/results/internal and POST /api/results/external */

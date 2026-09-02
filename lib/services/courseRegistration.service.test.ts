@@ -49,6 +49,7 @@ const SECTION_ID = "section_1";
 const SCHEME_ID = "scheme_1";
 const PROGRAMME_ID = "programme_1";
 const REGISTRATION_ID = "registration_1";
+const DEPARTMENT_ID = "dept_cse";
 
 const CONTEXT: RequestContext = {
   actorId: "user_1",
@@ -137,11 +138,29 @@ class FakeRegistrationRepository implements CourseRegistrationRepositoryPort {
   attemptQueries = 0;
   studentQueries = 0;
 
+  /** Whether the head's department owns the course. Set per test. */
+  departmentOwnsCourse = false;
+  departmentChecks = 0;
+
+  async courseBelongsToDepartment(): Promise<boolean> {
+    this.departmentChecks += 1;
+    return this.departmentOwnsCourse;
+  }
+
   // Parameters the fake does not consult are omitted rather than named with a
   // leading underscore: this project's ESLint config carries no
   // argsIgnorePattern. A method with fewer parameters stays assignable to the
   // port's signature.
-  async listWithCount(): Promise<[CourseRegistrationRecord[], number]> {
+  listDepartmentId: string | null | undefined = undefined;
+
+  async listWithCount(
+    _tenantId?: unknown,
+    _filter?: unknown,
+    _skip?: unknown,
+    _take?: unknown,
+    departmentId: string | null = null
+  ): Promise<[CourseRegistrationRecord[], number]> {
+    this.listDepartmentId = departmentId;
     return this.page;
   }
 
@@ -808,6 +827,51 @@ describe("CourseRegistrationService reads", () => {
       service.getById(TENANT_ID, REGISTRATION_ID),
       HTTP_STATUS.NOT_FOUND
     );
+  });
+
+  // --- Department confinement ---------------------------------------------
+  //
+  // REGISTRATION_READ_ROLES admits DEPARTMENT_HOD. Unnarrowed, a head read
+  // every enrolment in the university.
+
+  it("serves an enrolment against a course in the caller's department", async () => {
+    const { service, registrations } = build();
+    registrations.single = buildRegistration();
+    registrations.departmentOwnsCourse = true;
+
+    const result = await service.getById(TENANT_ID, REGISTRATION_ID, DEPARTMENT_ID);
+
+    assert.equal(result.id, REGISTRATION_ID);
+  });
+
+  it("raises 404 — not 403 — for an enrolment outside the caller's department", async () => {
+    // The shape of the error must not confirm that an enrolment with this id
+    // exists elsewhere in the tenant.
+    const { service, registrations } = build();
+    registrations.single = buildRegistration();
+    registrations.departmentOwnsCourse = false;
+
+    await rejectsWithStatus(
+      service.getById(TENANT_ID, REGISTRATION_ID, DEPARTMENT_ID),
+      HTTP_STATUS.NOT_FOUND
+    );
+  });
+
+  it("does not ask about the department for an unnarrowed caller", async () => {
+    const { service, registrations } = build();
+    registrations.single = buildRegistration();
+
+    await service.getById(TENANT_ID, REGISTRATION_ID);
+
+    assert.equal(registrations.departmentChecks, 0);
+  });
+
+  it("passes the department restriction down to the list query", async () => {
+    const { service, registrations } = build();
+
+    await service.list(TENANT_ID, { page: 1, limit: 20 }, DEPARTMENT_ID);
+
+    assert.equal(registrations.listDepartmentId, DEPARTMENT_ID);
   });
 
   it("returns the roster as registration ids, not student ids", async () => {

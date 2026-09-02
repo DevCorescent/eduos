@@ -14,6 +14,11 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
+import {
+  programmeIdsForDepartment,
+  resolveDepartmentScope,
+} from "@/lib/auth/departmentScope";
+import { STUDENT_READ_ROLES } from "@/lib/constants/departmentAcademics";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createStudentSchema, listStudentsQuerySchema } from "@/lib/validations/student";
 import { generateIdentifier } from "@/lib/services/identifier.service";
@@ -112,7 +117,9 @@ const STUDENT_LIST_SELECT = {
 //              403 FORBIDDEN · 404 NOT_FOUND · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // A head of department reads their own department's students. The role
+    // check admits them; the scope below is what narrows the rows.
+    const guard = await requireRole(...STUDENT_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -178,8 +185,53 @@ export async function GET(request: NextRequest) {
     // what "All statuses", "All programmes" and "All batches" mean.
     const terms = q ? q.split(/\s+/).filter(Boolean) : [];
 
+    // The department restriction, derived from the authenticated identity.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    // Student carries no departmentId — it points at a Programme, and the
+    // Programme belongs to a Department. Student.programmeId is also a plain
+    // scalar with NO Prisma relation, so a nested `where` is not expressible;
+    // the department's programmes are resolved first and applied with `in`.
+    //
+    // An EMPTY array is applied, not skipped. A department with no programmes
+    // has no students, and `in: []` matches nothing — which is the correct
+    // answer. Treating it as "no filter" would hand that head the university.
+    //
+    // A student with a null programmeId is invisible to a head, for the same
+    // reason an unowned course is: nobody has placed them in this department.
+    const departmentProgrammeIds = scope.scope.restricted
+      ? await programmeIdsForDepartment(tenant.id, scope.scope.departmentId)
+      : null;
+
+    // THE DEPARTMENT RESTRICTION AND THE ?programmeId FILTER CONSTRAIN THE SAME
+    // COLUMN, SO THEY ARE COMBINED INTO ONE CONDITION — NOT SPREAD SEPARATELY.
+    //   Two object spreads both setting `programmeId` do not intersect; the
+    //   later one silently REPLACES the earlier. With the caller's filter
+    //   spread last, a head passing another department's programme id would
+    //   overwrite their own restriction and read that department's students.
+    //   Combining them here is what makes the restriction unconditional.
+    //
+    // Restricted + a requested programme -> the intersection, so a programme
+    // the department does not own yields `in: []` and matches nothing.
+    // Restricted + no request            -> every programme the department owns.
+    // Unrestricted                       -> the caller's filter, unchanged.
+    const programmeWhere: Prisma.StudentWhereInput =
+      departmentProgrammeIds !== null
+        ? {
+            programmeId: {
+              in: programmeId
+                ? departmentProgrammeIds.filter((id) => id === programmeId)
+                : departmentProgrammeIds,
+            },
+          }
+        : programmeId
+          ? { programmeId }
+          : {};
+
     const where: Prisma.StudentWhereInput = {
       tenantId: tenant.id,
+      ...programmeWhere,
       ...(terms.length > 0
         ? {
             AND: terms.map((term) => ({
@@ -193,7 +245,8 @@ export async function GET(request: NextRequest) {
           }
         : {}),
       ...(status ? { status } : {}),
-      ...(programmeId ? { programmeId } : {}),
+      // programmeId is NOT spread here — it is folded into programmeWhere
+      // above, together with the department restriction. See the note there.
       ...(batchId ? { batchId } : {}),
     };
 

@@ -14,6 +14,8 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
+import { resolveDepartmentScope } from "@/lib/auth/departmentScope";
+import { FACULTY_READ_ROLES } from "@/lib/constants/departmentAcademics";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createFacultySchema, facultyQuerySchema } from "@/lib/validations/faculty";
 import { generateIdentifier } from "@/lib/services/identifier.service";
@@ -72,7 +74,9 @@ const FACULTY_SELECT = {
 //              403 FORBIDDEN · 404 NOT_FOUND · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // A head of department reads their own department's staff. The role check
+    // admits them; resolveDepartmentScope below is what narrows the rows.
+    const guard = await requireRole(...FACULTY_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -102,7 +106,22 @@ export async function GET(request: NextRequest) {
     }
 
     const { page, limit } = parsed.data;
-    const where = { tenantId: tenant.id };
+
+    // The department restriction, derived from the AUTHENTICATED IDENTITY and
+    // never from the request. A head who edits the URL changes nothing: no
+    // query parameter reaches this call. An admin comes back unrestricted; a
+    // head with no department assigned is refused rather than widened.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    // FacultyMember.departmentId is a real column, so the restriction is a
+    // direct equality ANDed under the tenant predicate. A member belonging to
+    // no department is correctly invisible to a head: `departmentId: <id>`
+    // does not match NULL.
+    const where: Prisma.FacultyMemberWhereInput = {
+      tenantId: tenant.id,
+      ...(scope.scope.restricted ? { departmentId: scope.scope.departmentId } : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two reads.
     // The ordering is required for correctness, not presentation: offset

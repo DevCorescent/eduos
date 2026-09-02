@@ -191,7 +191,8 @@ export class CourseRegistrationService {
    */
   async list(
     tenantId: string,
-    query: ListCourseRegistrationsQuery
+    query: ListCourseRegistrationsQuery,
+    departmentId: string | null = null
   ): Promise<CourseRegistrationListDTO> {
     const { page, limit, ...filter } = query;
 
@@ -199,7 +200,8 @@ export class CourseRegistrationService {
       tenantId,
       filter,
       (page - 1) * limit,
-      limit
+      limit,
+      departmentId
     );
 
     return {
@@ -213,10 +215,29 @@ export class CourseRegistrationService {
    *
    * COMPLEXITY : one query, O(log n).
    */
-  async getById(tenantId: string, id: string): Promise<CourseRegistrationDTO> {
+  async getById(
+    tenantId: string,
+    id: string,
+    departmentId: string | null = null
+  ): Promise<CourseRegistrationDTO> {
     const record = await this.registrations.findById(tenantId, id);
 
     if (record === null) {
+      throw registrationNotFound();
+    }
+
+    // REGISTRATION_READ_ROLES admits DEPARTMENT_HOD, so an enrolment against
+    // another department's course must not be readable. The refusal is the
+    // same not-found an unknown id gets: the shape of the error must not
+    // confirm that an enrolment with this id exists elsewhere in the tenant.
+    if (
+      departmentId !== null &&
+      !(await this.registrations.courseBelongsToDepartment(
+        tenantId,
+        record.courseId,
+        departmentId
+      ))
+    ) {
       throw registrationNotFound();
     }
 

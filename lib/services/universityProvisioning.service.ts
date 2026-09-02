@@ -34,6 +34,12 @@ import {
   INITIAL_TENANT_ROLE,
   TENANT_SYSTEM_ROLES,
 } from "@/lib/validations/platform";
+import {
+  DEFAULT_ID_FORMAT,
+  DEFAULT_ID_PADDING,
+  DEFAULT_ID_RESET,
+  DEFAULT_ID_SEQUENCES,
+} from "@/lib/constants/identifierDefaults";
 import type { ProvisionAdminInput, ProvisionTenantInput } from "@/lib/validations/platform";
 import { Prisma } from "@/app/generated/prisma/client";
 import { provisionDefaultWebsite } from "./cmsProvisioning";
@@ -157,6 +163,45 @@ async function createTenantAdmin(
   // the other roles is not granting them: a new university starts with one
   // account holding one role, and the rest are assigned deliberately.
   const role = { id: roleIds.get(INITIAL_TENANT_ROLE)! };
+
+  // Every identifier counter the application issues from.
+  //
+  // generateIdentifier REFUSES to issue without a configured sequence, and
+  // nothing created these rows — so on a fresh tenant Admissions could not
+  // create an application and Certificates could not issue one, because both
+  // generate the number and neither has a field to type it into.
+  //
+  // `update: {}` is load-bearing: a re-run must not touch a sequence an
+  // administrator has since edited through /setup/identifiers. In particular it
+  // must never reset lastSequence, which would reissue numbers already printed
+  // on certificates. The upsert therefore CREATES what is missing and leaves
+  // everything else exactly as configured — which is also what makes this
+  // backfill an existing university the next time an administrator is added.
+  for (const sequence of DEFAULT_ID_SEQUENCES) {
+    await tx.idSequence.upsert({
+      where: {
+        tenantId_entityType_scopeKey: {
+          tenantId,
+          entityType: sequence.entityType,
+          // "" is the unscoped counter — one series per entity for the whole
+          // university. Per-campus or per-programme series are configured in
+          // the UI, and carry their own scopeKey.
+          scopeKey: "",
+        },
+      },
+      update: {},
+      create: {
+        tenantId,
+        entityType: sequence.entityType,
+        scopeKey: "",
+        prefix: sequence.prefix,
+        format: DEFAULT_ID_FORMAT,
+        padding: DEFAULT_ID_PADDING,
+        resetCycle: DEFAULT_ID_RESET,
+        isActive: true,
+      },
+    });
+  }
 
   const temporaryPassword = generateTemporaryPassword();
   const passwordHash = await hashPassword(temporaryPassword);

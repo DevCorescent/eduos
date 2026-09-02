@@ -67,7 +67,10 @@ export async function addFacultyAction(values: FormValues): Promise<ActionResult
     email: str(values, "email").toLowerCase(),
     password,
     phone: optionalStr(values, "phone"),
-    employeeId: str(values, "employeeId"),
+    // optionalStr, not str: an empty field must be OMITTED so the identifier
+    // engine issues the number (PRD 51 "Automated employee IDs"). Sending ""
+    // would fail the API's min(1) rule instead of triggering generation.
+    employeeId: optionalStr(values, "employeeId"),
     departmentId: optionalStr(values, "departmentId"),
     designation: optionalStr(values, "designation"),
     qualification: optionalStr(values, "qualification"),
@@ -84,7 +87,10 @@ export async function updateFacultyAction(
   values: FormValues
 ): Promise<ActionResult> {
   const input: UpdateFacultyInput = {
-    employeeId: str(values, "employeeId"),
+    // optionalStr, not str: an empty field must be OMITTED so the identifier
+    // engine issues the number (PRD 51 "Automated employee IDs"). Sending ""
+    // would fail the API's min(1) rule instead of triggering generation.
+    employeeId: optionalStr(values, "employeeId"),
     // Passed as "" rather than omitted when cleared, so the service can tell
     // "unset this" from "leave unchanged" on a nullable column.
     departmentId: str(values, "departmentId"),
@@ -112,7 +118,10 @@ export async function addEmployeeAction(values: FormValues): Promise<ActionResul
     email: str(values, "email").toLowerCase(),
     password,
     phone: optionalStr(values, "phone"),
-    employeeId: str(values, "employeeId"),
+    // optionalStr, not str: an empty field must be OMITTED so the identifier
+    // engine issues the number (PRD 51 "Automated employee IDs"). Sending ""
+    // would fail the API's min(1) rule instead of triggering generation.
+    employeeId: optionalStr(values, "employeeId"),
     departmentId: optionalStr(values, "departmentId"),
     designation: optionalStr(values, "designation"),
     type: optionalStr(values, "type") as Employee["type"] | undefined,
@@ -127,7 +136,10 @@ export async function updateEmployeeAction(
   values: FormValues
 ): Promise<ActionResult> {
   const input: UpdateEmployeeInput = {
-    employeeId: str(values, "employeeId"),
+    // optionalStr, not str: an empty field must be OMITTED so the identifier
+    // engine issues the number (PRD 51 "Automated employee IDs"). Sending ""
+    // would fail the API's min(1) rule instead of triggering generation.
+    employeeId: optionalStr(values, "employeeId"),
     departmentId: str(values, "departmentId"),
     designation: optionalStr(values, "designation"),
     type: optionalStr(values, "type") as UpdateEmployeeInput["type"],

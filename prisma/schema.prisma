@@ -8,25 +8,25 @@ datasource db {
 }
 
 model Tenant {
-  id                String                @id @default(cuid())
-  slug              String                @unique
-  name              String
-  type              InstitutionType       @default(UNIVERSITY)
-  status            TenantStatus          @default(TRIAL)
-  logoUrl           String?
-  faviconUrl        String?
-  primaryColor      String?
-  accentColor       String?
-  timezone          String                @default("Asia/Kolkata")
-  locale            String                @default("en")
-  country           String                @default("IN")
-  address           Json?
-  contactEmail      String?
-  contactPhone      String?
-  website           String?
-  accreditationNo   String?
-  establishedYear   Int?
-  settings          Json?
+  id              String          @id @default(cuid())
+  slug            String          @unique
+  name            String
+  type            InstitutionType @default(UNIVERSITY)
+  status          TenantStatus    @default(TRIAL)
+  logoUrl         String?
+  faviconUrl      String?
+  primaryColor    String?
+  accentColor     String?
+  timezone        String          @default("Asia/Kolkata")
+  locale          String          @default("en")
+  country         String          @default("IN")
+  address         Json?
+  contactEmail    String?
+  contactPhone    String?
+  website         String?
+  accreditationNo String?
+  establishedYear Int?
+  settings        Json?
 
   /// PRD §5.1 "Assign support manager" — the platform operator who owns this
   /// university's onboarding and support.
@@ -38,19 +38,19 @@ model Tenant {
   ///
   /// onDelete: SetNull — an operator leaving the platform must not cascade
   /// their universities away, and a dangling id would be worse than none.
-  supportManagerId  String?
-  supportManager    PlatformUser?         @relation("TenantSupportManager", fields: [supportManagerId], references: [id], onDelete: SetNull)
+  supportManagerId String?
+  supportManager   PlatformUser? @relation("TenantSupportManager", fields: [supportManagerId], references: [id], onDelete: SetNull)
 
   /// W1.5 — when the university was archived, and by which platform operator.
   ///
   /// Kept as their own columns rather than inferred from `status`, because
   /// status can move away from ARCHIVED and the record of the archival should
   /// survive that. Null while the university has never been archived.
-  archivedAt        DateTime?
-  archivedBy        String?
+  archivedAt DateTime?
+  archivedBy String?
 
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
   academicYears     AcademicYear[]
   auditLogs         AuditLog[]
   campuses          Campus[]
@@ -147,7 +147,7 @@ model Domain {
   /// hostname pointing at two tenants — the worst failure this table can have.
   domain String @unique
 
-  type      DomainType @default(SUBDOMAIN)
+  type DomainType @default(SUBDOMAIN)
 
   /// Whether the institution has proven control of this hostname.
   ///
@@ -182,17 +182,17 @@ model Domain {
 }
 
 model Subscription {
-  id            String             @id @default(cuid())
-  tenantId      String
-  plan          SubscriptionPlan   @default(STARTER)
-  status        SubscriptionStatus @default(TRIAL)
-  billingCycle  BillingCycle       @default(MONTHLY)
-  startDate     DateTime
-  endDate       DateTime?
-  trialEndsAt   DateTime?
-  maxStudents   Int?
-  maxFaculty    Int?
-  maxStorage    BigInt?
+  id           String             @id @default(cuid())
+  tenantId     String
+  plan         SubscriptionPlan   @default(STARTER)
+  status       SubscriptionStatus @default(TRIAL)
+  billingCycle BillingCycle       @default(MONTHLY)
+  startDate    DateTime
+  endDate      DateTime?
+  trialEndsAt  DateTime?
+  maxStudents  Int?
+  maxFaculty   Int?
+  maxStorage   BigInt?
 
   /// PRD §5.1 "Set limits for users, storage and courses".
   ///
@@ -202,21 +202,21 @@ model Subscription {
   /// nullable means "no limit" exactly as they do.
   maxCourses    Int?
   features      Json?
-  pricePerMonth Decimal?           @db.Decimal(10, 2)
-  currency      String             @default("INR")
+  pricePerMonth Decimal? @db.Decimal(10, 2)
+  currency      String   @default("INR")
 
   /// PRD §5.3 pricing basis. Defaults to FLAT_PLAN, which is what every row
   /// created before W1.5 already was, so no stored subscription changes meaning.
-  pricingModel  PricingModel       @default(FLAT_PLAN)
+  pricingModel PricingModel @default(FLAT_PLAN)
 
   /// PRD §5.3 "Auto-renewal management". A boolean is the whole of what the
   /// PRD defines — it names the capability and no renewal window, no notice
   /// period and no reminder schedule, so none is modelled.
-  autoRenew     Boolean            @default(true)
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  invoices      PlatformInvoice[]
-  tenant        Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  autoRenew Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  invoices  PlatformInvoice[]
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
 }
@@ -245,7 +245,7 @@ model PlatformInvoice {
 }
 
 model User {
-  id           String         @id @default(cuid())
+  id           String  @id @default(cuid())
   tenantId     String
   email        String
   phone        String?
@@ -254,8 +254,8 @@ model User {
   lastName     String
   displayName  String?
   avatarUrl    String?
-  isActive     Boolean        @default(true)
-  isVerified   Boolean        @default(false)
+  isActive     Boolean @default(true)
+  isVerified   Boolean @default(false)
 
   /// W1.4 — the account holds a password it did not choose.
   ///
@@ -272,17 +272,17 @@ model User {
   /// Defaults to false so every pre-W1.4 user keeps working unchanged.
   mustChangePassword Boolean @default(false)
 
-  lastLoginAt  DateTime?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  employee     Employee?
-  faculty      FacultyMember?
-  sessions     Session[]
-  student      Student?
+  lastLoginAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  employee    Employee?
+  faculty     FacultyMember?
+  sessions    Session[]
+  student     Student?
   /// W2 — back-relation for the parent portal. Emits no column on User.
-  parent       Parent?
-  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userRoles    UserRole[]
+  parent      Parent?
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles   UserRole[]
 
   // Phase 16 — back-relations for GradeScale governance attribution. Two
   // relations to the same model must be named to be unambiguous.
@@ -300,8 +300,10 @@ model User {
 
   // Phase 22-27 back-relations. All virtual: they emit no DDL against User and
   // change nothing Phases 1-20 rely on.
-  attendanceLocksLocked   AttendanceLock[] @relation("AttendanceLockLockedBy")
-  attendanceLocksUnlocked AttendanceLock[] @relation("AttendanceLockUnlockedBy")
+  attendanceLocksLocked          AttendanceLock[]              @relation("AttendanceLockLockedBy")
+  attendanceCorrectionsRequested AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedBy")
+  attendanceCorrectionsReviewed  AttendanceCorrectionRequest[] @relation("AttendanceCorrectionReviewedBy")
+  attendanceLocksUnlocked        AttendanceLock[]              @relation("AttendanceLockUnlockedBy")
 
   internalAssessmentsGenerated InternalAssessmentSuggestion[] @relation("InternalAssessmentGeneratedBy")
   internalAssessmentsDecided   InternalAssessmentSuggestion[] @relation("InternalAssessmentDecidedBy")
@@ -320,6 +322,10 @@ model User {
 
   // Phase 27 — the foreign key Notification.userId never had. See the model.
   notifications Notification[]
+
+  /// The department this user heads, if any. Back-relation only — the column
+  /// lives on Department. At most one, by the @unique on Department.hodUserId.
+  headedDepartment Department? @relation("DepartmentHead")
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -427,13 +433,49 @@ model School {
 }
 
 model Department {
-  id         String          @id @default(cuid())
-  tenantId   String
-  campusId   String
-  schoolId   String?
-  name       String
-  code       String
-  hodName    String?
+  id       String  @id @default(cuid())
+  tenantId String
+  campusId String
+  schoolId String?
+  name     String
+  code     String
+
+  /// DISPLAY ONLY. The head's name as the university wishes to print it.
+  ///
+  /// This is NOT an authorization mechanism and must never become one: it is
+  /// free text, it matches no row, and two departments may hold the same
+  /// string. `hodUserId` below is the authoritative link. Kept because it is
+  /// existing data that some universities may have filled in and dropping a
+  /// populated column would lose it.
+  hodName String?
+
+  /// The DEPARTMENT_HOD who heads this department (MVP: exactly one).
+  ///
+  /// WHY A FOREIGN KEY AND NOT THE EXISTING hodName
+  ///   Department-scoped authorization has to answer "which department does
+  ///   this authenticated user head?" from the server, against a value the
+  ///   client cannot influence. A name string cannot answer that question, and
+  ///   `UserRole.scope` — the other candidate — is an untyped Json column that
+  ///   nothing in the codebase reads or validates, so it would be a second
+  ///   unenforced convention rather than a relation.
+  ///
+  /// ONE HOD → ONE DEPARTMENT, ENFORCED BY THE DATABASE
+  ///   `@unique` is the whole of that rule. A user can head at most one
+  ///   department, so departmentForHead() below can use findUnique and a second
+  ///   assignment fails at the constraint rather than silently widening
+  ///   somebody's scope. Multi-department headship is deliberately out of MVP
+  ///   scope; widening later means dropping this index, not redesigning.
+  ///
+  /// NULLABLE, so every existing department stays valid and the migration
+  /// needs no backfill. A HOD whose department is unset is refused by the
+  /// scope guard rather than defaulting to "all departments" — see
+  /// lib/auth/departmentScope.ts.
+  ///
+  /// onDelete: SetNull — an account being deleted must not take the department,
+  /// its programmes and its students with it.
+  hodUserId String? @unique
+  hodUser   User?   @relation("DepartmentHead", fields: [hodUserId], references: [id], onDelete: SetNull)
+
   email      String?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
@@ -454,27 +496,27 @@ model Department {
 }
 
 model Programme {
-  id                  String               @id @default(cuid())
-  tenantId            String
-  departmentId        String
-  name                String
-  code                String
-  type                ProgrammeType        @default(UNDERGRADUATE)
-  durationValue       Int
-  durationUnit        DurationUnit         @default(YEARS)
-  totalCredits        Int?
-  eligibility         String?
-  description         String?
-  isActive            Boolean              @default(true)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  batches             Batch[]
-  curricula           Curriculum[]
+  id                     String                  @id @default(cuid())
+  tenantId               String
+  departmentId           String
+  name                   String
+  code                   String
+  type                   ProgrammeType           @default(UNDERGRADUATE)
+  durationValue          Int
+  durationUnit           DurationUnit            @default(YEARS)
+  totalCredits           Int?
+  eligibility            String?
+  description            String?
+  isActive               Boolean                 @default(true)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  batches                Batch[]
+  curricula              Curriculum[]
   /// W3 — back-relation for admission programme preferences. Emits no column.
   applicationPreferences ApplicationPreference[]
-  department          Department           @relation(fields: [departmentId], references: [id])
-  specialisations     Specialisation[]
-  courseRegistrations CourseRegistration[]
+  department             Department              @relation(fields: [departmentId], references: [id])
+  specialisations        Specialisation[]
+  courseRegistrations    CourseRegistration[]
 
   openElectiveEligibilities OpenElectiveEligibility[]
 
@@ -656,9 +698,9 @@ model Course {
   /// Phase 22 · Phase 25 · Phase 26 back-relations. Virtual in Prisma — they
   /// emit no DDL against this table and leave every existing column, index and
   /// constraint on Course exactly as Phases 1-20 left them.
-  attendanceLocks             AttendanceLock[]
+  attendanceLocks               AttendanceLock[]
   internalAssessmentSuggestions InternalAssessmentSuggestion[]
-  examResources               ExamResource[]
+  examResources                 ExamResource[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -683,6 +725,7 @@ model Student {
   submissions         AssignmentSubmission[]
   attendance          Attendance[]
   certificates        Certificate[]
+  hallTickets         HallTicket[]
   examResults         ExamResult[]
   feeDemands          FeeDemand[]
   payments            Payment[]
@@ -749,8 +792,8 @@ model StudentDocument {
 }
 
 model Parent {
-  id           String          @id @default(cuid())
-  tenantId     String
+  id       String @id @default(cuid())
+  tenantId String
 
   /// W2 — the sign-in account for this parent, when one has been created.
   ///
@@ -766,8 +809,8 @@ model Parent {
   /// This column is the ONLY source of truth for parent authorization. The
   /// email column above is optional and not unique, so it can never be used to
   /// decide who a signed-in parent is.
-  userId       String?         @unique
-  user         User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   firstName    String
   lastName     String
@@ -1075,15 +1118,15 @@ model OpenElectiveAllocation {
 }
 
 model FacultyMember {
-  id                String                    @id @default(cuid())
-  tenantId          String
-  userId            String                    @unique
-  employeeId        String
-  departmentId      String?
-  designation       String?
-  qualification     String?
-  specialization    String?
-  experience        Int?
+  id             String  @id @default(cuid())
+  tenantId       String
+  userId         String  @unique
+  employeeId     String
+  departmentId   String?
+  designation    String?
+  qualification  String?
+  specialization String?
+  experience     Int?
 
   /// Phase 23 — "Professional Photo".
   ///
@@ -1218,6 +1261,8 @@ model Attendance {
   section   Section?       @relation(fields: [sectionId], references: [id])
   timetable Timetable?     @relation(fields: [timetableId], references: [id])
 
+  correctionRequests AttendanceCorrectionRequest[]
+
   @@unique([studentId, courseId, date, sessionType])
   @@index([tenantId])
   @@index([studentId])
@@ -1296,12 +1341,77 @@ model Examination {
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
   results      ExamResult[]
+  hallTickets  HallTicket[]
   course       Course          @relation(fields: [courseId], references: [id])
   semester     Semester        @relation(fields: [semesterId], references: [id])
 
   @@index([tenantId])
   @@index([semesterId])
   @@index([courseId])
+}
+
+/// PRD 17.2 "Hall-ticket generation" and 19.1 "Examination hall ticket".
+///
+/// THE ISSUED DOCUMENT, NOT A DERIVED VIEW
+///   Eligibility is computed on demand from the enrolment and the register —
+///   see lib/domain/examination/eligibility.ts — and is deliberately NOT
+///   stored. A hall ticket is the opposite: it is an artefact that was ISSUED,
+///   at a time, to a student, for one examination. "When was this issued" and
+///   "was it issued at all" cannot be recomputed from anything, so the row is
+///   the fact.
+///
+/// WHY NOT Certificate
+///   Certificate requires a CertificateTemplate and carries no examination.
+///   A hall ticket must cite the examination whose venue, date and time it
+///   prints, and must be unique per (examination, student). Expressing that
+///   through Certificate would mean an examinationId buried in an unqueryable
+///   Json column with no foreign key and no uniqueness — strictly worse than
+///   the four columns below.
+///
+/// ONE TICKET PER STUDENT PER EXAMINATION
+///   @@unique([examinationId, studentId]) is that rule, enforced by the
+///   database rather than by a service check a second code path could miss. It
+///   also makes generation idempotent: re-running it for a cohort updates the
+///   rows that exist instead of issuing duplicates.
+model HallTicket {
+  id            String @id @default(cuid())
+  tenantId      String
+  examinationId String
+  studentId     String
+
+  /// Human-readable identity printed on the ticket. Unique within the tenant.
+  ///
+  /// Derived from the examination and the student's enrolment number rather
+  /// than from the IdSequence engine: that engine refuses to issue unless a
+  /// sequence row has been configured for the entity, so routing hall tickets
+  /// through it would make generation fail on every tenant that had not set one
+  /// up. No parallel counter is introduced — the value is deterministic.
+  ticketNo String
+
+  /// Seat allocation. Nullable: PRD 17.2 lists seat allocation as its own
+  /// concern, and a ticket is valid without one.
+  seatNo String?
+
+  issuedAt   DateTime @default(now())
+  /// The User who generated it. Nullable so deleting an account never deletes
+  /// the evidence that a ticket was issued.
+  issuedById String?
+
+  examination Examination @relation(fields: [examinationId], references: [id], onDelete: Cascade)
+  student     Student     @relation(fields: [studentId], references: [id])
+
+  @@unique([examinationId, studentId])
+  @@unique([tenantId, ticketNo])
+  /// No two candidates in the same examination hold the same seat.
+  ///
+  /// This is the whole of what "no conflicting seats" means, and it is enforced
+  /// by the database rather than by the allocator that happens to assign them.
+  /// A partial index: PostgreSQL treats NULLs as distinct, so any number of
+  /// tickets may sit unallocated without colliding with each other.
+  @@unique([examinationId, seatNo])
+  @@index([tenantId])
+  @@index([studentId])
+  @@index([examinationId])
 }
 
 model ExamResult {
@@ -2547,21 +2657,21 @@ model CertificateTemplate {
   /// When this version became issuable. Null while it is a draft.
   publishedAt DateTime?
 
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   certificates Certificate[]
-  tenant       Tenant          @relation(fields: [tenantId], references: [id])
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
 
   @@index([tenantId])
   @@index([parentTemplateId])
 }
 
 model Certificate {
-  id            String              @id @default(cuid())
+  id            String          @id @default(cuid())
   tenantId      String
   templateId    String
   studentId     String
-  certificateNo String              @unique
+  certificateNo String          @unique
   type          CertificateType
   data          Json?
 
@@ -2577,16 +2687,16 @@ model Certificate {
   /// NOT exposed by the public verification endpoint — see its own SELECT.
   templateSnapshot Json?
 
-  issuedAt      DateTime            @default(now())
-  expiresAt     DateTime?
-  pdfUrl        String?
-  qrCode        String?
-  isRevoked     Boolean             @default(false)
-  revokedAt     DateTime?
-  revokedBy     String?
-  createdAt     DateTime            @default(now())
-  student       Student             @relation(fields: [studentId], references: [id])
-  template      CertificateTemplate @relation(fields: [templateId], references: [id])
+  issuedAt  DateTime            @default(now())
+  expiresAt DateTime?
+  pdfUrl    String?
+  qrCode    String?
+  isRevoked Boolean             @default(false)
+  revokedAt DateTime?
+  revokedBy String?
+  createdAt DateTime            @default(now())
+  student   Student             @relation(fields: [studentId], references: [id])
+  template  CertificateTemplate @relation(fields: [templateId], references: [id])
 
   @@index([tenantId])
   @@index([studentId])
@@ -2618,7 +2728,7 @@ model NotificationTemplate {
 /// deleted" — the correct interpretation of a row written before the concept
 /// existed.
 model Notification {
-  id         String                @id @default(cuid())
+  id         String           @id @default(cuid())
   tenantId   String
   templateId String?
   userId     String?
@@ -2628,9 +2738,9 @@ model Notification {
   data       Json?
   sentAt     DateTime?
   readAt     DateTime?
-  status     String                @default("PENDING")
+  status     String           @default("PENDING")
   error      String?
-  createdAt  DateTime              @default(now())
+  createdAt  DateTime         @default(now())
 
   /// Phase 27 — WHAT the notification is about.
   ///
@@ -2660,8 +2770,8 @@ model Notification {
   /// DELETE. Every read path filters on this being NULL.
   deletedAt DateTime?
 
-  template   NotificationTemplate? @relation(fields: [templateId], references: [id])
-  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+  template NotificationTemplate? @relation(fields: [templateId], references: [id])
+  tenant   Tenant                @relation(fields: [tenantId], references: [id])
 
   /// Phase 27 — the foreign key this column never had.
   ///
@@ -2684,7 +2794,7 @@ model Notification {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
+  id         String  @id @default(cuid())
   tenantId   String
   userId     String?
   action     String
@@ -2788,8 +2898,8 @@ model PlatformUser {
   /// and applied to that subtree alone, so it can never reach a tenant portal.
   accentColor String?
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   platformUserRoles PlatformUserRole[]
 
@@ -3679,9 +3789,6 @@ model FeedbackForm {
   questions   FeedbackQuestion[]
   submissions FeedbackSubmission[]
 
-  /// The catalogue read: which forms are open, for this kind of session, in
-  /// this tenant.
-  @@index([tenantId, status, sessionType])
   /// One revision number per named form per tenant.
   @@unique([tenantId, code, version])
   /// Not a uniqueness rule — `id` is already unique. This is the TARGET of the
@@ -3689,6 +3796,9 @@ model FeedbackForm {
   /// is what makes a cross-tenant child structurally impossible rather than
   /// merely avoided.
   @@unique([tenantId, id])
+  /// The catalogue read: which forms are open, for this kind of session, in
+  /// this tenant.
+  @@index([tenantId, status, sessionType])
 }
 
 /// Phase 20 — one question on a form.
@@ -3701,7 +3811,7 @@ model FeedbackForm {
 ///                deleted with its form.
 /// LIFECYCLE    : Mutable only while the owning form is DRAFT.
 model FeedbackQuestion {
-  id       String @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Carried so the composite foreign key below can prove this question and its
   /// form belong to the same tenant. Constrained by that key to equal the
@@ -3743,11 +3853,11 @@ model FeedbackQuestion {
 
   answers FeedbackAnswer[]
 
-  /// THE hot read: one form's questions, in order.
-  @@index([tenantId, formId, sequence])
   /// One handle per form. Both columns are NOT NULL, so PostgreSQL enforces
   /// this completely.
   @@unique([formId, code])
+  /// THE hot read: one form's questions, in order.
+  @@index([tenantId, formId, sequence])
 }
 
 /// Phase 20 — one student's feedback on one faculty member, for one course, in
@@ -3808,6 +3918,13 @@ model FeedbackSubmission {
 
   answers FeedbackAnswer[]
 
+  /// One submission per student, per faculty member, per course, per term, per
+  /// form. This constraint — not a prior read — is what actually prevents a
+  /// duplicate: two concurrent submits both see nothing and both proceed. Every
+  /// column is NOT NULL, so PostgreSQL enforces it completely.
+  @@unique([studentId, facultyId, courseId, semesterId, formId])
+  /// Composite-FK target for FeedbackAnswer.
+  @@unique([tenantId, id])
   /// THE faculty report, exactly: every submission about one faculty member for
   /// one course in one term, filtered to SUBMITTED.
   @@index([tenantId, facultyId, courseId, semesterId, status])
@@ -3816,13 +3933,6 @@ model FeedbackSubmission {
   /// Supports the cascade on student deletion. PostgreSQL does not index a
   /// foreign key automatically.
   @@index([studentId])
-  /// One submission per student, per faculty member, per course, per term, per
-  /// form. This constraint — not a prior read — is what actually prevents a
-  /// duplicate: two concurrent submits both see nothing and both proceed. Every
-  /// column is NOT NULL, so PostgreSQL enforces it completely.
-  @@unique([studentId, facultyId, courseId, semesterId, formId])
-  /// Composite-FK target for FeedbackAnswer.
-  @@unique([tenantId, id])
 }
 
 /// Phase 20 — one student's answer to one question.
@@ -3834,7 +3944,7 @@ model FeedbackSubmission {
 ///                (submissionId, questionId) constraint makes a partial update
 ///                a minefield.
 model FeedbackAnswer {
-  id       String @id @default(cuid())
+  id String @id @default(cuid())
 
   /// Carried so the composite foreign key below can prove this answer and its
   /// submission belong to the same tenant, and so a cohort's answers can be
@@ -3866,14 +3976,14 @@ model FeedbackAnswer {
   /// DRAFT — a state in which no submission exists.
   question FeedbackQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
+  /// A student cannot answer one question twice. Both columns are NOT NULL, so
+  /// PostgreSQL enforces this completely.
+  @@unique([submissionId, questionId])
   /// One submission's answers, and the cohort read that aggregates a report
   /// without an N+1.
   @@index([tenantId, submissionId])
   /// Supports the cascade on question deletion.
   @@index([questionId])
-  /// A student cannot answer one question twice. Both columns are NOT NULL, so
-  /// PostgreSQL enforces this completely.
-  @@unique([submissionId, questionId])
 }
 
 /// Lifecycle of a feedback form revision.
@@ -3941,7 +4051,6 @@ enum FeedbackSubmissionStatus {
 //   endpoint only DESCRIBES it.
 // ============================================================================
 
-
 /// Phase 22 — whether a lock is currently in force.
 ///
 /// Two members, not three. An "unlocked" row is a lock that WAS taken and has
@@ -3951,6 +4060,73 @@ enum FeedbackSubmissionStatus {
 enum AttendanceLockStatus {
   LOCKED
   UNLOCKED
+}
+
+/// PRD 13.2 — "Attendance correction requests", "Faculty approval",
+/// "Academic admin approval".
+///
+/// WHY A REQUEST EXISTS AT ALL, RATHER THAN AN EDIT
+///   Attendance has no PATCH handler and no updatedAt column: markedAt and
+///   markedBy describe the ORIGINAL mark, so an in-place edit would silently
+///   rewrite who recorded what and when. A request records the change as its own
+///   fact — who asked, what it was, what they want, why — so the register's
+///   history survives the correction instead of being overwritten by it.
+///
+/// WHY currentStatus IS COPIED HERE
+///   It is the value AS SEEN when the request was raised. Reading it from the
+///   Attendance row at approval time would show whatever it is by then, which is
+///   exactly the information an approver needs to not have moved under them. It
+///   also lets a rejected request still explain what was being disputed.
+///
+/// ONE PENDING REQUEST PER RECORD
+///   Enforced by a PARTIAL unique index created in the migration —
+///   `WHERE status = 'PENDING'` — which Prisma's schema language cannot express.
+///   A plain @@unique on attendanceId would forbid a second correction after the
+///   first was decided, which is wrong: a register may be corrected twice.
+enum AttendanceCorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model AttendanceCorrectionRequest {
+  id       String @id @default(cuid())
+  tenantId String
+
+  attendanceId String
+
+  /// The status the record carried when the request was raised.
+  currentStatus   AttendanceStatus
+  /// The status the requester is asking for.
+  requestedStatus AttendanceStatus
+
+  /// Required. A correction with no stated reason is not reviewable.
+  reason String
+
+  status AttendanceCorrectionStatus @default(PENDING)
+
+  requestedById String?
+  requestedAt   DateTime @default(now())
+
+  reviewedById String?
+  reviewedAt   DateTime?
+  /// Why it was rejected, or a note on approval. Required on rejection by the
+  /// service — the person whose correction was refused is owed the reason.
+  reviewNote   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Cascade: a correction request for a record that no longer exists describes
+  /// nothing. The audit trail carries the history that must outlive the row.
+  attendance Attendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+
+  requestedBy User? @relation("AttendanceCorrectionRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reviewedBy  User? @relation("AttendanceCorrectionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([tenantId, status])
+  @@index([attendanceId])
+  @@index([requestedById])
 }
 
 /// Phase 22 — a finalisation over one teaching unit's attendance.
@@ -4028,7 +4204,6 @@ model AttendanceLock {
   @@index([semesterId])
 }
 
-
 /// Phase 23 — one research publication on a faculty profile.
 ///
 /// A TABLE RATHER THAN A JSON COLUMN. The README treats publications as a
@@ -4041,9 +4216,9 @@ model FacultyPublication {
   tenantId  String
   facultyId String
 
-  title String
+  title      String
   /// Journal, conference or publisher name.
-  publisher String?
+  publisher  String?
   /// DOI, ISBN or an arbitrary reference string the institution recognises.
   identifier String?
   url        String?
@@ -4121,7 +4296,6 @@ model FacultyEducation {
   @@index([facultyId])
 }
 
-
 /// Phase 24 — a superseded assignment submission attempt.
 ///
 /// WHY A CHILD TABLE AND NOT A RELAXED UNIQUE CONSTRAINT.
@@ -4165,7 +4339,6 @@ model AssignmentSubmissionVersion {
   @@unique([submissionId, attempt])
   @@index([submissionId])
 }
-
 
 /// Phase 25 — one AI-generated internal-mark suggestion, and the faculty
 /// decision taken on it.
@@ -4264,7 +4437,6 @@ model InternalAssessmentSuggestion {
   @@index([tenantId, courseId, semesterId])
   @@index([studentId])
 }
-
 
 /// Phase 26 — what kind of examination resource a row holds.
 ///
@@ -4389,7 +4561,6 @@ model ExamResource {
   @@index([semesterId])
   @@index([uploadedById])
 }
-
 
 /// Phase 27 — WHAT a notification or announcement is about.
 ///

@@ -38,6 +38,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { internalAssessmentController } from "@/lib/controllers/internalAssessment.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { resolveDepartmentId } from "@/lib/auth/departmentScope";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { readRequestOrigin } from "@/lib/middleware/requireAttendanceLockAccess";
 import { INTERNAL_ASSESSMENT_ROLES } from "@/lib/constants/internalAssessment";
@@ -85,6 +86,13 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const guard = await requireRole(...INTERNAL_ASSESSMENT_ROLES);
     if (!guard.authorized) return guard.response;
 
+    // INTERNAL_ASSESSMENT_ROLES admits both spellings of head of department,
+    // and this surface WRITES marks. Resolved from the authenticated subject,
+    // so a head submitting another department's courseId or studentId is
+    // refused rather than served.
+    const scope = await resolveDepartmentId(guard.session);
+    if (!scope.ok) return scope.response;
+
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
@@ -109,6 +117,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       parsedBody.data,
       {
         userId: guard.session.sub,
+        departmentId: scope.departmentId,
         ipAddress: origin.ipAddress,
         userAgent: origin.userAgent,
       },
