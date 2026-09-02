@@ -87,9 +87,10 @@ export class InternalAssessmentController {
   /** GET /api/internal-assessment/rules */
   async getRules(
     tenantId: string,
-    query: InternalAssessmentRulesQuery
+    query: InternalAssessmentRulesQuery,
+    departmentId: string | null = null
   ): Promise<MarkingRulesDto> {
-    return internalAssessmentService.getRules(tenantId, query);
+    return internalAssessmentService.getRules(tenantId, query, departmentId);
   }
 
   /** POST /api/internal-assessment/generate */
@@ -106,9 +107,10 @@ export class InternalAssessmentController {
   async getForStudent(
     tenantId: string,
     studentId: string,
-    query: InternalAssessmentQuery
+    query: InternalAssessmentQuery,
+    departmentId: string | null = null
   ): Promise<readonly InternalAssessmentSuggestionDto[]> {
-    return internalAssessmentService.getForStudent(tenantId, studentId, query);
+    return internalAssessmentService.getForStudent(tenantId, studentId, query, departmentId);
   }
 
   /** PATCH /api/internal-assessment/[studentId] */
@@ -126,9 +128,10 @@ export class InternalAssessmentController {
   async getAudit(
     tenantId: string,
     studentId: string,
-    query: InternalAssessmentQuery
+    query: InternalAssessmentQuery,
+    departmentId: string | null = null
   ): Promise<readonly InternalAssessmentAuditDto[]> {
-    return internalAssessmentService.getAudit(tenantId, studentId, query);
+    return internalAssessmentService.getAudit(tenantId, studentId, query, departmentId);
   }
 }
 

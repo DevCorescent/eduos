@@ -150,7 +150,8 @@ export class AssessmentEventService {
    */
   async list(
     tenantId: string,
-    query: ListAssessmentEventsQuery
+    query: ListAssessmentEventsQuery,
+    departmentId: string | null = null
   ): Promise<AssessmentEventListDTO> {
     const { page, limit, ...filter } = query;
 
@@ -158,7 +159,8 @@ export class AssessmentEventService {
       tenantId,
       filter,
       (page - 1) * limit,
-      limit
+      limit,
+      departmentId
     );
 
     return {
@@ -170,12 +172,35 @@ export class AssessmentEventService {
   /**
    * One sitting.
    *
-   * COMPLEXITY : one query, O(log n).
+   * COMPLEXITY : one query, O(log n) — two for a caller narrowed to a
+   *              department, the second index-backed on Course.
+   *
+   * A narrowed caller who names a sitting outside their department is answered
+   * with the SAME not-found the unknown id gets, deliberately. A 403 here would
+   * confirm that a sitting with that id exists somewhere in the university,
+   * which is more than a head of department is entitled to learn from an id
+   * they guessed. The results endpoints answer 403 instead because there the
+   * caller already knows the student exists — they were given the id.
    */
-  async getById(tenantId: string, id: string): Promise<AssessmentEventDTO> {
+  async getById(
+    tenantId: string,
+    id: string,
+    departmentId: string | null = null
+  ): Promise<AssessmentEventDTO> {
     const record = await this.events.findById(tenantId, id);
 
     if (record === null) {
+      throw eventNotFound();
+    }
+
+    if (
+      departmentId !== null &&
+      !(await this.events.courseBelongsToDepartment(
+        tenantId,
+        record.courseId,
+        departmentId
+      ))
+    ) {
       throw eventNotFound();
     }
 

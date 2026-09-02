@@ -20,6 +20,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assessmentEventController } from "@/lib/controllers/assessmentEvent.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { resolveDepartmentId } from "@/lib/auth/departmentScope";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import {
@@ -62,6 +63,12 @@ export async function GET(request: NextRequest) {
     const guard = await requireRole(...ASSESSMENT_EVENT_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
+    // ASSESSMENT_EVENT_READ_ROLES admits DEPARTMENT_HOD, and a role list can
+    // only say yes or no. The narrowing is what turns that yes into "your own
+    // department" — derived from the authenticated subject, never the request.
+    const scope = await resolveDepartmentId(guard.session);
+    if (!scope.ok) return scope.response;
+
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
@@ -78,7 +85,8 @@ export async function GET(request: NextRequest) {
 
     const events = await assessmentEventController.list(
       tenantGuard.tenant.id,
-      parsedQuery.data
+      parsedQuery.data,
+      scope.departmentId
     );
 
     return NextResponse.json(ok(events));

@@ -14,6 +14,8 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
+import { resolveDepartmentScope } from "@/lib/auth/departmentScope";
+import { COURSE_READ_ROLES } from "@/lib/constants/departmentAcademics";
 import { courseQuerySchema, createCourseSchema } from "@/lib/validations/course";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -67,7 +69,9 @@ const COURSE_SELECT = {
 //              403 FORBIDDEN · 404 NOT_FOUND · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // A head of department reads their own department's courses. The role check
+    // admits them; resolveDepartmentScope below is what narrows the rows.
+    const guard = await requireRole(...COURSE_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -97,7 +101,19 @@ export async function GET(request: NextRequest) {
     }
 
     const { page, limit } = parsed.data;
-    const where = { tenantId: tenant.id };
+
+    // Derived from the authenticated identity, never from the request.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    // Course.departmentId is nullable. `departmentId: <id>` does not match
+    // NULL, so a course belonging to no department is invisible to a head —
+    // which is correct: an unowned course is the university's, and a head has
+    // no claim on it merely because nobody claimed it.
+    const where: Prisma.CourseWhereInput = {
+      tenantId: tenant.id,
+      ...(scope.scope.restricted ? { departmentId: scope.scope.departmentId } : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two reads.
     // The ordering is required for correctness, not presentation: offset

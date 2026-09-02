@@ -139,12 +139,24 @@ async function seedDemoTenant() {
     create: { tenantId: tenant.id, campusId: campus.id, name: "School of Engineering", code: "SOE" },
   });
 
+  // The demo department, headed by hod@demo.edu.
+  //
+  // `hodUserId` is set on BOTH branches, which is the point: before this the
+  // update branch was `{}`, so a re-seed left an existing CSE row with no head
+  // and the DEPARTMENT_HOD account had no department at all — every
+  // department-scoped request from it was refused. Setting it on update makes
+  // the seed repair that, which is what every other upsert here already does
+  // for passwords.
+  //
+  // `hodName` is kept because it is what a university prints. It is NOT what
+  // authorises anything — see the schema comment on Department.hodUserId.
   const department = await prisma.department.upsert({
     where: { tenantId_code: { tenantId: tenant.id, code: "CSE" } },
-    update: {},
+    update: { hodUserId: users.get("DEPARTMENT_HOD")! },
     create: {
       tenantId: tenant.id, campusId: campus.id, schoolId: school.id,
       name: "Computer Science and Engineering", code: "CSE", hodName: "Dr. Demo HOD",
+      hodUserId: users.get("DEPARTMENT_HOD")!,
     },
   });
 
@@ -354,27 +366,343 @@ async function seedDemoTenant() {
     select: { id: true, maxMarks: true },
   });
 
-  await prisma.assessmentEvent.upsert({
+  const theoryComponent = await prisma.evaluationComponent.findUniqueOrThrow({
+    where: { schemeId_code: { schemeId: evaluationScheme.id, code: "THEORY" } },
+    select: { id: true, maxMarks: true },
+  });
+
+  // ONE SITTING PER COMPONENT.
+  //
+  // Both components are isMandatory, and a course total cannot be computed
+  // while a mandatory component has no sitting to be marked against. Seeding
+  // only the internal one left every SGPA, CGPA, grade and transcript line
+  // null — the screens rendered, but with nothing in them.
+  // conductedById is what entitles a lecturer to enter marks: the mark service
+  // refuses FACULTY unless the sitting names them (FACULTY_NOT_CONDUCTOR), and
+  // a sitting with no conductor accepts no faculty entry at all.
+  //
+  // Internal assessment IS conducted by the lecturer who teaches the course, so
+  // the seeded sitting names them. The university theory paper deliberately has
+  // NO conductor — the schema calls it "a university-conducted theory paper sat
+  // by the whole cohort", and its marks come from the examination office
+  // through the external endpoint, not from a lecturer.
+  const SITTINGS = [
+    {
+      component: internalComponent,
+      title: "Internal Assessment — Sitting 1",
+      conductedById: facultyMember.id as string | null,
+    },
+    {
+      component: theoryComponent,
+      title: "University Theory Examination",
+      conductedById: null,
+    },
+  ] as const;
+
+  for (const sitting of SITTINGS) {
+    await prisma.assessmentEvent.upsert({
+      where: {
+        evaluationComponentId_courseId_semesterId_sectionId_sequenceNumber: {
+          evaluationComponentId: sitting.component.id,
+          courseId: course.id,
+          semesterId: semester.id,
+          sectionId: section.id,
+          sequenceNumber: 1,
+        },
+      },
+      update: { status: "OPEN", conductedById: sitting.conductedById },
+      create: {
+        tenantId: tenant.id, evaluationComponentId: sitting.component.id,
+        courseId: course.id, semesterId: semester.id, sectionId: section.id,
+        conductedById: sitting.conductedById,
+        title: sitting.title,
+        // Defaulted from the component: this paper is marked out of the same
+        // total the component contributes on, which is the ordinary case.
+        maxMarks: sitting.component.maxMarks, sequenceNumber: 1,
+        status: "OPEN",
+      },
+    });
+  }
+
+  // ---- teaching relationship ---------------------------------------------
+  // WHY BOTH MODELS
+  //   lib/services/facultyTeaching.ts accepts EITHER a Timetable slot or a
+  //   FacultyCourseAssignment as proof that a lecturer teaches a (section,
+  //   course) pair, and both the roster read and the attendance write consult
+  //   it. Seeding both exercises both branches, and the Timetable is what the
+  //   faculty schedule and attendance screens actually read to discover which
+  //   classes the lecturer may open.
+  //
+  //   Without either row the seeded lecturer is refused by facultyMayMarkRecords
+  //   and the whole teaching flow 403s on a fresh database.
+  await prisma.facultyCourseAssignment.upsert({
     where: {
-      evaluationComponentId_courseId_semesterId_sectionId_sequenceNumber: {
-        evaluationComponentId: internalComponent.id,
+      facultyId_courseId_sectionId_semesterId: {
+        facultyId: facultyMember.id,
         courseId: course.id,
-        semesterId: semester.id,
         sectionId: section.id,
-        sequenceNumber: 1,
+        semesterId: semester.id,
       },
     },
-    update: { status: "OPEN" },
+    update: { isActive: true },
     create: {
-      tenantId: tenant.id, evaluationComponentId: internalComponent.id,
-      courseId: course.id, semesterId: semester.id, sectionId: section.id,
-      title: "Internal Assessment — Sitting 1",
-      // Defaulted from the component: this paper is marked out of the same
-      // total the component contributes on, which is the ordinary case.
-      maxMarks: internalComponent.maxMarks, sequenceNumber: 1,
-      status: "OPEN",
+      tenantId: tenant.id,
+      facultyId: facultyMember.id,
+      courseId: course.id,
+      sectionId: section.id,
+      semesterId: semester.id,
+      isActive: true,
     },
   });
+
+  // Timetable has no natural unique key, so find-then-create — the same
+  // pattern the subscription below uses. The (faculty, section, course, day,
+  // startTime) tuple is what makes a re-run recognise its own row.
+  const SLOT = {
+    day: "MONDAY",
+    startTime: "09:00",
+    endTime: "10:00",
+  } as const;
+
+  let timetableSlot = await prisma.timetable.findFirst({
+    where: {
+      tenantId: tenant.id,
+      facultyId: facultyMember.id,
+      sectionId: section.id,
+      courseId: course.id,
+      day: SLOT.day,
+      startTime: SLOT.startTime,
+    },
+    select: { id: true },
+  });
+
+  if (!timetableSlot) {
+    timetableSlot = await prisma.timetable.create({
+      data: {
+        tenantId: tenant.id,
+        semesterId: semester.id,
+        sectionId: section.id,
+        courseId: course.id,
+        facultyId: facultyMember.id,
+        day: SLOT.day,
+        startTime: SLOT.startTime,
+        endTime: SLOT.endTime,
+        roomNo: "LH-101",
+        sessionType: "LECTURE",
+        isActive: true,
+      },
+      select: { id: true },
+    });
+  }
+
+  // ---- attendance ---------------------------------------------------------
+  // Five sittings of the timetabled slot, four present and one absent, so the
+  // student's percentage is a real 80% rather than a vacuous 0% or 100% — the
+  // shortage threshold in attendanceAnalytics is 75%, and a demo that sits
+  // exactly on a boundary teaches nothing.
+  //
+  // The unique key is (studentId, courseId, date, sessionType), so a re-run
+  // updates the same five rows rather than appending another five.
+  const ATTENDANCE_DAYS: ReadonlyArray<{ date: string; status: "PRESENT" | "ABSENT" }> = [
+    { date: "2025-08-04T00:00:00.000Z", status: "PRESENT" },
+    { date: "2025-08-11T00:00:00.000Z", status: "PRESENT" },
+    { date: "2025-08-18T00:00:00.000Z", status: "ABSENT" },
+    { date: "2025-08-25T00:00:00.000Z", status: "PRESENT" },
+    { date: "2025-09-01T00:00:00.000Z", status: "PRESENT" },
+  ];
+
+  for (const entry of ATTENDANCE_DAYS) {
+    await prisma.attendance.upsert({
+      where: {
+        studentId_courseId_date_sessionType: {
+          studentId: student.id,
+          courseId: course.id,
+          date: new Date(entry.date),
+          sessionType: "LECTURE",
+        },
+      },
+      update: { status: entry.status },
+      create: {
+        tenantId: tenant.id,
+        studentId: student.id,
+        facultyId: facultyMember.id,
+        sectionId: section.id,
+        courseId: course.id,
+        timetableId: timetableSlot.id,
+        date: new Date(entry.date),
+        status: entry.status,
+        sessionType: "LECTURE",
+        source: "MANUAL",
+        markedBy: users.get("FACULTY")!,
+      },
+    });
+  }
+
+  // ---- marks --------------------------------------------------------------
+  // The reason every result screen was empty. Results are COMPUTED, never
+  // stored, so a StudentComponentScore is the only input that turns the whole
+  // engine — SGPA, CGPA, transcript, analytics, semester roll-up — from an
+  // empty shell into a real answer.
+  //
+  // 34 of 40 on the internal sitting: a genuine pass that is not a perfect
+  // score, so grade banding and the pass criteria are both exercised.
+  const seededRegistration = await prisma.courseRegistration.findUniqueOrThrow({
+    where: {
+      studentId_courseId_attemptNumber: {
+        studentId: student.id,
+        courseId: course.id,
+        attemptNumber: 1,
+      },
+    },
+    select: { id: true },
+  });
+
+  // A mark per sitting. The values are deliberately ordinary: 25 of 30 internal
+  // and 52 of 70 theory. Neither is a perfect score, both are within their
+  // component maximum, and 52 clears the MIN-THEORY criterion of 21 — so the
+  // student genuinely passes and the grade banding, the weighted roll-up and
+  // the passing criterion are all exercised rather than short-circuited.
+  //
+  // A mark ABOVE the component maximum would be rejected by the mark service
+  // and is meaningless to the engine; the earlier draft of this seed wrote 34
+  // against a component whose maximum is 30, which is why nothing computed.
+  const MARKS = [
+    { component: internalComponent, obtained: "25.00" },
+    { component: theoryComponent, obtained: "52.00" },
+  ] as const;
+
+  for (const entry of MARKS) {
+    const event = await prisma.assessmentEvent.findUniqueOrThrow({
+      where: {
+        evaluationComponentId_courseId_semesterId_sectionId_sequenceNumber: {
+          evaluationComponentId: entry.component.id,
+          courseId: course.id,
+          semesterId: semester.id,
+          sectionId: section.id,
+          sequenceNumber: 1,
+        },
+      },
+      select: { id: true },
+    });
+
+    await prisma.studentComponentScore.upsert({
+      where: {
+        assessmentEventId_courseRegistrationId: {
+          assessmentEventId: event.id,
+          courseRegistrationId: seededRegistration.id,
+        },
+      },
+      update: { marksObtained: entry.obtained, status: "RECORDED" },
+      create: {
+        tenantId: tenant.id,
+        assessmentEventId: event.id,
+        courseRegistrationId: seededRegistration.id,
+        marksObtained: entry.obtained,
+        status: "RECORDED",
+        remarks: "Seeded demo mark.",
+      },
+    });
+  }
+
+  // ---- assignment ---------------------------------------------------------
+  // PUBLISHED, so the student portal has something to see; DRAFT would be
+  // invisible to them and the demo would look broken from the student side.
+  // No natural unique key on Assignment, so find-then-create.
+  let assignment = await prisma.assignment.findFirst({
+    where: { tenantId: tenant.id, courseId: course.id, title: "Assignment 1 — Variables and Control Flow" },
+    select: { id: true },
+  });
+
+  if (!assignment) {
+    assignment = await prisma.assignment.create({
+      data: {
+        tenantId: tenant.id,
+        courseId: course.id,
+        sectionId: section.id,
+        createdBy: users.get("FACULTY")!,
+        title: "Assignment 1 — Variables and Control Flow",
+        description:
+          "Implement the exercises from chapters 1-3 and submit a single source file.",
+        type: "HOMEWORK",
+        status: "PUBLISHED",
+        maxMarks: 20,
+        dueDate: new Date("2025-09-15T18:00:00.000Z"),
+        publishedAt: new Date("2025-09-01T09:00:00.000Z"),
+      },
+      select: { id: true },
+    });
+  }
+
+  // ---- examination --------------------------------------------------------
+  // One SCHEDULED mid-term, so the faculty Exams screen and the student
+  // Examinations screen both have a real row. This seeds DATA for the existing
+  // examination surface only; it introduces no workflow stage.
+  let examination = await prisma.examination.findFirst({
+    where: { tenantId: tenant.id, courseId: course.id, title: "CS101 Mid-Semester Examination" },
+    select: { id: true },
+  });
+
+  if (!examination) {
+    examination = await prisma.examination.create({
+      data: {
+        tenantId: tenant.id,
+        semesterId: semester.id,
+        courseId: course.id,
+        title: "CS101 Mid-Semester Examination",
+        type: "MID_TERM",
+        status: "SCHEDULED",
+        date: new Date("2025-10-06T00:00:00.000Z"),
+        startTime: "10:00",
+        endTime: "12:00",
+        venue: "Examination Hall 1",
+        maxMarks: 50,
+        passMark: 20,
+        duration: 120,
+        instructions: "Answer all questions. No electronic devices permitted.",
+      },
+      select: { id: true },
+    });
+  }
+
+  // ---- AT COE examination -------------------------------------------------
+  // A second examination in the SAME semester as the seeded course
+  // registration, so the eligibility roll resolves a real cohort rather than an
+  // empty one. The mid-term above sits in its own semester and is left alone.
+  //
+  // Named "AT COE Examination" so it is identifiable in the demo tenant. No
+  // natural unique key on Examination, so find-then-create.
+  let coeExamination = await prisma.examination.findFirst({
+    where: { tenantId: tenant.id, courseId: course.id, title: "AT COE Examination" },
+    select: { id: true },
+  });
+
+  if (!coeExamination) {
+    coeExamination = await prisma.examination.create({
+      data: {
+        tenantId: tenant.id,
+        semesterId: semester.id,
+        courseId: course.id,
+        title: "AT COE Examination",
+        type: "END_TERM",
+        status: "SCHEDULED",
+        date: new Date("2025-12-10T00:00:00.000Z"),
+        startTime: "10:00",
+        endTime: "13:00",
+        venue: "AT Hall 1",
+        maxMarks: 100,
+        passMark: 40,
+        duration: 180,
+        instructions: "Answer all questions.",
+      },
+      select: { id: true },
+    });
+  }
+
+  // NO HALL TICKET IS SEEDED, DELIBERATELY.
+  //   A hall ticket records that the examination office ISSUED a document. The
+  //   demo should show that act being performed, not pre-performed — and
+  //   seeding one would also bypass the eligibility gate that issuing exists to
+  //   apply. The COE issues them from the examination screen.
 
   // ---- subscription ------------------------------------------------------
   // No natural unique key, so find-then-create rather than upsert.
@@ -396,6 +724,8 @@ async function seedDemoTenant() {
     programmeId: programme.id, academicYearId: academicYear.id, semesterId: semester.id,
     batchId: batch.id, sectionId: section.id, courseId: course.id,
     facultyMemberId: facultyMember.id, studentId: student.id,
+    timetableId: timetableSlot.id, assignmentId: assignment.id,
+    examinationId: examination.id, coeExaminationId: coeExamination.id,
     subscriptionId: subscription.id,
     userIds: Object.fromEntries(users),
   };

@@ -113,11 +113,17 @@ type Mark = Awaited<ReturnType<ResultRepository["findMarks"]>>[number];
  * authority needs the session, and enforcing it needs the repository, and
  * neither layer should do the other's job.
  *
- * ANY — an examination-office caller, reading any student in the tenant.
- * OWN — a student, confined to the record their own user account resolves to.
+ * ANY        — an examination-office caller, reading any student in the tenant.
+ * DEPARTMENT — a head of department, confined to students whose programme
+ *              belongs to the department they head. The id is resolved from the
+ *              authenticated subject in requireResultAccess, never from the
+ *              request, so nothing a caller can edit reaches this type.
+ * OWN        — a student, confined to the record their own user account
+ *              resolves to.
  */
 export type ResultAccess =
   | { readonly scope: "ANY" }
+  | { readonly scope: "DEPARTMENT"; readonly departmentId: string }
   | { readonly scope: "OWN"; readonly userId: string };
 
 /** Every regulation a request touches, prepared once. */
@@ -443,6 +449,30 @@ export class ResultService {
 
     if (student === null) {
       throw new AppError(RESULT_MESSAGE.STUDENT_NOT_FOUND, 404, ERROR_CODE.NOT_FOUND);
+    }
+
+    // A head of department reads their own department's students and no others.
+    // The check runs AFTER the 404 rather than before it, so a head asking for
+    // an id that does not exist and one that belongs to another department get
+    // different answers only where the student is real — and 403 there is the
+    // honest answer: the record exists and is not theirs to read.
+    //
+    // A student with no programme is refused rather than admitted. An unowned
+    // record cannot be shown to belong to this department, and "unknown" must
+    // not read as "permitted" here any more than an unassigned head reads as
+    // unrestricted in decideDepartmentScope.
+    if (access.scope === "DEPARTMENT") {
+      const owned =
+        student.programmeId !== null &&
+        (await this.repository.departmentOwnsProgramme(
+          tenantId,
+          access.departmentId,
+          student.programmeId
+        ));
+
+      if (!owned) {
+        throw new AppError(RESULT_MESSAGE.FORBIDDEN, 403, ERROR_CODE.FORBIDDEN);
+      }
     }
 
     return student;

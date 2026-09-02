@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { courseRegistrationController } from "@/lib/controllers/courseRegistration.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { resolveDepartmentId } from "@/lib/auth/departmentScope";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import {
   REGISTRATION_MANAGE_ROLES,
@@ -89,6 +90,12 @@ export async function GET(request: NextRequest) {
       isElevated = false;
     }
 
+    // Only an elevated caller can be a head of department; a STUDENT is already
+    // confined to their own row below. Resolved from the authenticated subject,
+    // so a head cannot name a department in the query string.
+    const scope = isElevated ? await resolveDepartmentId(session) : null;
+    if (scope !== null && !scope.ok) return scope.response;
+
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
@@ -116,7 +123,8 @@ export async function GET(request: NextRequest) {
 
     const registrations = await courseRegistrationController.list(
       tenantGuard.tenant.id,
-      query
+      query,
+      scope !== null && scope.ok ? scope.departmentId : null
     );
 
     return NextResponse.json(ok(registrations));

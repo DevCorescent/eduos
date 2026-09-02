@@ -13,6 +13,7 @@ import { Card } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { listCampuses, listDepartments, listSchools } from "@/services/setup";
+import { listUsers } from "@/services/users";
 import {
   createDepartmentAction,
   deleteDepartmentAction,
@@ -39,16 +40,41 @@ export default async function DepartmentsPage({
   const { q, campusId, schoolId, page } = await searchParams;
   const currentPage = Math.max(1, Number(page) || 1);
 
-  const [result, campusesResult, schoolsResult] = await Promise.all([
+  const [result, campusesResult, schoolsResult, usersResult] = await Promise.all([
     listDepartments({ page: currentPage, limit: PAGE_SIZE, q, campusId, schoolId }),
     listCampuses({ page: 1, limit: 100 }),
     listSchools({ page: 1, limit: 100 }),
+    // The head-of-department picker. GET /api/users is already
+    // requireRole("UNIVERSITY_ADMIN"), the same guard this page sits behind, so
+    // no new permission is involved. 100 is the contract's ceiling.
+    listUsers({ page: 1, limit: 100 }),
   ]);
 
   const campuses = campusesResult.success ? campusesResult.data.items : [];
   const schools = schoolsResult.success ? schoolsResult.data.items : [];
 
   const campusOptions = campuses.map((c) => ({ value: c.id, label: c.name }));
+
+  // Only ACTIVE accounts are offered: assigning a deactivated user would create
+  // a department whose head cannot sign in, which looks like a broken
+  // permission rather than a disabled account.
+  const users = usersResult.success
+    ? usersResult.data.items.filter((user) => user.isActive)
+    : [];
+
+  const hodOptions = [
+    { value: "", label: "No head assigned" },
+    ...users
+      .map((user) => ({
+        value: user.id,
+        label: `${user.firstName} ${user.lastName} (${user.email})`.trim(),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ];
+
+  const userNameById = new Map(
+    users.map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()])
+  );
   const campusNameById = new Map(campuses.map((c) => [c.id, c.name]));
   const schoolNameById = new Map(schools.map((s) => [s.id, s.name]));
 
@@ -80,7 +106,24 @@ export default async function DepartmentsPage({
     },
     { kind: "text", name: "name", label: "Department name", required: true, placeholder: "Computer Science & Engineering" },
     { kind: "text", name: "code", label: "Code", required: true, placeholder: "CSE" },
-    { kind: "text", name: "hodName", label: "Head of department", placeholder: "Dr. Vikram Nair" },
+    {
+      kind: "select",
+      name: "hodUserId",
+      label: "Head of department",
+      options: hodOptions,
+      // hodUserId is the column lib/auth/departmentScope.ts resolves, so this
+      // is the field that actually grants a DEPARTMENT_HOD sight of their
+      // department. hodName below is display text and grants nothing.
+      helperText:
+        "The user who heads this department. This is what grants a Department HOD access to it. A user can head only one department.",
+    },
+    {
+      kind: "text",
+      name: "hodName",
+      label: "Head of department (display name)",
+      placeholder: "Dr. Vikram Nair",
+      helperText: "Shown on printed material. Does not grant any access.",
+    },
     { kind: "email", name: "email", label: "Email", placeholder: "cse@university.edu" },
   ];
 
@@ -89,6 +132,7 @@ export default async function DepartmentsPage({
     schoolId: schoolId ?? "",
     name: "",
     code: "",
+    hodUserId: "",
     hodName: "",
     email: "",
   };
@@ -169,9 +213,38 @@ export default async function DepartmentsPage({
     {
       key: "hodName",
       header: "HOD",
-      render: (department) => (
-        <span className="text-muted-foreground">{department.hodName ?? "—"}</span>
-      ),
+      // The assigned USER is what matters — it is the column authorization
+      // reads. hodName is shown underneath only when it adds something the
+      // account does not already say, so a department whose head is assigned
+      // reads as assigned at a glance.
+      render: (department) => {
+        const assigned = department.hodUserId
+          ? userNameById.get(department.hodUserId)
+          : null;
+
+        if (department.hodUserId && !assigned) {
+          return <span className="text-muted-foreground">Assigned</span>;
+        }
+
+        if (!assigned) {
+          return (
+            <span className="text-muted-foreground">
+              {department.hodName ? `${department.hodName} (unassigned)` : "—"}
+            </span>
+          );
+        }
+
+        return (
+          <div className="min-w-0">
+            <p className="truncate text-heading">{assigned}</p>
+            {department.hodName && department.hodName !== assigned && (
+              <p className="truncate text-xs text-muted-foreground">
+                {department.hodName}
+              </p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: "actions",
@@ -187,6 +260,7 @@ export default async function DepartmentsPage({
             schoolId: department.schoolId ?? "",
             name: department.name,
             code: department.code,
+            hodUserId: department.hodUserId ?? "",
             hodName: department.hodName ?? "",
             email: department.email ?? "",
           }}

@@ -14,6 +14,11 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
+import {
+  programmeIdsForDepartment,
+  resolveDepartmentScope,
+} from "@/lib/auth/departmentScope";
+import { STUDENT_READ_ROLES } from "@/lib/constants/departmentAcademics";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createStudentSchema, listStudentsQuerySchema } from "@/lib/validations/student";
 import { generateIdentifier } from "@/lib/services/identifier.service";
@@ -60,26 +65,61 @@ const STUDENT_SELECT = {
   updatedAt: true,
 } as const;
 
+/**
+ * The listing's select: every Student column above, plus the linked User.
+ *
+ * WHY THE LIST JOINS AND THE CREATE DOES NOT
+ *   A Student carries no name — it lives on the User the record points at. The
+ *   list screen renders that name and its search box says "Search by name or
+ *   enrolment number", so the list has to return it. POST keeps STUDENT_SELECT
+ *   unchanged: nothing consumes a name from a create response, and widening it
+ *   would be a contract change nothing asked for.
+ *
+ * EXACTLY THE FIVE FIELDS StudentWithUser DECLARES
+ *   `Pick<User, "id" | "firstName" | "lastName" | "email" | "avatarUrl">` — see
+ *   types/entities.ts. phone, displayName, isActive, isVerified and passwordHash
+ *   are NOT selected: an explicit column list is what keeps a future column off
+ *   this response by default rather than by somebody remembering to exclude it.
+ */
+const STUDENT_LIST_SELECT = {
+  ...STUDENT_SELECT,
+  user: {
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      avatarUrl: true,
+    },
+  },
+} as const;
+
 // Student holds no BigInt, Decimal or Json column, so the shared serialize()
 // helper is not applied here.
 
 // GET
 // ACCESS     : UNIVERSITY_ADMIN
 // VALIDATION : listStudentsQuerySchema — ?page (default 1) and ?limit (default
-//              20, max 100), from the shared pagination contract. No search
-//              parameter is defined: the project implements none on any
-//              existing collection endpoint.
+//              20, max 100) from the shared pagination contract, plus the four
+//              parameters this screen's controls send: ?q, ?status,
+//              ?programmeId and ?batchId. Each is optional, and an empty value
+//              means "no filter" rather than an invalid enum member.
 // FLOW       : Authorise → resolve tenant → read one page of that tenant's
-//              students alongside the total in a single transaction.
+//              students, joined to the linked User for the name, alongside the
+//              total in a single transaction.
 //              Both queries are filtered by the tenant id that requireTenant
 //              proved equal to the caller's own, so no cross-tenant row is
 //              reachable.
-// RESPONSE   : { success: true, data: { students, pagination } }
+// RESPONSE   : { success: true, data: { students, pagination } }, where each
+//              student carries `user` — id, firstName, lastName, email and
+//              avatarUrl, and nothing else.
 // STATUS     : 200 OK · 400 VALIDATION_ERROR · 401 UNAUTHORIZED
 //              403 FORBIDDEN · 404 NOT_FOUND · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // A head of department reads their own department's students. The role
+    // check admits them; the scope below is what narrows the rows.
+    const guard = await requireRole(...STUDENT_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -108,8 +148,107 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
-    const where = { tenantId: tenant.id };
+    const { page, limit, q, status, programmeId, batchId } = parsed.data;
+
+    // The tenant predicate is never optional and never overridable: it comes
+    // from requireTenant, and every filter is composed INSIDE it. So no value
+    // of ?q, ?status, ?programmeId or ?batchId can reach another institution's
+    // students — an id naming another tenant's batch simply matches nothing.
+    //
+    // The name is NOT a column on Student; it lives on the User the record
+    // points at, which is why ?q reaches through the `user` relation. Those
+    // nested predicates are still ANDed under tenantId, so they cannot widen
+    // the set beyond this tenant.
+    //
+    // WHY THE TERM IS SPLIT ON WHITESPACE
+    //   There is no full-name column — only firstName and lastName — and Prisma
+    //   cannot concatenate two columns inside a `where`. A plain OR over the two
+    //   therefore matches "Priya" and matches "Sharma" but NEVER matches "Priya
+    //   Sharma" typed in full, which is the most natural thing to type into a
+    //   box labelled "Search by name". types/entities.ts records that exact
+    //   trap on StudentWithUser.fullName.
+    //
+    //   So every whitespace-separated term must match SOMEWHERE: "Priya Sharma"
+    //   succeeds because "Priya" hits firstName and "Sharma" hits lastName, and
+    //   it succeeds whichever order they are typed in. A single term behaves
+    //   exactly as the plain OR did. "priya zzz" correctly matches nothing.
+    //
+    //   This uses only the columns the schema already has. Concatenating them
+    //   would need raw SQL or a denormalised column, and neither is warranted
+    //   for a search box.
+    //
+    // `mode: "insensitive"` is what makes "PRIYA", "Priya" and "priya" one
+    // search; `contains` is what makes "pri" match "Priya" rather than only a
+    // name equal to it.
+    //
+    // An omitted filter contributes NOTHING to the predicate, which is exactly
+    // what "All statuses", "All programmes" and "All batches" mean.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    // The department restriction, derived from the authenticated identity.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    // Student carries no departmentId — it points at a Programme, and the
+    // Programme belongs to a Department. Student.programmeId is also a plain
+    // scalar with NO Prisma relation, so a nested `where` is not expressible;
+    // the department's programmes are resolved first and applied with `in`.
+    //
+    // An EMPTY array is applied, not skipped. A department with no programmes
+    // has no students, and `in: []` matches nothing — which is the correct
+    // answer. Treating it as "no filter" would hand that head the university.
+    //
+    // A student with a null programmeId is invisible to a head, for the same
+    // reason an unowned course is: nobody has placed them in this department.
+    const departmentProgrammeIds = scope.scope.restricted
+      ? await programmeIdsForDepartment(tenant.id, scope.scope.departmentId)
+      : null;
+
+    // THE DEPARTMENT RESTRICTION AND THE ?programmeId FILTER CONSTRAIN THE SAME
+    // COLUMN, SO THEY ARE COMBINED INTO ONE CONDITION — NOT SPREAD SEPARATELY.
+    //   Two object spreads both setting `programmeId` do not intersect; the
+    //   later one silently REPLACES the earlier. With the caller's filter
+    //   spread last, a head passing another department's programme id would
+    //   overwrite their own restriction and read that department's students.
+    //   Combining them here is what makes the restriction unconditional.
+    //
+    // Restricted + a requested programme -> the intersection, so a programme
+    // the department does not own yields `in: []` and matches nothing.
+    // Restricted + no request            -> every programme the department owns.
+    // Unrestricted                       -> the caller's filter, unchanged.
+    const programmeWhere: Prisma.StudentWhereInput =
+      departmentProgrammeIds !== null
+        ? {
+            programmeId: {
+              in: programmeId
+                ? departmentProgrammeIds.filter((id) => id === programmeId)
+                : departmentProgrammeIds,
+            },
+          }
+        : programmeId
+          ? { programmeId }
+          : {};
+
+    const where: Prisma.StudentWhereInput = {
+      tenantId: tenant.id,
+      ...programmeWhere,
+      ...(terms.length > 0
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { enrollmentNo: { contains: term, mode: "insensitive" as const } },
+                { user: { firstName: { contains: term, mode: "insensitive" as const } } },
+                { user: { lastName: { contains: term, mode: "insensitive" as const } } },
+                { user: { email: { contains: term, mode: "insensitive" as const } } },
+              ],
+            })),
+          }
+        : {}),
+      ...(status ? { status } : {}),
+      // programmeId is NOT spread here — it is folded into programmeWhere
+      // above, together with the department restriction. See the note there.
+      ...(batchId ? { batchId } : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The ordering is required for correctness, not presentation:
@@ -122,7 +261,9 @@ export async function GET(request: NextRequest) {
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         skip: (page - 1) * limit,
         take: limit,
-        select: STUDENT_SELECT,
+        // The listing select — Student columns plus the five User fields the
+        // StudentWithUser contract declares. POST below keeps STUDENT_SELECT.
+        select: STUDENT_LIST_SELECT,
       }),
       prisma.student.count({ where }),
     ]);

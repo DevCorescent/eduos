@@ -14,10 +14,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import {
+  EXAMINATION_MANAGE_ROLES,
+  EXAMINATION_READ_ROLES,
+} from "@/lib/constants/examination";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
-import { paginationQuerySchema } from "@/lib/validations/pagination";
+import { listExaminationsQuerySchema } from "@/lib/validations/examination";
 import { createExaminationSchema } from "@/lib/validations/examination";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -55,6 +59,20 @@ const EXAMINATION_SELECT = {
   instructions: true,
   createdAt: true,
   updatedAt: true,
+  // Course and semester joined here rather than left to the caller.
+  //
+  // WHY: services/reference.ts resolves these names by scanning /api/courses,
+  // which is COURSE_READ_ROLES — UNIVERSITY_ADMIN and the head of department.
+  // Neither the Controller of Examination nor a lecturer can read it, so both
+  // saw an examination calendar of blank course names. Widening the course
+  // registry to fix a label would hand the examination office the institutional
+  // catalogue, which the agreed product model explicitly withholds.
+  //
+  // Three scalar columns across relations the model already declares. A caller
+  // entitled to read the examination is entitled to know which course and term
+  // it belongs to.
+  course: { select: { code: true, name: true } },
+  semester: { select: { name: true } },
 } as const;
 
 // Examination holds no BigInt, Decimal or Json column, so the shared serialize()
@@ -105,7 +123,7 @@ const EXAMINATION_SELECT = {
 //              403 FORBIDDEN · 404 NOT_FOUND · 500 SERVER_ERROR
 export async function GET(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY", "STUDENT");
+    const guard = await requireRole(...EXAMINATION_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -119,7 +137,7 @@ export async function GET(request: NextRequest) {
 
     const { tenant } = tenantGuard;
 
-    const parsed = paginationQuerySchema.safeParse(
+    const parsed = listExaminationsQuerySchema.safeParse(
       Object.fromEntries(request.nextUrl.searchParams)
     );
     if (!parsed.success) {
@@ -134,8 +152,18 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
-    const where = { tenantId: tenant.id };
+    const { page, limit, type, semesterId } = parsed.data;
+
+    // Filters belong in the WHERE, not in the page that renders the result.
+    // Applied client-side they could only narrow rows already fetched, so a
+    // filter over page 1 of 20 would hide matches it never loaded and report a
+    // total belonging to the unfiltered set. Both are optional and absent ones
+    // add no condition.
+    const where: Prisma.ExaminationWhereInput = {
+      tenantId: tenant.id,
+      ...(type === undefined ? {} : { type }),
+      ...(semesterId === undefined ? {} : { semesterId }),
+    };
 
     // Paired in one transaction so the total cannot shift between the two reads.
     const [examinations, total] = await prisma.$transaction([
@@ -221,7 +249,7 @@ export async function GET(request: NextRequest) {
 //              error, so they are reported together.
 export async function POST(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY");
+    const guard = await requireRole(...EXAMINATION_MANAGE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();

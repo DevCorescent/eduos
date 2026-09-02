@@ -346,6 +346,11 @@ export interface Department {
   name: string;
   code: string;
   hodName: string | null;
+  /**
+   * The User who heads this department — the column department-scoped
+   * authorization resolves. `hodName` above is display text and grants nothing.
+   */
+  hodUserId: string | null;
   email: string | null;
   createdAt: string;
   updatedAt: string;
@@ -427,12 +432,14 @@ export interface Section {
 // --- Students ---------------------------------------------------------------
 
 /**
- * GET /api/students — mirrors STUDENT_SELECT.
+ * The Student scalar columns — mirrors STUDENT_SELECT.
  *
- * Note the absence of a name: Student carries none, and the route expands no
- * relation, so the student's name and email are reached through the linked
- * User. List screens that need a name must resolve it separately — see
- * StudentWithUser.
+ * Note the absence of a name: Student carries none. It lives on the linked
+ * User, so anything rendering a name needs the join — see StudentWithUser.
+ *
+ * GET /api/students (the LISTING) returns these columns PLUS `user`, because
+ * the list screen renders the name and searches it. GET /api/students/[id] and
+ * the POST response return these columns alone.
  */
 export interface Student {
   id: string;
@@ -454,14 +461,16 @@ export interface Student {
 /**
  * A student joined to its User for display.
  *
- * The API does NOT return this shape — it is composed on the frontend from a
- * student page and a user lookup. Kept distinct from Student so no page can
- * assume the collection endpoint hands back a name it never sends.
+ * GET /api/students returns the `user` half of this; `fullName` is composed by
+ * services/students.ts, because it is a display convenience derived from two
+ * columns rather than a column of its own. Kept distinct from Student so no
+ * page can assume the DETAIL endpoint hands back a name — it does not.
  *
- * `fullName` is flattened alongside the nested user because searching and
- * sorting need a single string field. Reaching into `user.firstName` for each
- * would mean every list re-joining the name, and a substring search across two
- * separate fields never matches "Priya Sharma" typed in full.
+ * `fullName` is flattened alongside the nested user because a table cell and an
+ * avatar both want a single string. Note that it is composed AFTER the query:
+ * a substring search across two separate columns never matches "Priya Sharma"
+ * typed in full, which is why GET /api/students splits the search term on
+ * whitespace and requires every term to match one of the name columns.
  */
 export interface StudentWithUser extends Student {
   user: Pick<User, "id" | "firstName" | "lastName" | "email" | "avatarUrl">;

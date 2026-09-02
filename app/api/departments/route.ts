@@ -11,6 +11,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import {
+  isHeadUniqueViolation,
+  resolveHeadAssignment,
+} from "@/lib/services/departmentHead";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import {
@@ -226,11 +230,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // The head of department, resolved tenant-scoped. `hodUserId` is the
+    // column department-scoped authorization actually reads, so an id from the
+    // body is never written without confirming it names a user in THIS tenant
+    // who does not already head somewhere else.
+    const { hodUserId: rawHead, ...rest } = input;
+    let head: string | null | undefined;
+
+    if (rawHead !== undefined) {
+      const assignment = await resolveHeadAssignment(tenant.id, rawHead, null);
+
+      if (!assignment.ok) {
+        return NextResponse.json(fail(assignment.error, assignment.code), {
+          status: assignment.code === "NOT_FOUND" ? 404 : 409,
+        });
+      }
+
+      head = assignment.hodUserId;
+    }
+
     // Single write — already atomic, so no transaction is warranted. tenantId
     // comes from the resolved tenant context, never from the request body.
     const department = await prisma.department.create({
       data: {
-        ...input,
+        ...rest,
+        ...(head === undefined ? {} : { hodUserId: head }),
         tenantId: tenant.id,
       },
     });
@@ -240,6 +264,16 @@ export async function POST(request: NextRequest) {
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       // A concurrent request took the code between the check and the insert.
       if (err.code === UNIQUE_VIOLATION) {
+        // Two unique indexes on this table can fire here. Reporting the code
+        // clash for a head collision would send the admin to change the wrong
+        // field.
+        if (isHeadUniqueViolation(err.meta)) {
+          return NextResponse.json(
+            fail("That user already heads another department", "CONFLICT"),
+            { status: 409 }
+          );
+        }
+
         return NextResponse.json(
           fail("Department code already in use", "CONFLICT"),
           { status: 409 }

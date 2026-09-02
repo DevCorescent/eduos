@@ -34,7 +34,18 @@ const SEMESTER_ID = "semester_1";
 const TARGET_ID = "component_internal";
 const NOW = new Date("2026-04-01T09:00:00.000Z");
 
-const CONTEXT = { userId: USER_ID, ipAddress: null, userAgent: null };
+const DEPARTMENT_ID = "dept_cse";
+
+/** An unnarrowed caller — UNIVERSITY_ADMIN or FACULTY. */
+const CONTEXT = {
+  userId: USER_ID,
+  departmentId: null,
+  ipAddress: null,
+  userAgent: null,
+};
+
+/** A head of department, narrowed by the guard to DEPARTMENT_ID. */
+const HEAD_CONTEXT = { ...CONTEXT, departmentId: DEPARTMENT_ID };
 
 function component(overrides: Record<string, unknown> = {}) {
   return {
@@ -75,6 +86,9 @@ interface HarnessOptions {
   prior?: Array<{ studentId: string; graded: number; obtained: number; available: number }>;
   existingSuggestion?: Record<string, unknown> | null;
   rationaleFails?: boolean;
+  /** Whether a narrowed caller's department owns the named course/student. */
+  departmentOwnsCourse?: boolean;
+  departmentOwnsStudent?: boolean;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -83,6 +97,7 @@ function makeHarness(options: HarnessOptions = {}) {
     audits: [] as Array<{ action: string; after: unknown }>,
     rationale: 0,
     transactions: 0,
+    departmentChecks: 0,
   };
 
   const cohortSize = options.cohortSize ?? 1;
@@ -178,6 +193,14 @@ function makeHarness(options: HarnessOptions = {}) {
     },
     async findAudit() {
       return [];
+    },
+    async courseBelongsToDepartment() {
+      calls.departmentChecks += 1;
+      return options.departmentOwnsCourse ?? false;
+    },
+    async studentBelongsToDepartment() {
+      calls.departmentChecks += 1;
+      return options.departmentOwnsStudent ?? false;
     },
     async transaction<T>(fn: (tx: never) => Promise<T>): Promise<T> {
       calls.transactions += 1;
@@ -544,6 +567,157 @@ describe("InternalAssessmentService.getRules", () => {
         assert.equal(err.statusCode, 404);
         return true;
       }
+    );
+  });
+});
+
+// ============================================================================
+// Head of department — department confinement.
+//
+// INTERNAL_ASSESSMENT_ROLES admits BOTH spellings of head of department, and
+// this is the one examination surface where a head holds WRITE authority:
+// generate proposes internal marks and decide accepts or overrides them.
+// Unnarrowed, a head did both for any course in the university simply by
+// submitting another department's courseId.
+// ============================================================================
+
+describe("InternalAssessmentService — head of department confinement", () => {
+  const generateInput = {
+    courseId: COURSE_ID,
+    semesterId: SEMESTER_ID,
+    componentId: TARGET_ID,
+    withRationale: false,
+  };
+
+  const decideInput = {
+    courseId: COURSE_ID,
+    semesterId: SEMESTER_ID,
+    componentId: TARGET_ID,
+    finalMarks: 30,
+  };
+
+  async function expectNotFound(run: () => Promise<unknown>): Promise<void> {
+    await assert.rejects(run, (err: unknown) => {
+      assert.ok(err instanceof AppError, `expected AppError, got ${String(err)}`);
+      assert.equal(
+        err.statusCode,
+        404,
+        "the refusal must not disclose that the course or student exists elsewhere"
+      );
+      return true;
+    });
+  }
+
+  // --- WRITE: generate ------------------------------------------------------
+
+  it("lets a head GENERATE for a course in their own department", async () => {
+    const { service, calls } = makeHarness({ departmentOwnsCourse: true });
+
+    await service.generate(TENANT_ID, generateInput, HEAD_CONTEXT, NOW);
+
+    assert.ok(calls.upserts.length > 0, "the write should have happened");
+  });
+
+  it("REFUSES a head GENERATING for another department's courseId", async () => {
+    // The manipulated-id case, on a write.
+    const { service, calls } = makeHarness({ departmentOwnsCourse: false });
+
+    await expectNotFound(() => service.generate(TENANT_ID, generateInput, HEAD_CONTEXT, NOW));
+
+    assert.equal(calls.upserts.length, 0, "nothing may be written");
+    assert.equal(calls.transactions, 0, "the refusal must precede any transaction");
+  });
+
+  // --- WRITE: decide --------------------------------------------------------
+
+  it("lets a head DECIDE a mark in their own department", async () => {
+    const { service } = makeHarness({ departmentOwnsCourse: true });
+
+    const result = await service.decide(
+      TENANT_ID,
+      STUDENT_ID,
+      decideInput,
+      HEAD_CONTEXT,
+      NOW
+    );
+
+    assert.equal(result.studentId, STUDENT_ID);
+  });
+
+  it("REFUSES a head DECIDING a mark for another department's courseId", async () => {
+    const { service, calls } = makeHarness({ departmentOwnsCourse: false });
+
+    await expectNotFound(() =>
+      service.decide(TENANT_ID, STUDENT_ID, decideInput, HEAD_CONTEXT, NOW)
+    );
+
+    assert.equal(calls.audits.length, 0, "no decision may be recorded");
+  });
+
+  it("checks the department BEFORE looking the suggestion up", async () => {
+    // Otherwise a head learns whether a suggestion exists for another
+    // department's course from which error comes back.
+    const { service, calls } = makeHarness({
+      departmentOwnsCourse: false,
+      existingSuggestion: null,
+    });
+
+    await expectNotFound(() =>
+      service.decide(TENANT_ID, STUDENT_ID, decideInput, HEAD_CONTEXT, NOW)
+    );
+
+    assert.equal(calls.departmentChecks, 1);
+  });
+
+  // --- READ -----------------------------------------------------------------
+
+  it("REFUSES a head reading RULES for another department's course", async () => {
+    const { service } = makeHarness({ departmentOwnsCourse: false });
+
+    await expectNotFound(() =>
+      service.getRules(
+        TENANT_ID,
+        { courseId: COURSE_ID, semesterId: SEMESTER_ID },
+        DEPARTMENT_ID
+      )
+    );
+  });
+
+  it("confines the per-student reads by the STUDENT, not the course filter", async () => {
+    // courseId is OPTIONAL on these queries. Confining by an absent filter
+    // would confine nothing, so the path is Student -> Programme -> Department.
+    const { service } = makeHarness({ departmentOwnsStudent: false });
+
+    await expectNotFound(() =>
+      service.getForStudent(TENANT_ID, STUDENT_ID, {}, DEPARTMENT_ID)
+    );
+
+    const audit = makeHarness({ departmentOwnsStudent: false });
+    await expectNotFound(() =>
+      audit.service.getAudit(TENANT_ID, STUDENT_ID, {}, DEPARTMENT_ID)
+    );
+  });
+
+  it("serves the per-student reads for a student in the head's department", async () => {
+    const { service } = makeHarness({ departmentOwnsStudent: true });
+
+    const rows = await service.getForStudent(TENANT_ID, STUDENT_ID, {}, DEPARTMENT_ID);
+
+    assert.ok(Array.isArray(rows));
+  });
+
+  // --- An unnarrowed caller pays nothing ------------------------------------
+
+  it("does not ask about the department for an unnarrowed caller", async () => {
+    const { service, calls } = makeHarness();
+
+    await service.generate(TENANT_ID, generateInput, CONTEXT, NOW);
+    await service.getForStudent(TENANT_ID, STUDENT_ID, {});
+
+    assert.equal(
+      calls.departmentChecks,
+      0,
+      "UNIVERSITY_ADMIN and FACULTY must not pay for a check that cannot apply"
     );
   });
 });

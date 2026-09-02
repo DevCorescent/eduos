@@ -35,6 +35,7 @@ import {
   Library,
   LifeBuoy,
   MessageSquare,
+  MessageSquareWarning,
   PlayCircle,
   Receipt,
   School,
@@ -108,21 +109,32 @@ export const UNIVERSITY_NAV: NavGroup[] = [
       { label: "Website", href: "/website", icon: <Globe className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
     ],
   },
+  // THE INSTITUTIONAL REGISTRY — UNIVERSITY_ADMIN ONLY.
+  //
+  // Every API beneath these paths is guarded by requireRole("UNIVERSITY_ADMIN"),
+  // so a Controller of Examination or a head of department who followed one of
+  // these links reached a page whose every panel answered 403. That is the
+  // "menu that lies" this file's own header warns against, and it was the whole
+  // of what COE and HOD saw: fifteen links, most of them dead.
+  //
+  // Restricting them here does not change any authorization — the APIs refused
+  // these roles before and refuse them now. It stops the sidebar claiming
+  // otherwise.
   {
     label: "Setup",
     items: [
-      { label: "Campuses", href: "/setup/campuses", icon: <Building2 className={iconClass} /> },
-      { label: "Schools", href: "/setup/schools", icon: <School className={iconClass} /> },
-      { label: "Departments", href: "/setup/departments", icon: <Library className={iconClass} /> },
-      { label: "Programmes", href: "/setup/programmes", icon: <GraduationCap className={iconClass} /> },
-      { label: "Identifiers", href: "/setup/identifiers", icon: <Hash className={iconClass} /> },
+      { label: "Campuses", href: "/setup/campuses", icon: <Building2 className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      { label: "Schools", href: "/setup/schools", icon: <School className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      { label: "Departments", href: "/setup/departments", icon: <Library className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      { label: "Programmes", href: "/setup/programmes", icon: <GraduationCap className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      { label: "Identifiers", href: "/setup/identifiers", icon: <Hash className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
     ],
   },
   {
     label: "Academic Calendar",
     items: [
-      { label: "Academic Years", href: "/calendar/academic-years", icon: <CalendarRange className={iconClass} /> },
-      { label: "Batches", href: "/calendar/batches", icon: <CalendarDays className={iconClass} /> },
+      { label: "Academic Years", href: "/calendar/academic-years", icon: <CalendarRange className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      { label: "Batches", href: "/calendar/batches", icon: <CalendarDays className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
     ],
   },
   {
@@ -137,48 +149,114 @@ export const UNIVERSITY_NAV: NavGroup[] = [
         icon: <ClipboardList className={iconClass} />,
         roles: [ROLES.UNIVERSITY_ADMIN],
       },
-      { label: "Students", href: "/students", icon: <Users className={iconClass} /> },
-      { label: "Faculty", href: "/faculty", icon: <UserCog className={iconClass} /> },
-      { label: "Employees", href: "/employees", icon: <Users className={iconClass} /> },
+      // Students and Faculty admit a head of department, whose API narrows the
+      // rows to their own department — see lib/auth/departmentScope.ts. The
+      // link is honest for both roles: an admin sees the university, a head
+      // sees their department. Employees is the university's non-academic
+      // registry and stays with the administrator.
+      {
+        label: "Students",
+        href: "/students",
+        icon: <Users className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.DEPARTMENT_HOD, ROLES.HOD],
+      },
+      {
+        label: "Faculty",
+        href: "/faculty",
+        icon: <UserCog className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.DEPARTMENT_HOD, ROLES.HOD],
+      },
+      { label: "Employees", href: "/employees", icon: <Users className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
     ],
   },
   {
     label: "Academics",
     items: [
-      { label: "Courses", href: "/curriculum/courses", icon: <BookOpen className={iconClass} /> },
-      { label: "Open Electives", href: "/electives", icon: <Library className={iconClass} /> },
-      { label: "Timetable", href: "/timetable", icon: <CalendarDays className={iconClass} /> },
-      { label: "Attendance", href: "/attendance/report", icon: <ClipboardCheck className={iconClass} /> },
+      {
+        label: "Courses",
+        href: "/curriculum/courses",
+        icon: <BookOpen className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.DEPARTMENT_HOD, ROLES.HOD],
+      },
+      { label: "Open Electives", href: "/electives", icon: <Library className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      { label: "Timetable", href: "/timetable", icon: <CalendarDays className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      { label: "Attendance", href: "/attendance/report", icon: <ClipboardCheck className={iconClass} />, roles: [ROLES.UNIVERSITY_ADMIN] },
+      {
+        // PRD 13.2. The REVIEW queue, so it is offered to the unlock tier that
+        // decides corrections. A lecturer never reaches this tree at all — the
+        // (university) layout redirects FACULTY — and raises corrections from
+        // the register instead, watching them at /faculty/attendance/corrections.
+        // The API refuses a decision from anyone outside
+        // ATTENDANCE_CORRECTION_REVIEW_ROLES regardless of this link.
+        label: "Attendance Corrections",
+        href: "/attendance/corrections",
+        icon: <ClipboardCheck className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.DEPARTMENT_HOD, ROLES.HOD],
+      },
     ],
   },
   {
+    // THE EXAMINATION SURFACE — the Controller of Examination's own area.
+    //
+    // Each entry names exactly the roles its API admits, from the same role
+    // arrays under lib/constants that the routes use. The group was ungated, so a
+    // CAMPUS_ADMIN and a legacy HOD saw six links that all answered 403, while
+    // a COE — whose area this is — saw them alongside a dozen registry links
+    // they could not use.
+    //
+    // Semester Results is narrower than the rest on purpose: its API is
+    // SEMESTER_RESULT_READ_ROLES, which is UNIVERSITY_ADMIN and COE only. A
+    // head reads their own students' results through Overview and Transcript,
+    // not the university-wide semester roll-up.
     label: "Evaluation",
     items: [
-      { label: "Overview", href: "/evaluation", icon: <SlidersHorizontal className={iconClass} /> },
+      {
+        // PRD 57 lists "Examinations" as an area of University Administration
+        // and PRD 17.2 puts the examination calendar inside Examination
+        // Configuration. The page existed for nobody until now: the API
+        // admitted UNIVERSITY_ADMIN, FACULTY and STUDENT, and only the faculty
+        // and student portals consumed it, so the university-side area PRD 57
+        // names had no screen at all.
+        label: "Examinations",
+        href: "/examinations",
+        icon: <ClipboardList className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CONTROLLER_OF_EXAMINATION],
+      },
+      {
+        label: "Overview",
+        href: "/evaluation",
+        icon: <SlidersHorizontal className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CONTROLLER_OF_EXAMINATION, ROLES.DEPARTMENT_HOD, ROLES.HOD],
+      },
       {
         label: "Schemes",
         href: "/evaluation/schemes",
         icon: <SlidersHorizontal className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CONTROLLER_OF_EXAMINATION, ROLES.DEPARTMENT_HOD, ROLES.HOD],
       },
       {
         label: "Registrations",
         href: "/evaluation/course-registrations",
         icon: <ClipboardCheck className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CONTROLLER_OF_EXAMINATION, ROLES.DEPARTMENT_HOD, ROLES.HOD],
       },
       {
         label: "Assessments",
         href: "/evaluation/assessment-events",
         icon: <CalendarDays className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CONTROLLER_OF_EXAMINATION, ROLES.DEPARTMENT_HOD, ROLES.HOD],
       },
       {
         label: "Semester Results",
         href: "/evaluation/results/semester",
         icon: <GraduationCap className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CONTROLLER_OF_EXAMINATION],
       },
       {
         label: "Transcript",
         href: "/evaluation/transcript",
         icon: <ScrollText className={iconClass} />,
+        roles: [ROLES.UNIVERSITY_ADMIN, ROLES.CONTROLLER_OF_EXAMINATION, ROLES.DEPARTMENT_HOD, ROLES.HOD],
       },
     ],
   },
@@ -239,11 +317,27 @@ export const FACULTY_NAV: NavGroup[] = [
   {
     items: [
       { label: "Dashboard", href: "/faculty/dashboard", icon: <LayoutDashboard className={iconClass} /> },
+      // PRD 57 names "My Classes" and "Students" in the Faculty Portal. Both
+      // are derived from this lecturer's own timetable and re-authorised
+      // server-side; neither is the institutional registry, which stays closed
+      // to FACULTY.
+      { label: "My Classes", href: "/faculty/classes", icon: <BookOpen className={iconClass} /> },
       { label: "My Schedule", href: "/faculty/schedule", icon: <CalendarDays className={iconClass} /> },
+      { label: "Students", href: "/faculty/students", icon: <Users className={iconClass} /> },
       { label: "Attendance", href: "/faculty/attendance/mark", icon: <ClipboardCheck className={iconClass} /> },
+      // Where a lecturer learns what became of a correction they raised. The
+      // review queue at /attendance/corrections is under the (university)
+      // layout, which redirects FACULTY out, so without this entry the approval
+      // step is invisible to the person waiting on it.
+      { label: "My Corrections", href: "/faculty/attendance/corrections", icon: <MessageSquareWarning className={iconClass} /> },
       { label: "Assignments", href: "/faculty/assignments", icon: <FileText className={iconClass} /> },
+      // Marks entry. The endpoint behind it has admitted FACULTY since C6 and
+      // confines them to the sittings they conduct; until now nothing could
+      // reach it.
+      { label: "Evaluation", href: "/faculty/evaluation", icon: <GraduationCap className={iconClass} /> },
       { label: "Exams", href: "/faculty/exams", icon: <BookOpen className={iconClass} /> },
       { label: "My Feedback", href: "/faculty/feedback", icon: <MessageSquare className={iconClass} /> },
+      { label: "Profile", href: "/faculty/profile", icon: <UserRound className={iconClass} /> },
     ],
   },
 ];

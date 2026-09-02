@@ -61,7 +61,10 @@ export async function enrolStudentAction(values: FormValues): Promise<ActionResu
     email: str(values, "email").toLowerCase(),
     password,
     phone: optionalStr(values, "phone"),
-    enrollmentNo: str(values, "enrollmentNo"),
+    // optionalStr, not str: an empty field must be OMITTED so the identifier
+    // engine issues the number (PRD 51 "Automated student IDs"). Sending ""
+    // would fail the API's min(1) rule instead of triggering generation.
+    enrollmentNo: optionalStr(values, "enrollmentNo"),
     programmeId: optionalStr(values, "programmeId"),
     batchId: optionalStr(values, "batchId"),
     sectionId: optionalStr(values, "sectionId"),
@@ -77,7 +80,10 @@ export async function updateStudentAction(
   values: FormValues
 ): Promise<ActionResult> {
   const input: UpdateStudentInput = {
-    enrollmentNo: str(values, "enrollmentNo"),
+    // Omitted when blank, matching this file's convention that an absent key
+    // leaves the column unchanged. An enrolment number is never cleared to
+    // empty — it is printed on records that have already left the building.
+    enrollmentNo: optionalStr(values, "enrollmentNo"),
     // Passed as "" rather than omitted when cleared, so the service can tell
     // "unset this" from "leave unchanged" on a nullable column.
     programmeId: str(values, "programmeId"),

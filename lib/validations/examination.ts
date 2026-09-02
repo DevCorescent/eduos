@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import { ExaminationType } from "@/app/generated/prisma/client";
+import { paginationQuerySchema } from "@/lib/validations/pagination";
 
 /**
  * Strict 24-hour HH:mm.
@@ -223,10 +224,24 @@ export const examinationIdParamSchema = z.object({
 
 export type ExaminationIdParam = z.infer<typeof examinationIdParamSchema>;
 
-// No query schema is declared. GET /api/examinations pages on the shared
-// contract, and paginationQuerySchema is consumed directly by the route exactly
-// as the timetable, attendance and assignment routes consume it. No filter
-// parameter is defined for this phase.
+/**
+ * Query contract for GET /api/examinations.
+ *
+ * Extends the shared pagination contract with the two filters the examination
+ * calendar actually offers. They are declared HERE rather than applied in the
+ * page because a client-side filter can only narrow the page already fetched:
+ * filtering "END_TERM" over page 1 of 20 hides rows it never loaded and reports
+ * a total that belongs to the unfiltered set. Both are now part of the `where`.
+ *
+ * `type` is validated against the enum, so an unknown value is a 400 rather
+ * than a silently empty list.
+ */
+export const listExaminationsQuerySchema = paginationQuerySchema.extend({
+  type: z.enum(ExaminationType).optional(),
+  semesterId: z.string().trim().min(1).optional(),
+});
+
+export type ListExaminationsQuery = z.infer<typeof listExaminationsQuerySchema>;
 
 // No results schema is declared here. The bulk result upload body for
 // POST /api/examinations/[id]/results is a separate contract with its own

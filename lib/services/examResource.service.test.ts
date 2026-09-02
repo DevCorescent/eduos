@@ -35,15 +35,26 @@ const OTHER_USER_ID = "user_2";
 const RESOURCE_ID = "res_1";
 const NOW = new Date("2026-05-10T09:00:00.000Z");
 
+const DEPARTMENT_ID = "dept_cse";
+const OTHER_DEPARTMENT_ID = "dept_mech";
+
 const ADMIN: ExamResourceAccess = {
   tenantId: TENANT_ID,
   userId: USER_ID,
   scope: "ANY",
+  departmentId: null,
   ipAddress: null,
   userAgent: null,
 };
 
 const FACULTY: ExamResourceAccess = { ...ADMIN, scope: "OWN" };
+
+/** A head of department, narrowed to DEPARTMENT_ID by the guard. */
+const HEAD: ExamResourceAccess = {
+  ...ADMIN,
+  scope: "DEPARTMENT",
+  departmentId: DEPARTMENT_ID,
+};
 
 function resourceRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -216,6 +227,54 @@ describe("ExamResourceService.create", () => {
     assert.equal(calls.creates[0].departmentId, "dept_1");
   });
 
+  it("lets a head upload against a course in their OWN department", async () => {
+    const { service, calls } = makeHarness({
+      course: { id: "course_1", departmentId: DEPARTMENT_ID },
+    });
+
+    await service.create(HEAD, input, NOW);
+
+    assert.equal(calls.creates.length, 1);
+    assert.equal(calls.creates[0].departmentId, DEPARTMENT_ID);
+  });
+
+  it("REFUSES a head submitting ANOTHER department's courseId", async () => {
+    // The manipulated-id case. The check is against the course as RESOLVED
+    // from the database, and the departmentId written to the row comes from
+    // that same record, so the two can never disagree.
+    const { service, calls } = makeHarness({
+      course: { id: "course_1", departmentId: OTHER_DEPARTMENT_ID },
+    });
+
+    await assert.rejects(
+      () => service.create(HEAD, input, NOW),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.statusCode, 404, "must not disclose that the course exists");
+        return true;
+      }
+    );
+
+    assert.equal(calls.creates.length, 0);
+  });
+
+  it("REFUSES a head uploading against a course with NO department", async () => {
+    const { service, calls } = makeHarness({
+      course: { id: "course_1", departmentId: null },
+    });
+
+    await assert.rejects(
+      () => service.create(HEAD, input, NOW),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.statusCode, 404);
+        return true;
+      }
+    );
+
+    assert.equal(calls.creates.length, 0);
+  });
+
   it("attributes the upload to the authenticated caller", async () => {
     const { service, calls } = makeHarness();
 
@@ -289,6 +348,117 @@ describe("ExamResourceService write authority", () => {
     await service.update(ADMIN, RESOURCE_ID, { title: "Revised" }, NOW);
 
     assert.equal(calls.updates.length, 1);
+  });
+
+  // --- Head of department ---------------------------------------------------
+  //
+  // EXAM_RESOURCE_ADMIN_ROLES admits both spellings of head of department
+  // alongside UNIVERSITY_ADMIN, and the guard handed all three "ANY" — which
+  // this service defines as publishing, archiving and deleting ANYTHING in the
+  // tenant. A head could publish another department's answer key.
+
+  it("lets a head edit a resource in their OWN department", async () => {
+    const { service, calls } = makeHarness({
+      resource: resourceRow({
+        uploadedById: OTHER_USER_ID,
+        departmentId: DEPARTMENT_ID,
+      }),
+    });
+
+    await service.update(HEAD, RESOURCE_ID, { title: "Revised" }, NOW);
+
+    assert.equal(calls.updates.length, 1);
+  });
+
+  it("REFUSES a head editing ANOTHER department's resource, with a 404", async () => {
+    const { service, calls } = makeHarness({
+      resource: resourceRow({
+        uploadedById: OTHER_USER_ID,
+        departmentId: OTHER_DEPARTMENT_ID,
+      }),
+    });
+
+    await assert.rejects(
+      () => service.update(HEAD, RESOURCE_ID, { title: "Revised" }, NOW),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.statusCode, 404);
+        return true;
+      }
+    );
+
+    assert.equal(calls.updates.length, 0);
+  });
+
+  it("REFUSES a head writing a resource with NO department", async () => {
+    // The column is nullable and denormalised from the course at creation, so
+    // an absent value means unowned — and unowned must not read as anyone's.
+    const { service, calls } = makeHarness({
+      resource: resourceRow({ uploadedById: USER_ID, departmentId: null }),
+    });
+
+    await assert.rejects(
+      () => service.update(HEAD, RESOURCE_ID, { title: "Revised" }, NOW),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.statusCode, 404);
+        return true;
+      }
+    );
+
+    assert.equal(calls.updates.length, 0);
+  });
+
+  it("REFUSES a head whose own department id is null", async () => {
+    // Belt and braces behind the guard's fail-closed refusal: even if a
+    // DEPARTMENT authority ever arrived without an id, it must not match a row
+    // whose departmentId is also null.
+    const { service } = makeHarness({
+      resource: resourceRow({ uploadedById: USER_ID, departmentId: null }),
+    });
+
+    await assert.rejects(
+      () =>
+        service.update(
+          { ...HEAD, departmentId: null },
+          RESOURCE_ID,
+          { title: "Revised" },
+          NOW
+        ),
+      (err: unknown) => {
+        assert.ok(err instanceof AppError);
+        assert.equal(err.statusCode, 404);
+        return true;
+      }
+    );
+  });
+
+  it("confines a head's PUBLISH, ARCHIVE and DELETE the same way", async () => {
+    // All four write paths go through requireWritable. A narrowing applied to
+    // update and forgotten in publish would still let a head make another
+    // department's answer key visible to students.
+    for (const run of [
+      (svc: ExamResourceService) => svc.publish(HEAD, RESOURCE_ID, {}, NOW),
+      (svc: ExamResourceService) => svc.archive(HEAD, RESOURCE_ID, {}, NOW),
+      (svc: ExamResourceService) => svc.remove(HEAD, RESOURCE_ID),
+    ]) {
+      const { service } = makeHarness({
+        resource: resourceRow({
+          uploadedById: USER_ID,
+          departmentId: OTHER_DEPARTMENT_ID,
+          status: ExamResourceStatus.DRAFT,
+        }),
+      });
+
+      await assert.rejects(
+        () => run(service),
+        (err: unknown) => {
+          assert.ok(err instanceof AppError);
+          assert.equal(err.statusCode, 404);
+          return true;
+        }
+      );
+    }
   });
 
   it("REFUSES editing an ARCHIVED resource", async () => {

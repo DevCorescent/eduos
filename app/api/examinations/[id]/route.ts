@@ -14,6 +14,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import {
+  EXAMINATION_MANAGE_ROLES,
+  EXAMINATION_READ_ROLES,
+} from "@/lib/constants/examination";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import { isForeignKeyViolation, isRecordNotFound } from "@/lib/utils/prisma-errors";
@@ -58,6 +62,20 @@ const EXAMINATION_SELECT = {
   instructions: true,
   createdAt: true,
   updatedAt: true,
+  // Course and semester joined here rather than left to the caller.
+  //
+  // WHY: services/reference.ts resolves these names by scanning /api/courses,
+  // which is COURSE_READ_ROLES — UNIVERSITY_ADMIN and the head of department.
+  // Neither the Controller of Examination nor a lecturer can read it, so both
+  // saw an examination calendar of blank course names. Widening the course
+  // registry to fix a label would hand the examination office the institutional
+  // catalogue, which the agreed product model explicitly withholds.
+  //
+  // Three scalar columns across relations the model already declares. A caller
+  // entitled to read the examination is entitled to know which course and term
+  // it belongs to.
+  course: { select: { code: true, name: true } },
+  semester: { select: { name: true } },
 } as const;
 
 // Examination holds no BigInt, Decimal or Json column, so the shared serialize()
@@ -108,7 +126,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY", "STUDENT");
+    const guard = await requireRole(...EXAMINATION_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -216,7 +234,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY");
+    const guard = await requireRole(...EXAMINATION_MANAGE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();

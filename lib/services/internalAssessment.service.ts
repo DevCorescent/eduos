@@ -93,6 +93,19 @@ export interface RationalePort {
 /** Request metadata carried into the audit entry. Never business input. */
 export interface InternalAssessmentContext {
   readonly userId: string;
+  /**
+   * The department this caller is confined to, or null for a caller who is not
+   * narrowed (UNIVERSITY_ADMIN, and FACULTY, who is bounded elsewhere).
+   *
+   * INTERNAL_ASSESSMENT_ROLES admits both spellings of head of department, and
+   * a head holds WRITE authority here — generate and decide both alter marks.
+   * Without this a head generated and accepted internal marks for any course in
+   * the university simply by submitting another department's courseId.
+   *
+   * Resolved from the authenticated subject via Department.hodUserId. Nothing a
+   * client sends can influence it.
+   */
+  readonly departmentId: string | null;
   readonly ipAddress: string | null;
   readonly userAgent: string | null;
 }
@@ -123,8 +136,11 @@ export class InternalAssessmentService {
    */
   async getRules(
     tenantId: string,
-    query: InternalAssessmentRulesQuery
+    query: InternalAssessmentRulesQuery,
+    departmentId: string | null = null
   ): Promise<MarkingRulesDto> {
+    await this.assertCourseInDepartment(tenantId, query.courseId, departmentId);
+
     const scheme = await this.repository.findActiveSchemeComponents(
       tenantId,
       query.courseId,
@@ -195,6 +211,12 @@ export class InternalAssessmentService {
     context: InternalAssessmentContext,
     now: Date
   ): Promise<GenerateSuggestionsResultDto> {
+    // WRITE. A head of department generates suggestions for their OWN
+    // department's courses. The courseId is checked against Course.departmentId
+    // as resolved from the database BEFORE any work is done, so submitting
+    // another department's courseId changes nothing.
+    await this.assertCourseInDepartment(tenantId, input.courseId, context.departmentId);
+
     const scheme = await this.repository.findActiveSchemeComponents(
       tenantId,
       input.courseId,
@@ -409,8 +431,15 @@ export class InternalAssessmentService {
   async getForStudent(
     tenantId: string,
     studentId: string,
-    query: InternalAssessmentQuery
+    query: InternalAssessmentQuery,
+    departmentId: string | null = null
   ): Promise<readonly InternalAssessmentSuggestionDto[]> {
+    // The STUDENT is the authoritative link here, not the course: courseId is
+    // OPTIONAL on this query, and without it the read spans every course the
+    // student is registered for. Confining by an absent filter would confine
+    // nothing.
+    await this.assertStudentInDepartment(tenantId, studentId, departmentId);
+
     const rows = await this.repository.findSuggestions(tenantId, studentId, query);
 
     return rows.map((row) => toSuggestionDto(row as unknown as SuggestionRow));
@@ -445,6 +474,11 @@ export class InternalAssessmentService {
     context: InternalAssessmentContext,
     now: Date
   ): Promise<InternalAssessmentSuggestionDto> {
+    // WRITE — this is the call that accepts or overrides an internal mark.
+    // Checked FIRST so a head cannot even learn whether a suggestion exists for
+    // another department's course.
+    await this.assertCourseInDepartment(tenantId, input.courseId, context.departmentId);
+
     const existing = await this.repository.findSuggestion({
       tenantId,
       studentId,
@@ -547,11 +581,69 @@ export class InternalAssessmentService {
   async getAudit(
     tenantId: string,
     studentId: string,
-    query: InternalAssessmentQuery
+    query: InternalAssessmentQuery,
+    departmentId: string | null = null
   ): Promise<readonly InternalAssessmentAuditDto[]> {
+    await this.assertStudentInDepartment(tenantId, studentId, departmentId);
+
     const rows = await this.repository.findAudit(tenantId, studentId, query);
 
     return rows.map(toAuditDto);
+  }
+
+  /**
+   * Refuse a narrowed caller naming a course outside their department.
+   *
+   * `departmentId` is null for every caller who is not narrowed, and the check
+   * is then skipped entirely — an administrator pays no query.
+   *
+   * The refusal is a 404 rather than a 403, matching every other not-found on
+   * this surface: a head probing course ids must not be able to tell which of
+   * them exist in other departments.
+   */
+  private async assertCourseInDepartment(
+    tenantId: string,
+    courseId: string,
+    departmentId: string | null
+  ): Promise<void> {
+    if (departmentId === null) return;
+
+    const owned = await this.repository.courseBelongsToDepartment(
+      tenantId,
+      courseId,
+      departmentId
+    );
+
+    if (!owned) {
+      throw new AppError(
+        INTERNAL_ASSESSMENT_MESSAGE.NO_ACTIVE_SCHEME,
+        HTTP_STATUS.NOT_FOUND,
+        ERROR_CODE.NOT_FOUND
+      );
+    }
+  }
+
+  /** As above, for the reads whose courseId filter is optional. */
+  private async assertStudentInDepartment(
+    tenantId: string,
+    studentId: string,
+    departmentId: string | null
+  ): Promise<void> {
+    if (departmentId === null) return;
+
+    const owned = await this.repository.studentBelongsToDepartment(
+      tenantId,
+      studentId,
+      departmentId
+    );
+
+    if (!owned) {
+      throw new AppError(
+        INTERNAL_ASSESSMENT_MESSAGE.SUGGESTION_NOT_FOUND,
+        HTTP_STATUS.NOT_FOUND,
+        ERROR_CODE.NOT_FOUND
+      );
+    }
   }
 }
 

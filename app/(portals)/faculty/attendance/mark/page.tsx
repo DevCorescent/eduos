@@ -14,6 +14,9 @@ import {
   getSectionRoster,
   getSessionAttendance,
 } from "@/services/academics";
+import { getPortalSession } from "@/services/session";
+import { hasAnyRole } from "@/constants/roles";
+import { ATTENDANCE_CORRECTION_REQUEST_ROLES } from "@/lib/constants/attendanceCorrection";
 import { MarkAttendanceForm } from "@/app/(university)/attendance/mark/MarkAttendanceForm";
 
 export const metadata: Metadata = { title: "Mark Attendance" };
@@ -123,11 +126,22 @@ export default async function FacultyMarkAttendancePage({
 
   const students = rosterResult?.success ? rosterResult.data : [];
 
+  // The row id travels with the status: a correction request names the record
+  // it disputes, and the lecturer must never have to identify it by hand.
   const existingByStudent = new Map(
     (existingResult?.success ? existingResult.data : []).map((row) => [
       row.studentId,
-      row.status,
+      { id: row.id, status: row.status },
     ])
+  );
+
+  // Checked against the session rather than assumed from the portal: reaching
+  // the faculty portal means holding a FacultyMember record, which is not the
+  // same question as holding a role that may raise a correction.
+  const session = await getPortalSession();
+  const canRequestCorrection = hasAnyRole(
+    session?.roles ?? [],
+    ATTENDANCE_CORRECTION_REQUEST_ROLES
   );
 
   return (
@@ -186,9 +200,11 @@ export default async function FacultyMarkAttendancePage({
             // Student columns only, and Student carries no name.
             name: `${student.firstName} ${student.lastName}`.trim(),
             enrollmentNo: student.enrollmentNo,
-            status: existingByStudent.get(student.studentId) ?? "PRESENT",
+            status: existingByStudent.get(student.studentId)?.status ?? "PRESENT",
+            attendanceId: existingByStudent.get(student.studentId)?.id,
           }))}
           alreadyMarked={existingByStudent.size > 0}
+          canRequestCorrection={canRequestCorrection}
         />
       )}
     </>

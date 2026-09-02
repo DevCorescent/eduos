@@ -23,6 +23,7 @@ import {
   provisionTenantSchema,
   updateTenantSchema,
   INITIAL_TENANT_ROLE,
+  TENANT_SYSTEM_ROLES,
 } from "@/lib/validations/platform";
 
 /** A minimal valid university, as AKTU would be onboarded. */
@@ -45,6 +46,50 @@ describe("INITIAL_TENANT_ROLE", () => {
     // request. Asserting it here is what makes "provisioning cannot mint a
     // SUPER_ADMIN" a checked property rather than a claim in a comment.
     assert.equal(INITIAL_TENANT_ROLE, "UNIVERSITY_ADMIN");
+  });
+});
+
+describe("TENANT_SYSTEM_ROLES", () => {
+  it("contains every role name the guards actually recognise", () => {
+    // Authorization compares role NAMES against compiled constants, so a role
+    // absent from this list can only reach a tenant by being typed correctly by
+    // hand — a spelling test whose failure is silent.
+    for (const name of [
+      "UNIVERSITY_ADMIN",
+      "CONTROLLER_OF_EXAMINATION",
+      "DEPARTMENT_HOD",
+      "FACULTY",
+      "STUDENT",
+      "PARENT",
+    ]) {
+      assert.ok(
+        TENANT_SYSTEM_ROLES.includes(name),
+        `${name} must be provisioned; a fresh university cannot use it otherwise`
+      );
+    }
+  });
+
+  it("NEVER contains SUPER_ADMIN", () => {
+    // The property W1.2 established. SUPER_ADMIN was the tenant-writable string
+    // behind the W1.1 escalation, and POST /api/users/[id]/roles still refuses
+    // to grant a tenant role by that name. Provisioning must not create one.
+    assert.ok(
+      !TENANT_SYSTEM_ROLES.includes("SUPER_ADMIN"),
+      "provisioning must never create a tenant SUPER_ADMIN role"
+    );
+  });
+
+  it("includes the role the administrator is actually granted", () => {
+    // createTenantAdmin reads the granted role out of the map it just built.
+    // If the two ever disagreed the lookup would be undefined and every new
+    // administrator would be created with no role at all.
+    assert.ok(TENANT_SYSTEM_ROLES.includes(INITIAL_TENANT_ROLE));
+  });
+
+  it("lists each role exactly once", () => {
+    // Upserts make a duplicate harmless, but a repeated name means the list has
+    // been edited carelessly and is worth catching here.
+    assert.equal(new Set(TENANT_SYSTEM_ROLES).size, TENANT_SYSTEM_ROLES.length);
   });
 });
 

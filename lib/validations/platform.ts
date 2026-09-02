@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { ROLES } from "@/constants/roles";
 import { PLATFORM_ACCENTS } from "@/lib/constants/platformAccent";
 import { MODULE_KEYS } from "@/lib/constants/modules";
 import {
@@ -28,15 +29,76 @@ const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
 
 /**
+ * Pagination alone — the whole of what a platform collection accepted before
+ * the tenant directory gained its filters.
+ *
+ * Split out so that adding a filter to ONE collection cannot add it to another.
+ * listSubscriptionsQuerySchema aliases this rather than the tenant schema
+ * below: SubscriptionStatus has a PAST_DUE member that TenantStatus does not,
+ * so inheriting the tenant `status` filter would turn
+ * `/api/platform/subscriptions?status=PAST_DUE` from a silently-dropped param
+ * into a 400.
+ */
+const platformPaginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+});
+
+/**
+ * A filter value that may legitimately arrive empty.
+ *
+ * The same definition the setup collections use (see lib/validations/campus.ts
+ * and department.ts). The filter controls remove their key from the URL when
+ * reset to "All statuses"/"All types", but a hand-edited or bookmarked
+ * "?status=" must mean "no filter" rather than answer 400 to an obviously
+ * well-meant URL.
+ *
+ * Bounded at 200 characters: a search term longer than any institution name is
+ * a probe, not a query.
+ */
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
  * Query schema for GET /api/platform/tenants.
  *
  * Search params always arrive as strings, so page and limit are coerced before
  * the integer and range checks. Both are optional — an omitted param falls back
  * to its default rather than failing validation.
+ *
+ * WHAT ?q SEARCHES
+ *   name and slug. Tenant has no separate `code` column — the slug IS the
+ *   university code, which is why POST below validates it as a DNS label and
+ *   why the directory renders it under the institution's name. Those are the
+ *   two identifying columns, the same pair the setup collections search.
+ *   contactEmail is a contact detail rather than an identifier, so a search for
+ *   "aktu" must not surface an unrelated institution whose registrar happens to
+ *   use that word in an address.
+ *
+ * WHY status AND type ARE PREPROCESSED
+ *   The "All statuses" and "All types" options write an empty value. Treating
+ *   it as absent BEFORE the enum check is what stops "no filter" being reported
+ *   as an invalid TenantStatus — the same reason listProgrammesQuerySchema does
+ *   it for ProgrammeType.
  */
-export const listTenantsQuerySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+export const listTenantsQuerySchema = platformPaginationSchema.extend({
+  q: optionalFilter,
+  status: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.enum(TenantStatus).optional()
+    )
+    .optional(),
+  type: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.enum(InstitutionType).optional()
+    )
+    .optional(),
 });
 
 export type ListTenantsQuery = z.infer<typeof listTenantsQuerySchema>;
@@ -131,11 +193,13 @@ export type UpdateTenantInput = z.infer<typeof updateTenantSchema>;
 /**
  * Query schema for GET /api/platform/subscriptions.
  *
- * Pagination is identical to the tenant listing, so the same schema object is
- * reused rather than its page and limit rules being restated. Aliased so the
- * subscriptions route reads in its own terms at the call site.
+ * Pagination and nothing else, which is exactly what this endpoint has always
+ * accepted. It aliases platformPaginationSchema rather than the tenant listing:
+ * the two were the same object until the tenant directory gained ?q, ?status
+ * and ?type, and inheriting those would have quietly changed this endpoint's
+ * contract — see the note on platformPaginationSchema.
  */
-export const listSubscriptionsQuerySchema = listTenantsQuerySchema;
+export const listSubscriptionsQuerySchema = platformPaginationSchema;
 
 export type ListSubscriptionsQuery = z.infer<typeof listSubscriptionsQuerySchema>;
 
@@ -399,6 +463,50 @@ export type ChangePlatformPasswordInput = z.infer<typeof changePlatformPasswordS
  * it as a role a new university starts life holding.
  */
 export const INITIAL_TENANT_ROLE = "UNIVERSITY_ADMIN";
+
+/**
+ * The system roles every provisioned university starts with.
+ *
+ * WHY THESE EXIST AT PROVISIONING RATHER THAN BEING TYPED BY AN ADMINISTRATOR
+ *   Authorization in this project is by role NAME: requireRole compares the
+ *   names a user holds against string constants compiled into lib/constants/*.
+ *   A role therefore confers nothing unless its name matches one of those
+ *   constants EXACTLY, which makes "create the role yourself" a spelling test
+ *   with a silent failure — a role named "Dept HOD" or "COE" is accepted,
+ *   looks identical in the roles table, and grants nothing.
+ *
+ *   The codebase already treats these as built-in rather than authored:
+ *   prisma/seed.ts creates them with isSystem true, createTenantAdmin marks the
+ *   administrator role the same way "so a tenant admin screen shows it as
+ *   built-in rather than as something they authored", and POST /api/roles
+ *   FORCES isSystem false — an administrator cannot create a system role even
+ *   if they spell one correctly. Provisioning only ever created the one role it
+ *   needed at the time; the rest were reachable only through the demo seed.
+ *
+ * WHY SUPER_ADMIN IS ABSENT
+ *   Same reason it is absent from INITIAL_TENANT_ROLE above, and the reason is
+ *   load-bearing rather than tidiness: it was the tenant-writable string behind
+ *   the W1.1 escalation. POST /api/users/[id]/roles still refuses to grant a
+ *   tenant role by that name. Provisioning must not create one either.
+ *
+ * WHY CAMPUS_ADMIN AND THE LEGACY `HOD` SPELLING ARE ABSENT
+ *   Neither is in prisma/seed.ts, which is the existing statement of the
+ *   intended set. `HOD` is the older spelling of DEPARTMENT_HOD — constants/roles
+ *   calls them the same office — and creating both would give one office two
+ *   rows in every new university. Adding either is a product decision, not a
+ *   provisioning fix.
+ *
+ * Derived from ROLES so this list cannot drift from the vocabulary the guards
+ * actually compare against.
+ */
+export const TENANT_SYSTEM_ROLES: readonly string[] = [
+  ROLES.UNIVERSITY_ADMIN,
+  ROLES.CONTROLLER_OF_EXAMINATION,
+  ROLES.DEPARTMENT_HOD,
+  ROLES.FACULTY,
+  ROLES.STUDENT,
+  ROLES.PARENT,
+];
 
 /**
  * The initial University Admin, as supplied when provisioning.

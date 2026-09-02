@@ -222,6 +222,32 @@ export class StudentComponentScoreRepository {
    *
    * COMPLEXITY : O(log n) on AssessmentEvent's @@unique([tenantId, id]).
    */
+  /**
+   * Does this department own the course a sitting belongs to?
+   *
+   * The predicate behind a head of department's marks-sheet read. It is stated
+   * here as well as in assessmentEvent.repository rather than shared, following
+   * this project's existing convention that a reference lookup lives beside the
+   * module that needs it — the same reason Course, Semester and Section have no
+   * repository of their own anywhere in the codebase.
+   *
+   * tenantId is in the predicate as well as departmentId: a department id is
+   * opaque, and pairing the two means a wrong one cannot reach another
+   * institution's courses.
+   */
+  async courseBelongsToDepartment(
+    tenantId: string,
+    courseId: string,
+    departmentId: string
+  ): Promise<boolean> {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, departmentId },
+      select: { id: true },
+    });
+
+    return course !== null;
+  }
+
   async findEvent(
     tenantId: string,
     assessmentEventId: string,
@@ -352,6 +378,7 @@ export type StudentComponentScoreRepositoryPort = Pick<
   | "createMany"
   | "updateByNaturalKey"
   | "findEvent"
+  | "courseBelongsToDepartment"
   | "findGoverningScheme"
   | "findRegistrations"
   | "findFacultyByUserId"

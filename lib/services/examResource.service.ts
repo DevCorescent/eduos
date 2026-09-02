@@ -77,13 +77,24 @@ import type {
  *
  * `scope` carries the AUTHORITY the guard established rather than raw roles —
  * the same contract Phase 16's ResultAccess and Phase 23's FacultyAccessContext
- * use. ANY reaches every resource in the tenant; OWN is confined to the
- * caller's own uploads.
+ * use. ANY reaches every resource in the tenant; DEPARTMENT writes only within
+ * one department; OWN is confined to the caller's own uploads.
+ *
+ * DEPARTMENT exists because EXAM_RESOURCE_ADMIN_ROLES admits both spellings of
+ * head of department alongside UNIVERSITY_ADMIN, and this guard handed all
+ * three "ANY" — which this file's own header describes as publishing,
+ * archiving and deleting ANYTHING in the tenant. A head could therefore publish
+ * another department's answer key. `departmentId` is resolved from the
+ * authenticated subject via Department.hodUserId and is null for every caller
+ * who is not narrowed; nothing a client sends can influence it.
+ *
+ * READS are deliberately NOT narrowed by it — see requireReadable.
  */
 export interface ExamResourceAccess {
   readonly tenantId: string;
   readonly userId: string;
-  readonly scope: "ANY" | "OWN";
+  readonly scope: "ANY" | "DEPARTMENT" | "OWN";
+  readonly departmentId: string | null;
   readonly ipAddress: string | null;
   readonly userAgent: string | null;
 }
@@ -114,6 +125,26 @@ export class ExamResourceService {
     now: Date
   ): Promise<ExamResourceDto> {
     const course = await this.repository.findCourse(access.tenantId, input.courseId);
+
+    // A head of department uploads against their OWN department's courses.
+    // The check is on the course resolved from the database, not on anything
+    // the caller sent: submitting another department's courseId is refused
+    // here, and the departmentId written to the row is denormalised from this
+    // same record below, so the two can never disagree.
+    //
+    // Refused as COURSE_NOT_FOUND rather than as a distinct error, so probing
+    // course ids discloses nothing about other departments' catalogues.
+    if (
+      course &&
+      access.scope === "DEPARTMENT" &&
+      (access.departmentId === null || course.departmentId !== access.departmentId)
+    ) {
+      throw new AppError(
+        EXAM_RESOURCE_MESSAGE.COURSE_NOT_FOUND,
+        HTTP_STATUS.NOT_FOUND,
+        ERROR_CODE.NOT_FOUND
+      );
+    }
 
     if (!course) {
       throw new AppError(
@@ -508,7 +539,24 @@ export class ExamResourceService {
     return row as unknown as StudentExamResourceRow;
   }
 
-  /** Any staff caller may READ any resource in their tenant. */
+  /**
+   * Any staff caller may READ any resource in their tenant.
+   *
+   * DELIBERATELY NOT department-narrowed, unlike requireWritable.
+   *
+   * This module's stated design is that reads are open to every staff role,
+   * and EXAM_RESOURCE_READ_ROLES admits FACULTY on exactly those terms. A head
+   * of department is senior to a lecturer, so narrowing the head alone would
+   * leave them able to see LESS of the repository than the people they lead —
+   * an inversion, not a tightening, and it would not reduce exposure by one row
+   * while FACULTY still reads everything.
+   *
+   * Narrowing reads here is therefore a PRODUCT decision about the repository
+   * as a whole, covering FACULTY too, and is recorded as an open question
+   * rather than made silently. What matters for authorisation is that a head
+   * cannot CHANGE another department's resource, and requireWritable enforces
+   * that.
+   */
   private async requireReadable(
     access: ExamResourceAccess,
     id: string
@@ -532,7 +580,26 @@ export class ExamResourceService {
   ): Promise<ExamResourceRow & { uploadedById: string }> {
     const row = (await this.requireReadable(access, id)) as ExamResourceRow & {
       uploadedById: string;
+      departmentId: string | null;
     };
+
+    // A head of department writes within their own department and nowhere
+    // else. This covers update, publish, archive and delete in one place
+    // because all four come through here — the reason the chokepoint exists.
+    //
+    // A resource with NO departmentId is refused rather than admitted. The
+    // column is nullable and denormalised from the course at creation, so an
+    // absent value means unowned, and "unowned" must not read as "anyone's".
+    if (access.scope === "DEPARTMENT") {
+      if (
+        access.departmentId === null ||
+        row.departmentId !== access.departmentId
+      ) {
+        throw this.notFound();
+      }
+
+      return row;
+    }
 
     if (access.scope !== "ANY" && row.uploadedById !== access.userId) {
       throw this.notFound();

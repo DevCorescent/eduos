@@ -19,13 +19,56 @@ import { paginationQuerySchema } from "./pagination";
 // ─────────────────────────────────────────────
 
 /**
+ * A filter value that may legitimately arrive empty.
+ *
+ * The same definition the setup collections use (see campus.ts and
+ * department.ts). The filter controls remove their key from the URL when reset
+ * to "All programmes"/"All batches", but a hand-edited or bookmarked
+ * "?batchId=" must mean "no filter" rather than answer 400.
+ *
+ * NO FORMAT ASSERTION on the ids: they are opaque foreign keys, and an id
+ * naming nothing — or naming another tenant's row — simply matches no students,
+ * because the tenant predicate is ANDed alongside it in the route.
+ */
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
  * Query schema for GET /api/students.
  *
- * Pagination is the shared contract. No search or filter parameter is defined:
- * the project implements none on any existing collection endpoint, so adding
- * one here would introduce a capability the rest of the API does not have.
+ * Pagination is the shared contract, extended with EXACTLY the four parameters
+ * the Students screen already sends — ?q, ?status, ?programmeId and ?batchId.
+ * No fifth filter is added: sectionId, specialisationId and currentSemester are
+ * columns on Student, but no control offers them and inventing one here would
+ * be a capability nothing asked for.
+ *
+ * WHAT ?q SEARCHES
+ *   The screen's own placeholder is "Search by name or enrolment number", so it
+ *   is enrollmentNo plus the related User's firstName, lastName and email. A
+ *   student's name is not a column on Student — it lives on the User the record
+ *   points at — which is why the route reaches through the relation rather than
+ *   matching a local column.
+ *
+ * WHY status IS PREPROCESSED
+ *   "All statuses" writes an empty value. Treating it as absent BEFORE the enum
+ *   check is what stops "no filter" being reported as an invalid StudentStatus
+ *   — the same reason listProgrammesQuerySchema does it for ProgrammeType.
  */
-export const listStudentsQuerySchema = paginationQuerySchema;
+export const listStudentsQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  programmeId: optionalFilter,
+  batchId: optionalFilter,
+  status: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.nativeEnum(StudentStatus).optional()
+    )
+    .optional(),
+});
 
 export type ListStudentsQuery = z.infer<typeof listStudentsQuerySchema>;
 

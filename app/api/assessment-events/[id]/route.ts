@@ -25,6 +25,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assessmentEventController } from "@/lib/controllers/assessmentEvent.controller";
 import { requireRole } from "@/lib/middleware/requireRole";
+import { resolveDepartmentId } from "@/lib/auth/departmentScope";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import {
@@ -59,6 +60,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const guard = await requireRole(...ASSESSMENT_EVENT_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
+    // A head of department reads their own department's sittings. See the
+    // service for why a sitting outside it answers 404 and not 403.
+    const scope = await resolveDepartmentId(guard.session);
+    if (!scope.ok) return scope.response;
+
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
@@ -73,7 +79,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const event = await assessmentEventController.getById(
       tenantGuard.tenant.id,
-      parsedParam.data.id
+      parsedParam.data.id,
+      scope.departmentId
     );
 
     return NextResponse.json(ok(event));

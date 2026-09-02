@@ -44,14 +44,19 @@ export class AssessmentEventController {
   /** GET /api/assessment-events */
   async list(
     tenantId: string,
-    query: ListAssessmentEventsQuery
+    query: ListAssessmentEventsQuery,
+    departmentId: string | null = null
   ): Promise<AssessmentEventListDTO> {
-    return assessmentEventService.list(tenantId, query);
+    return assessmentEventService.list(tenantId, query, departmentId);
   }
 
   /** GET /api/assessment-events/[id] */
-  async getById(tenantId: string, id: string): Promise<AssessmentEventDTO> {
-    return assessmentEventService.getById(tenantId, id);
+  async getById(
+    tenantId: string,
+    id: string,
+    departmentId: string | null = null
+  ): Promise<AssessmentEventDTO> {
+    return assessmentEventService.getById(tenantId, id, departmentId);
   }
 
   /** POST /api/assessment-events */

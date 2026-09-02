@@ -507,6 +507,66 @@ export class InternalAssessmentRepository {
    *
    * COST: one statement.
    */
+  /**
+   * Does this department own the course a suggestion is against?
+   *
+   * The authoritative link for every operation that names a course:
+   * AssessmentEvent-style work is department-owned through Course.departmentId,
+   * which is a real column on a real relation rather than anything the caller
+   * supplies.
+   *
+   * tenantId is in the predicate as well: a department id is opaque, and
+   * pairing the two means a wrong one cannot reach another institution.
+   */
+  async courseBelongsToDepartment(
+    tenantId: string,
+    courseId: string,
+    departmentId: string
+  ): Promise<boolean> {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, departmentId },
+      select: { id: true },
+    });
+
+    return course !== null;
+  }
+
+  /**
+   * Does this department own the student a suggestion belongs to?
+   *
+   * Used where courseId is OPTIONAL — the per-student reads, which without a
+   * course would otherwise return every suggestion a student has in any
+   * department's course. The path is Student -> Programme -> Department.
+   *
+   * TWO reads rather than a join because Student.programmeId is a plain scalar
+   * with no Prisma relation to Programme in this schema, so
+   * `where: { programme: { departmentId } }` does not typecheck and cannot be
+   * written. Both are single indexed lookups.
+   *
+   * A student with NO programme is NOT owned by any department and is refused.
+   */
+  async studentBelongsToDepartment(
+    tenantId: string,
+    studentId: string,
+    departmentId: string
+  ): Promise<boolean> {
+    const student = await prisma.student.findFirst({
+      where: { id: studentId, tenantId },
+      select: { programmeId: true },
+    });
+
+    if (!student?.programmeId) {
+      return false;
+    }
+
+    const programme = await prisma.programme.findFirst({
+      where: { id: student.programmeId, tenantId, departmentId },
+      select: { id: true },
+    });
+
+    return programme !== null;
+  }
+
   async findAudit(
     tenantId: string,
     studentId: string,
@@ -590,5 +650,7 @@ export type InternalAssessmentRepositoryPort = Pick<
   | "findSuggestion"
   | "recordDecision"
   | "findAudit"
+  | "courseBelongsToDepartment"
+  | "studentBelongsToDepartment"
   | "transaction"
 >;

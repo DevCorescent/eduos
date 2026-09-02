@@ -11,6 +11,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
+import {
+  isHeadUniqueViolation,
+  resolveHeadAssignment,
+} from "@/lib/services/departmentHead";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import {
@@ -218,9 +222,34 @@ export async function PATCH(
     // Scoped by tenantId as well as id, so the write cannot reach another
     // tenant's row even if the id were guessed. Single statement, so the update
     // is atomic on its own.
+    // The head of department, resolved tenant-scoped and checked against the
+    // @unique index before the write, so the admin is told which department
+    // already claims the user rather than receiving a bare conflict.
+    const { hodUserId: rawHead, ...rest } = input;
+    let head: string | null | undefined;
+
+    if (rawHead !== undefined) {
+      const assignment = await resolveHeadAssignment(
+        tenant.id,
+        rawHead,
+        existing.id
+      );
+
+      if (!assignment.ok) {
+        return NextResponse.json(fail(assignment.error, assignment.code), {
+          status: assignment.code === "NOT_FOUND" ? 404 : 409,
+        });
+      }
+
+      head = assignment.hodUserId;
+    }
+
     const department = await prisma.department.update({
       where: { id: departmentId, tenantId: tenant.id },
-      data: input,
+      data: {
+        ...rest,
+        ...(head === undefined ? {} : { hodUserId: head }),
+      },
     });
 
     return NextResponse.json(ok(department, "Department updated"));
@@ -228,6 +257,14 @@ export async function PATCH(
     if (err instanceof Prisma.PrismaClientKnownRequestError) {
       // A concurrent request took the code between the check and the update.
       if (err.code === UNIQUE_VIOLATION) {
+        // Both the code index and the head index are P2002 on this table.
+        if (isHeadUniqueViolation(err.meta)) {
+          return NextResponse.json(
+            fail("That user already heads another department", "CONFLICT"),
+            { status: 409 }
+          );
+        }
+
         return NextResponse.json(
           fail("Department code already in use", "CONFLICT"),
           { status: 409 }

@@ -176,10 +176,32 @@ export class StudentComponentScoreService {
    *              separately would be three further traversals of the same
    *              array for figures that fall out of the same visit.
    */
-  async getMarksSheet(tenantId: string, assessmentEventId: string): Promise<MarksSheetDTO> {
+  async getMarksSheet(
+    tenantId: string,
+    assessmentEventId: string,
+    departmentId: string | null = null
+  ): Promise<MarksSheetDTO> {
     const event = await this.scores.findEvent(tenantId, assessmentEventId);
 
     if (event === null) {
+      throw eventNotFound();
+    }
+
+    // MARK_READ_ROLES admits DEPARTMENT_HOD, which without this narrowing read
+    // every mark in the university. `departmentId` is null for callers who are
+    // not narrowed and is resolved from the authenticated subject, so nothing
+    // the caller can edit reaches it.
+    //
+    // The refusal is the same not-found an unknown id gets: a sitting outside
+    // the department must not be confirmed to exist by the shape of the error.
+    if (
+      departmentId !== null &&
+      !(await this.scores.courseBelongsToDepartment(
+        tenantId,
+        event.courseId,
+        departmentId
+      ))
+    ) {
       throw eventNotFound();
     }
 

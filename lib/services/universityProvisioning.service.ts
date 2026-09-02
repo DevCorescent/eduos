@@ -30,7 +30,16 @@
 import { prisma } from "@/lib/db/prisma";
 import { hashPassword } from "@/lib/auth/password";
 import { generateTemporaryPassword } from "@/lib/services/platformUser.service";
-import { INITIAL_TENANT_ROLE } from "@/lib/validations/platform";
+import {
+  INITIAL_TENANT_ROLE,
+  TENANT_SYSTEM_ROLES,
+} from "@/lib/validations/platform";
+import {
+  DEFAULT_ID_FORMAT,
+  DEFAULT_ID_PADDING,
+  DEFAULT_ID_RESET,
+  DEFAULT_ID_SEQUENCES,
+} from "@/lib/constants/identifierDefaults";
 import type { ProvisionAdminInput, ProvisionTenantInput } from "@/lib/validations/platform";
 import { Prisma } from "@/app/generated/prisma/client";
 import { provisionDefaultWebsite } from "./cmsProvisioning";
@@ -116,12 +125,83 @@ async function createTenantAdmin(
   tenantId: string,
   input: ProvisionAdminInput
 ): Promise<{ admin: TenantAdminRecord; temporaryPassword: string }> {
-  const role = await tx.role.upsert({
-    where: { tenantId_name: { tenantId, name: INITIAL_TENANT_ROLE } },
-    update: {},
-    create: { tenantId, name: INITIAL_TENANT_ROLE, isSystem: true },
-    select: { id: true },
-  });
+  // Every system role the university needs, not only the one this
+  // administrator is about to be granted.
+  //
+  // Authorization compares role NAMES against constants compiled into
+  // lib/constants/*, so a role confers nothing unless it is spelled exactly.
+  // Leaving DEPARTMENT_HOD, CONTROLLER_OF_EXAMINATION, FACULTY, STUDENT and
+  // PARENT to be typed by hand made a fresh university a spelling test whose
+  // failure is silent: the role is created, looks right in the roles table, and
+  // grants nothing. They were previously reachable only through the demo seed.
+  //
+  // Upserted, so this is safe on a tenant that already has some of them — which
+  // is also what backfills a university provisioned before this existed, the
+  // next time an administrator is added to it.
+  //
+  // isSystem: true matches prisma/seed.ts and marks them built-in rather than
+  // authored; POST /api/roles forces isSystem false, so an administrator could
+  // not have produced these rows themselves.
+  //
+  // Sequential rather than concurrent: these are upserts on one unique index
+  // inside a transaction, and issuing them together invites deadlocks for no
+  // measurable gain on a list this size.
+  const roleIds = new Map<string, string>();
+
+  for (const name of TENANT_SYSTEM_ROLES) {
+    const created = await tx.role.upsert({
+      where: { tenantId_name: { tenantId, name } },
+      update: {},
+      create: { tenantId, name, isSystem: true },
+      select: { id: true },
+    });
+
+    roleIds.set(name, created.id);
+  }
+
+  // The administrator is granted INITIAL_TENANT_ROLE and nothing else. Creating
+  // the other roles is not granting them: a new university starts with one
+  // account holding one role, and the rest are assigned deliberately.
+  const role = { id: roleIds.get(INITIAL_TENANT_ROLE)! };
+
+  // Every identifier counter the application issues from.
+  //
+  // generateIdentifier REFUSES to issue without a configured sequence, and
+  // nothing created these rows — so on a fresh tenant Admissions could not
+  // create an application and Certificates could not issue one, because both
+  // generate the number and neither has a field to type it into.
+  //
+  // `update: {}` is load-bearing: a re-run must not touch a sequence an
+  // administrator has since edited through /setup/identifiers. In particular it
+  // must never reset lastSequence, which would reissue numbers already printed
+  // on certificates. The upsert therefore CREATES what is missing and leaves
+  // everything else exactly as configured — which is also what makes this
+  // backfill an existing university the next time an administrator is added.
+  for (const sequence of DEFAULT_ID_SEQUENCES) {
+    await tx.idSequence.upsert({
+      where: {
+        tenantId_entityType_scopeKey: {
+          tenantId,
+          entityType: sequence.entityType,
+          // "" is the unscoped counter — one series per entity for the whole
+          // university. Per-campus or per-programme series are configured in
+          // the UI, and carry their own scopeKey.
+          scopeKey: "",
+        },
+      },
+      update: {},
+      create: {
+        tenantId,
+        entityType: sequence.entityType,
+        scopeKey: "",
+        prefix: sequence.prefix,
+        format: DEFAULT_ID_FORMAT,
+        padding: DEFAULT_ID_PADDING,
+        resetCycle: DEFAULT_ID_RESET,
+        isActive: true,
+      },
+    });
+  }
 
   const temporaryPassword = generateTemporaryPassword();
   const passwordHash = await hashPassword(temporaryPassword);

@@ -98,6 +98,8 @@ export interface DepartmentInput {
   name: string;
   code: string;
   hodName?: string;
+  /** The User who heads the department. "" clears the assignment. */
+  hodUserId?: string;
   email?: string;
 }
 

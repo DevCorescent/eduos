@@ -49,6 +49,7 @@ const TENANT_ID = "tenant_1";
 const EVENT_ID = "event_1";
 const COMPONENT_ID = "component_1";
 const COURSE_ID = "course_1";
+const DEPARTMENT_ID = "dept_cse";
 const SEMESTER_ID = "semester_1";
 const SECTION_ID = "section_1";
 const SCHEME_ID = "scheme_1";
@@ -150,6 +151,15 @@ class FakeScoreRepository implements StudentComponentScoreRepositoryPort {
   transactionCount = 0;
   registrationQueries = 0;
   existingQueries = 0;
+
+  /** Whether the head's department owns the course. Set per test. */
+  departmentOwnsCourse = false;
+  departmentChecks = 0;
+
+  async courseBelongsToDepartment(): Promise<boolean> {
+    this.departmentChecks += 1;
+    return this.departmentOwnsCourse;
+  }
 
   async findByEvent(): Promise<StudentComponentScoreRecord[]> {
     return this.sheet;
@@ -825,5 +835,37 @@ describe("StudentComponentScoreService.getMarksSheet", () => {
     scores.event = null;
 
     await rejectsWithStatus(service.getMarksSheet(TENANT_ID, EVENT_ID), HTTP_STATUS.NOT_FOUND);
+  });
+
+  // --- Department confinement ---------------------------------------------
+  //
+  // MARK_READ_ROLES admits DEPARTMENT_HOD. This is the sheet of every student's
+  // marks for a sitting; unnarrowed, a head read every one in the university.
+
+  it("serves the sheet for a sitting in the caller's department", async () => {
+    const { service, scores } = build();
+    scores.departmentOwnsCourse = true;
+
+    const sheet = await service.getMarksSheet(TENANT_ID, EVENT_ID, DEPARTMENT_ID);
+
+    assert.equal(sheet.assessmentEventId, EVENT_ID);
+  });
+
+  it("raises 404 — not 403 — for a sitting outside the caller's department", async () => {
+    const { service, scores } = build();
+    scores.departmentOwnsCourse = false;
+
+    await rejectsWithStatus(
+      service.getMarksSheet(TENANT_ID, EVENT_ID, DEPARTMENT_ID),
+      HTTP_STATUS.NOT_FOUND
+    );
+  });
+
+  it("does not ask about the department for an unnarrowed caller", async () => {
+    const { service, scores } = build();
+
+    await service.getMarksSheet(TENANT_ID, EVENT_ID);
+
+    assert.equal(scores.departmentChecks, 0);
   });
 });

@@ -154,10 +154,17 @@ export class CourseRegistrationRepository {
     tenantId: string,
     filter: CourseRegistrationFilter,
     skip: number,
-    take: number
+    take: number,
+    departmentId: string | null = null
   ): Promise<[CourseRegistrationRecord[], number]> {
     const where: Prisma.CourseRegistrationWhereInput = {
       tenantId,
+      // AUTHORIZATION, not a filter. Resolved from the authenticated subject by
+      // resolveDepartmentScope; null for every caller who is not narrowed. It
+      // sits on `course`, a DIFFERENT key from the caller's own `courseId`
+      // filter below, so the two INTERSECT rather than one overwriting the
+      // other — a head naming another department's course matches nothing.
+      ...(departmentId === null ? {} : { course: { departmentId } }),
       ...(filter.studentId === undefined ? {} : { studentId: filter.studentId }),
       ...(filter.courseId === undefined ? {} : { courseId: filter.courseId }),
       ...(filter.semesterId === undefined ? {} : { semesterId: filter.semesterId }),
@@ -185,6 +192,28 @@ export class CourseRegistrationRepository {
    *
    * COMPLEXITY : O(log n) on the primary key with a tenant predicate.
    */
+  /**
+   * Does this department own the course an enrolment is against?
+   *
+   * Separate from findById because findById is also the read half of the write
+   * paths, which pass a transaction client positionally — adding an
+   * authorization parameter there would mean reordering that signature. Stated
+   * here beside the module that needs it, as this project already does for
+   * Course, Semester and Section lookups generally.
+   */
+  async courseBelongsToDepartment(
+    tenantId: string,
+    courseId: string,
+    departmentId: string
+  ): Promise<boolean> {
+    const course = await prisma.course.findFirst({
+      where: { id: courseId, tenantId, departmentId },
+      select: { id: true },
+    });
+
+    return course !== null;
+  }
+
   async findById(
     tenantId: string,
     id: string,
@@ -438,6 +467,7 @@ export type CourseRegistrationRepositoryPort = Pick<
   CourseRegistrationRepository,
   | "listWithCount"
   | "findById"
+  | "courseBelongsToDepartment"
   | "findAttempts"
   | "findRoster"
   | "create"
