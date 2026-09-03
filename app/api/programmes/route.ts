@@ -31,7 +31,10 @@ const UNIQUE_VIOLATION = "P2002";
 // GET
 // ACCESS     : UNIVERSITY_ADMIN
 // VALIDATION : listProgrammesQuerySchema — ?page (default 1) and ?limit
-//              (default 20, max 100), from the shared pagination contract.
+//              (default 20, max 100) from the shared pagination contract, plus
+//              the toolbar's filters: ?q over name and code, ?departmentId,
+//              ?type, and ?campusId / ?schoolId applied through the department
+//              relation.
 // FLOW       : Authorise → resolve tenant → read one page of that tenant's
 //              programmes alongside the total in a single transaction.
 //              Both queries are filtered by the tenant id that requireTenant
@@ -67,7 +70,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit, q, departmentId, type } = parsed.data;
+    const { page, limit, q, departmentId, type, campusId, schoolId } = parsed.data;
 
     // The tenant predicate is never optional and never overridable: it comes
     // from requireTenant, and every filter is composed INSIDE it.
@@ -97,6 +100,28 @@ export async function GET(request: NextRequest) {
         : {}),
       ...(departmentId ? { departmentId } : {}),
       ...(type ? { type } : {}),
+      // Campus and school are NOT Programme columns. A programme belongs to a
+      // department, and the department is what belongs to a campus and
+      // (optionally) a school, so the filter is expressed through that relation
+      // rather than denormalised onto Programme.
+      //
+      // `department: { ... }` is ANDed with the tenant predicate above and with
+      // departmentId beside it, so selecting a campus AND a department that sit
+      // in different campuses correctly returns nothing rather than widening.
+      //
+      // The relation filter needs no tenant predicate of its own: a programme
+      // is already confined to this tenant by tenantId, and a department id
+      // from another institution therefore matches no row here either.
+      ...(campusId || schoolId
+        ? {
+            department: {
+              ...(campusId ? { campusId } : {}),
+              // Department.schoolId is nullable, so naming a school correctly
+              // excludes departments that sit directly under a campus.
+              ...(schoolId ? { schoolId } : {}),
+            },
+          }
+        : {}),
     };
 
 

@@ -97,13 +97,33 @@ describe("listProgrammesQuerySchema", () => {
     assert.equal("universityId" in parsed, false);
   });
 
-  it("DROPS campusId and schoolId, which Programme has no column for", () => {
-    // Programme carries departmentId alone; campus and school are reached only
-    // through it. Asserting the drop keeps the schema and the page's actual
-    // controls telling the same story.
+  it("ACCEPTS campusId and schoolId, reached through the department relation", () => {
+    // This assertion used to require the opposite, on the reasoning that
+    // Programme has no campus or school column. The column is not the
+    // question: Department carries campusId and schoolId, and a programme
+    // belongs to a department, so "which campus is this programme on" is a
+    // real and answerable question. Dropping the keys is what made the
+    // tester's "All Campuses" and "All Schools" controls inert (#21) — the
+    // request arrived indistinguishable from an unfiltered one.
+    //
+    // The route applies them through `department: { ... }`, ANDed inside the
+    // tenant predicate; see lib/api-programme-filters.test.ts.
     const parsed = listProgrammesQuerySchema.parse({ campusId: "c1", schoolId: "s1" });
-    assert.equal("campusId" in parsed, false);
-    assert.equal("schoolId" in parsed, false);
+    assert.equal(parsed.campusId, "c1");
+    assert.equal(parsed.schoolId, "s1");
+  });
+
+  it("still refuses a tenant or university named by the caller", () => {
+    // The keys above are filters. These two are scope, and scope is never
+    // accepted from the client — widening the schema must not have blurred
+    // that line.
+    const parsed = listProgrammesQuerySchema.parse({
+      campusId: "c1",
+      tenantId: "other-tenant",
+    });
+
+    assert.equal(parsed.campusId, "c1");
+    assert.equal("tenantId" in parsed, false);
   });
 
   it("still coerces page and limit from strings", () => {

@@ -64,6 +64,19 @@ const optionalFilter = z
 export const listProgrammesQuerySchema = paginationQuerySchema.extend({
   q: optionalFilter,
   departmentId: optionalFilter,
+  /**
+   * Campus and school, which a Programme does NOT carry as columns.
+   *
+   * The tester asked for "All Campuses" and "All Schools" on this page and the
+   * controls did nothing, because the schema accepted neither and Zod dropped
+   * them before the handler could see them. They are accepted here and applied
+   * through the relation the model actually has: Programme -> Department, where
+   * Department carries campusId (required) and schoolId (nullable). Filtering
+   * through the relation is what makes these real filters rather than labels;
+   * see the where clause in app/api/programmes/route.ts.
+   */
+  campusId: optionalFilter,
+  schoolId: optionalFilter,
   type: z
     .preprocess(
       // Reset writes an empty value; treat it as "no filter" BEFORE the enum
