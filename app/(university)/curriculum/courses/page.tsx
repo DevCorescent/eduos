@@ -24,15 +24,17 @@ import {
 import { COURSE_TYPE_LABELS } from "@/constants/labels";
 import { COURSE_TYPE_VALUES, type Course } from "@/types";
 
-/**
- * The backend query schema for this collection accepts page and limit only —
- * every other key is dropped by Zod before the handler sees it. The controls
- * stay visible and disabled rather than being deleted, so the screen keeps its
- * shape for when the parameters land.
+/*
+ * The search box and both filters were rendered DISABLED here, because
+ * courseQuerySchema accepted page and limit only and Zod dropped ?q,
+ * ?departmentId and ?type before the handler saw them — tester issue #30, which
+ * read to the tester as "search and filters are not working".
+ *
+ * GET /api/courses now accepts all three, so the `unsupported` props are gone
+ * and nothing else on this page changed: it already read the three parameters
+ * from searchParams, already passed them to listCourses, and already carried
+ * them through pagination.
  */
-const UNSUPPORTED_SEARCH =
-  "Search will work once the backend adds a ?q parameter to this endpoint.";
-const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = { title: "Courses" };
 
@@ -227,13 +229,11 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
       {header}
 
       <ListToolbar
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name or code…" />}
+        search={<ListSearch placeholder="Search by name or code…" />}
         filters={
           <>
             <ListFilter
               paramKey="departmentId"
-              unsupported={UNSUPPORTED_FILTER}
               label="Department"
               hideLabel
               allLabel="All departments"
@@ -241,7 +241,6 @@ export default async function CoursesPage({ searchParams }: { searchParams: Sear
             />
             <ListFilter
               paramKey="type"
-              unsupported={UNSUPPORTED_FILTER}
               label="Type"
               hideLabel
               allLabel="All types"

@@ -54,11 +54,14 @@ const COURSE_SELECT = {
 // GET
 // ACCESS     : UNIVERSITY_ADMIN
 // VALIDATION : courseQuerySchema — ?page (default 1) and ?limit (default 20,
-//              max 100), from the shared pagination contract. No search or
-//              filter parameter is defined: the project implements none on any
-//              existing collection endpoint. In particular there is no
-//              ?isActive filter, so inactive courses list alongside active ones
-//              and the client reads the flag.
+//              max 100) from the shared pagination contract, plus the three
+//              parameters this screen's controls already send: ?q over name and
+//              code, ?departmentId and ?type. Each is optional, and an empty
+//              value means "no filter" — which is what "All departments" and
+//              "All types" write. There is still no ?isActive filter: the
+//              column exists but the screen offers no control for it, so
+//              inactive courses list alongside active ones and the client reads
+//              the flag.
 // FLOW       : Authorise → resolve tenant → read one page of that tenant's
 //              courses alongside the total in a single transaction.
 //              Both queries are filtered by the tenant id that requireTenant
@@ -100,19 +103,60 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q, departmentId, type } = parsed.data;
 
     // Derived from the authenticated identity, never from the request.
     const scope = await resolveDepartmentScope(guard.session);
     if (!scope.ok) return scope.response;
 
+    // WHY THE TERM IS SPLIT ON WHITESPACE
+    //   Every term must match SOMEWHERE, in any order, rather than the whole
+    //   string having to appear in one column. A single term behaves exactly as
+    //   a plain OR would. This is the same rule the students, faculty and
+    //   employees listings apply, so "search" means one thing across the
+    //   product rather than something slightly different per screen.
+    //
+    // `mode: "insensitive"` makes "CS101" and "cs101" one search; `contains`
+    // makes "Program" match "Introduction to Programming" rather than only a
+    // name equal to it.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    // EVERYTHING IS COMPOSED IN ONE `AND`, AND THAT IS THE SECURITY PROPERTY.
+    //   The head's restriction and a caller-supplied ?departmentId constrain the
+    //   SAME column. Spread side by side as object keys, the second would
+    //   REPLACE the first — a head passing another department's id would read a
+    //   department that is not theirs, which is privilege escalation through a
+    //   query string.
+    //
+    //   As separate entries in an AND array both must hold. A head filtering
+    //   inside their own department gets what they asked for; a head naming any
+    //   other department gets an empty list, because no course can carry two
+    //   different departmentIds at once. Narrowed, never widened.
+    //
     // Course.departmentId is nullable. `departmentId: <id>` does not match
     // NULL, so a course belonging to no department is invisible to a head —
     // which is correct: an unowned course is the university's, and a head has
     // no claim on it merely because nobody claimed it.
+    //
+    // The tenant predicate stays outside the AND as the leading key: it is not
+    // one constraint among several but the boundary every other one sits
+    // inside, and no ?tenantId from the query string is read anywhere.
     const where: Prisma.CourseWhereInput = {
       tenantId: tenant.id,
-      ...(scope.scope.restricted ? { departmentId: scope.scope.departmentId } : {}),
+      AND: [
+        // The head's own restriction, derived from their identity.
+        scope.scope.restricted ? { departmentId: scope.scope.departmentId } : {},
+        // The caller's filter, intersected with it rather than replacing it.
+        ...(departmentId ? [{ departmentId }] : []),
+        // Each search term, each satisfied by the name OR the code.
+        ...terms.map((term) => ({
+          OR: [
+            { name: { contains: term, mode: "insensitive" as const } },
+            { code: { contains: term, mode: "insensitive" as const } },
+          ],
+        })),
+      ],
+      ...(type ? { type } : {}),
     };
 
     // Paired in one transaction so the total cannot shift between the two reads.

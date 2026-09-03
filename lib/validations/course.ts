@@ -14,15 +14,59 @@ import { CourseType } from "@/app/generated/prisma/client";
 import { paginationQuerySchema } from "./pagination";
 
 /**
- * Query schema for GET /api/courses.
+ * A filter the toolbar may send empty.
  *
- * Pagination is the shared contract. No search or filter parameter is defined:
- * the project implements none on any existing collection endpoint, so adding one
- * here would introduce a capability the rest of the API does not have. In
- * particular there is no ?isActive filter, even though the column exists —
- * inactive courses list alongside active ones and the client reads the flag.
+ * Restated here rather than shared, matching how each validation module in this
+ * project keeps its own copy. "" means "no filter": the ListFilter reset writes
+ * an empty value, and a hand-edited or bookmarked "?departmentId=" must mean the
+ * same rather than answer 400.
+ *
+ * NO FORMAT ASSERTION on the id: it is an opaque key, and one naming nothing —
+ * or naming another tenant's row — simply matches no courses, because the tenant
+ * predicate is ANDed alongside it in the route.
  */
-export const courseQuerySchema = paginationQuerySchema;
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
+ * Query schema for GET /api/courses — tester issue #30.
+ *
+ * WHAT WAS WRONG
+ *   This was `paginationQuerySchema` and nothing else, so Zod dropped ?q,
+ *   ?departmentId and ?type before the handler saw them and the route read every
+ *   course in the tenant — a search for "ZZZNOPE" returned all four demo
+ *   courses. The Courses page knew: it rendered its search box and both filters
+ *   DISABLED, with a note saying they would work once the backend accepted the
+ *   parameters. This is that.
+ *
+ *   The page has always read the three parameters from its searchParams, passed
+ *   them to listCourses and carried them through pagination, so nothing there
+ *   changes except removing the disabled state.
+ *
+ * STILL NO ?isActive FILTER, deliberately. The column exists, but the screen
+ * offers no control for it: inactive courses list alongside active ones and the
+ * client reads the flag. Only the parameters the toolbar actually sends are
+ * accepted.
+ *
+ * WHY type IS PREPROCESSED
+ *   "All types" writes an empty value. Treating it as absent BEFORE the enum
+ *   check is what stops "no filter" being reported as an invalid CourseType —
+ *   the same reason listStudentsQuerySchema does it for StudentStatus.
+ */
+export const courseQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  departmentId: optionalFilter,
+  type: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.nativeEnum(CourseType).optional()
+    )
+    .optional(),
+});
 
 export type CourseQuery = z.infer<typeof courseQuerySchema>;
 
