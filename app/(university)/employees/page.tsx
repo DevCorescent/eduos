@@ -93,7 +93,13 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
       required: true,
       helperText: "At least 8 characters.",
     },
-    { kind: "text", name: "phone", label: "Phone" },
+    // kind "tel", not "text" — tester issue #29. The API already refuses an
+    // invalid number: this form posts the phone to POST /api/users, whose
+    // createUserSchema uses the shared rule in lib/validations/phone.ts, and
+    // Employee itself has no phone column. What was missing was the message
+    // beside the field; EntityFormModal runs its phone check only for kind
+    // "tel", so with "text" the refusal arrived as a banner naming no field.
+    { kind: "tel", name: "phone", label: "Phone" },
     {
       kind: "text",
       name: "employeeId",

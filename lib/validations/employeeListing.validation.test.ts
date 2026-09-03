@@ -24,6 +24,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { employeeQuerySchema } from "./employee";
+import { createUserSchema } from "./user";
 
 const route = readFileSync(join(process.cwd(), "app/api/employees/route.ts"), "utf8");
 const page = readFileSync(
@@ -208,5 +209,78 @@ describe("#28 — the Employees screen", () => {
     assert.match(page, /paramKey="status"/);
     assert.match(page, /paramKey="type"/);
     assert.match(page, /paramKey="departmentId"/);
+  });
+});
+
+// ============================================================================
+// TESTS: Add Employee phone validation — tester issue #29.
+//
+// WHERE THE PHONE ACTUALLY GOES
+//   Employee has NO phone column, and lib/validations/employee.ts defines no
+//   phone field. Adding an employee writes the person as a User first and the
+//   Employee record second, so the number crosses createUserSchema.phone —
+//   which is the shared rule in lib/validations/phone.ts. That boundary was
+//   already enforcing; the gap was purely that the message never reached the
+//   field, because EntityFormModal runs its phone check only for kind "tel"
+//   and the form declared kind "text".
+//
+//   So these assert the boundary employee creation really crosses, and the one
+//   line that makes the refusal visible where the user is typing.
+// ============================================================================
+
+describe("#29 — Add Employee phone validation", () => {
+  /** The minimum a user needs, so only the phone is under test. */
+  const USER = {
+    email: "employee@university.edu",
+    password: "Sup3rSecret!",
+    firstName: "Manish",
+    lastName: "Pandey",
+  };
+
+  const accepts = (phone: string) =>
+    createUserSchema.safeParse({ ...USER, phone }).success;
+
+  it("REJECTS too few digits — the tester's exact case", () => {
+    assert.equal(accepts("123"), false);
+    assert.equal(accepts("12345"), false);
+  });
+
+  it("REJECTS 16 or more digits", () => {
+    assert.equal(accepts("1234567890123456"), false);
+    assert.equal(accepts("12345678901234567"), false);
+  });
+
+  it("REJECTS text that is not a phone number", () => {
+    assert.equal(accepts("not a phone"), false);
+    assert.equal(accepts("+91 90000 0000a"), false);
+  });
+
+  it("ACCEPTS a valid project-style number", () => {
+    // The value an existing project test already pins as valid. #29 must not
+    // have narrowed what the shared rule accepts.
+    assert.equal(accepts("+91 90000 00000"), true);
+    assert.equal(accepts("+91 98765 43210"), true);
+  });
+
+  it("stays optional — an employee need not supply a phone number", () => {
+    assert.equal(createUserSchema.safeParse(USER).success, true);
+  });
+
+  it("the Add Employee form uses kind \"tel\", so the message lands beside it", () => {
+    // Without this the API still refuses the number, but EntityFormModal shows
+    // it as a banner naming no field — which is what the tester reported.
+    assert.match(page, /kind: "tel", name: "phone"/);
+  });
+
+  it("adds no second phone rule — Employee itself defines none", () => {
+    const employeeValidation = readFileSync(
+      join(process.cwd(), "lib/validations/employee.ts"),
+      "utf8"
+    );
+
+    assert.ok(
+      !/phone/i.test(employeeValidation),
+      "the phone belongs to User; a copy here would be a second rule to drift"
+    );
   });
 });
