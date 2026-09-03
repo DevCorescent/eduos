@@ -11,6 +11,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { phoneField } from "./phone";
 import { loginSchema } from "./auth";
 import { paginationQuerySchema } from "./pagination";
 
@@ -73,7 +74,16 @@ export const createUserSchema = z.object({
   password: loginSchema.shape.password,
   firstName: z.string().trim().min(1),
   lastName: z.string().trim().min(1),
-  phone: z.string().trim().min(1).optional(),
+  // Tester issue #24: enrolling a student writes the person as a User, and
+  // this is where that phone number lands — Student carries no phone column of
+  // its own, so this is the only server boundary the enrolment form crosses.
+  // It was `z.string().trim().min(1)`, so an invalid number entered on the
+  // Enrol Student screen was stored unchallenged.
+  //
+  // This field is shared with faculty and employee creation, which post to the
+  // same endpoint. They therefore gain the same validation — the same rule,
+  // consistently applied, not a new one.
+  phone: phoneField.optional(),
   displayName: z.string().trim().min(1).optional(),
   avatarUrl: z.url().optional(),
   isActive: z.boolean().optional(),

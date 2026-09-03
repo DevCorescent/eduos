@@ -83,6 +83,20 @@ const STATUS_OPTIONS: { value: TenantStatus; label: string }[] = [
  * generic "Invalid input".
  */
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Contact phone — tester issue #12.
+ *
+ * Restated here rather than imported because lib/validations/platform.ts pulls
+ * in Zod and the generated Prisma enums, which do not belong in a client
+ * bundle; SLUG_PATTERN above is duplicated for the same reason. The API applies
+ * the same rule and is what actually enforces it — this only puts the message
+ * beside the field instead of at the top of the form. A test asserts the two
+ * definitions stay identical.
+ */
+const CONTACT_PHONE_PATTERN = /^\+?[0-9(][0-9\s().-]*$/;
+const CONTACT_PHONE_MIN_DIGITS = 7;
+const CONTACT_PHONE_MAX_DIGITS = 15;
 const MAX_SLUG_LENGTH = 63;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -115,6 +129,21 @@ function validate(form: FormState): FieldErrors {
   }
   if (form.website.trim() && !/^https?:\/\/\S+$/.test(form.website.trim())) {
     errors.website = "Enter a full URL, starting with http:// or https://.";
+  }
+
+  // Same two-part rule the API applies: a plausible shape, then a digit count.
+  // Split so the message names the actual problem — "too many digits" and
+  // "that is not a phone number" are different corrections.
+  const phone = form.contactPhone.trim();
+  if (phone) {
+    const digits = phone.replace(/[^0-9]/g, "").length;
+
+    if (!CONTACT_PHONE_PATTERN.test(phone)) {
+      errors.contactPhone =
+        "Enter a valid phone number using digits, and optionally a leading + and spaces, hyphens or brackets.";
+    } else if (digits < CONTACT_PHONE_MIN_DIGITS || digits > CONTACT_PHONE_MAX_DIGITS) {
+      errors.contactPhone = `Enter between ${CONTACT_PHONE_MIN_DIGITS} and ${CONTACT_PHONE_MAX_DIGITS} digits.`;
+    }
   }
 
   // Bounded rather than merely numeric: the API takes any integer, and a
@@ -322,6 +351,7 @@ export function ProvisionUniversityForm() {
               label="Contact phone"
               value={form.contactPhone}
               onChange={(e) => updateField("contactPhone", e.target.value)}
+              error={fieldErrors.contactPhone}
               placeholder="+91 98765 43210"
             />
 

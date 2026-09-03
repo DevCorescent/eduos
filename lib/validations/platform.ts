@@ -10,6 +10,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { phoneField } from "./phone";
 import { ROLES } from "@/constants/roles";
 import { PLATFORM_ACCENTS } from "@/lib/constants/platformAccent";
 import { MODULE_KEYS } from "@/lib/constants/modules";
@@ -115,16 +116,19 @@ const TENANT_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const MAX_SLUG_LENGTH = 63;
 
 /**
- * Body schema for POST /api/platform/tenants.
+ * A university's contact telephone number — tester issue #12.
  *
- * Mirrors the writable scalar fields of the Tenant model. Only slug and name
- * are required — every other column is nullable or carries a schema default,
- * so an omitted key lets the database default apply rather than being
- * overwritten with null.
+ * The rule itself now lives in lib/validations/phone.ts, because issues #18 and
+ * #24 reported the identical defect on Add Campus and Enrol Student. Three
+ * copies of one regex drift the moment somebody edits one, so there is now a
+ * single definition and this field is that definition applied here. Behaviour
+ * is unchanged: the same shape, the same 7-15 digit bounds, the same messages.
  *
- * status is intentionally absent: the schema defaults it to TRIAL, and README
- * Phase 2 assigns status changes to PATCH /api/platform/tenants/[id].
+ * Shared by createTenantSchema and — through `.partial()` — updateTenantSchema,
+ * so a value refused on provisioning cannot be introduced by a later edit.
  */
+const contactPhoneField = phoneField;
+
 export const createTenantSchema = z.object({
   slug: z.string().min(1).max(MAX_SLUG_LENGTH).regex(TENANT_SLUG_PATTERN),
   name: z.string().min(1),
@@ -138,7 +142,7 @@ export const createTenantSchema = z.object({
   country: z.string().min(1).optional(),
   address: z.record(z.string(), z.unknown()).optional(),
   contactEmail: z.email().optional(),
-  contactPhone: z.string().min(1).optional(),
+  contactPhone: contactPhoneField.optional(),
   website: z.url().optional(),
   accreditationNo: z.string().min(1).optional(),
   establishedYear: z.number().int().optional(),

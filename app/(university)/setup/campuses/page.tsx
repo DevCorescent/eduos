@@ -43,7 +43,10 @@ const FIELDS: FormField[] = [
     placeholder: "JPR",
     helperText: "Short unique identifier used in generated IDs.",
   },
-  { kind: "text", name: "phone", label: "Phone", placeholder: "+91 141 4000 100" },
+  // kind "tel", not "text" — tester issue #18. This validates against the one
+  // shared phone rule before the form is sent, and the API applies the same
+  // rule so a direct request cannot get past it either.
+  { kind: "tel", name: "phone", label: "Phone", placeholder: "+91 141 4000 100" },
   { kind: "email", name: "email", label: "Email", placeholder: "campus@university.edu" },
   {
     kind: "switch",

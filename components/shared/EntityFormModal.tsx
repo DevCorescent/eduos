@@ -1,6 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import {
+  PHONE_LENGTH_MESSAGE,
+  PHONE_MAX_DIGITS,
+  PHONE_MIN_DIGITS,
+  PHONE_SHAPE,
+  PHONE_SHAPE_MESSAGE,
+  phoneDigits,
+} from "@/lib/validations/phone";
 import type { FormEvent, ReactNode } from "react";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
@@ -31,6 +39,13 @@ export type FormField =
   | (BaseField & { kind: "number"; min?: number; max?: number })
   | (BaseField & { kind: "date" })
   | (BaseField & { kind: "email"; placeholder?: string })
+  // Renders as a telephone input and is validated against the one shared phone
+  // rule. Added for tester issue #18: the Add Campus form had no way to check a
+  // number before sending it, and the API answers a rejection with a generic
+  // "Invalid input" whose `details` never reach the client, so nothing could be
+  // put beside the field. Declared as a kind rather than a per-field callback,
+  // because that is exactly how "email" already works here.
+  | (BaseField & { kind: "tel"; placeholder?: string })
   | (BaseField & { kind: "select"; options: SelectOption[]; placeholder?: string })
   | (BaseField & { kind: "switch" });
 
@@ -146,6 +161,20 @@ export function EntityFormModal({
       if (field.kind === "email" && String(value ?? "").trim()) {
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim())) {
           errors[field.name] = "Enter a valid email address.";
+        }
+      }
+
+      // Optional, but validated when supplied — the same shape as email above.
+      // The rule is imported, not restated, so this cannot drift from what the
+      // API will accept.
+      if (field.kind === "tel" && String(value ?? "").trim()) {
+        const phone = String(value).trim();
+        const digits = phoneDigits(phone);
+
+        if (!PHONE_SHAPE.test(phone)) {
+          errors[field.name] = PHONE_SHAPE_MESSAGE;
+        } else if (digits < PHONE_MIN_DIGITS || digits > PHONE_MAX_DIGITS) {
+          errors[field.name] = PHONE_LENGTH_MESSAGE;
         }
       }
 
@@ -288,6 +317,8 @@ export function EntityFormModal({
                       ? "number"
                       : field.kind === "date"
                         ? "date"
+                        : field.kind === "tel"
+                        ? "tel"
                         : field.kind === "email"
                           ? "email"
                           : "text"

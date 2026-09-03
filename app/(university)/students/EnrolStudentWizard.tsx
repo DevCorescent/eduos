@@ -1,6 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import {
+  PHONE_LENGTH_MESSAGE,
+  PHONE_MAX_DIGITS,
+  PHONE_MIN_DIGITS,
+  PHONE_SHAPE,
+  PHONE_SHAPE_MESSAGE,
+  phoneDigits,
+} from "@/lib/validations/phone";
 import { useRouter } from "next/navigation";
 import { Check, Plus } from "lucide-react";
 import { Alert } from "@/components/ui/Alert";
@@ -113,6 +121,18 @@ export function EnrolStudentWizard({
       else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email.trim()))
         errors.email = "Enter a valid email address.";
       if (values.password.length < 8) errors.password = "Use at least 8 characters.";
+
+      // Tester issue #24. Optional, but validated when supplied — the same
+      // convention the email above follows, and the same rule the API applies,
+      // imported rather than restated so the two cannot drift.
+      const phone = values.phone.trim();
+      if (phone) {
+        const digits = phoneDigits(phone);
+        if (!PHONE_SHAPE.test(phone)) errors.phone = PHONE_SHAPE_MESSAGE;
+        else if (digits < PHONE_MIN_DIGITS || digits > PHONE_MAX_DIGITS) {
+          errors.phone = PHONE_LENGTH_MESSAGE;
+        }
+      }
     }
 
     if (index === 1) {
@@ -286,6 +306,7 @@ export function EnrolStudentWizard({
                 label="Phone"
                 value={values.phone}
                 onChange={(e) => setValue("phone", e.target.value)}
+                error={fieldErrors.phone}
                 placeholder="+91 98765 43210"
               />
             </div>
