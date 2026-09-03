@@ -14,13 +14,60 @@ import { EmployeeStatus, EmployeeType } from "@/app/generated/prisma/client";
 import { paginationQuerySchema } from "./pagination";
 
 /**
- * Query schema for GET /api/employees.
+ * A filter the toolbar may send empty.
  *
- * Pagination is the shared contract. No search or filter parameter is defined:
- * the project implements none on any existing collection endpoint, so adding one
- * here would introduce a capability the rest of the API does not have.
+ * Restated here rather than shared, matching how each validation module in this
+ * project keeps its own copy. "" means "no filter": the ListFilter reset writes
+ * an empty value, and a hand-edited or bookmarked "?departmentId=" must mean the
+ * same rather than answer 400.
+ *
+ * NO FORMAT ASSERTION on the id: it is an opaque key, and one naming nothing —
+ * or naming another tenant's row — simply matches no employees, because the
+ * tenant predicate is ANDed alongside it in the route.
  */
-export const employeeQuerySchema = paginationQuerySchema;
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
+ * Query schema for GET /api/employees — tester issue #28.
+ *
+ * WHAT WAS WRONG
+ *   This was `paginationQuerySchema` and nothing else, so Zod dropped ?q,
+ *   ?status, ?type and ?departmentId before the handler saw them and the route
+ *   read every employee in the tenant. The Employees page knew: it rendered its
+ *   search box and all three filters DISABLED, with a note saying they would
+ *   work once the backend accepted the parameters. This is that.
+ *
+ *   The page has always read the four parameters from its searchParams, passed
+ *   them to listEmployees and carried them through pagination, so nothing there
+ *   changes except removing the disabled state.
+ *
+ * WHY status AND type ARE PREPROCESSED
+ *   "All statuses" and "All types" write an empty value. Treating it as absent
+ *   BEFORE the enum check is what stops "no filter" being reported as an invalid
+ *   EmployeeStatus or EmployeeType — the same reason listStudentsQuerySchema
+ *   does it for StudentStatus.
+ */
+export const employeeQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  departmentId: optionalFilter,
+  status: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.nativeEnum(EmployeeStatus).optional()
+    )
+    .optional(),
+  type: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.nativeEnum(EmployeeType).optional()
+    )
+    .optional(),
+});
 
 export type EmployeeQuery = z.infer<typeof employeeQuerySchema>;
 

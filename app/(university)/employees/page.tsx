@@ -30,15 +30,17 @@ import {
 } from "@/types";
 import { formatDate } from "@/utils/format";
 
-/**
- * The backend query schema for this collection accepts page and limit only —
- * every other key is dropped by Zod before the handler sees it. The controls
- * stay visible and disabled rather than being deleted, so the screen keeps its
- * shape for when the parameters land.
+/*
+ * The search box and all three filters were rendered DISABLED here, because
+ * employeeQuerySchema accepted page and limit only and Zod dropped ?q, ?status,
+ * ?type and ?departmentId before the handler saw them — tester issue #28, which
+ * read to the tester as "search and filters are not working".
+ *
+ * GET /api/employees now accepts all four, so the `unsupported` props are gone
+ * and nothing else on this page changed: it already read the four parameters
+ * from searchParams, already passed them to listEmployees, and already carried
+ * them through pagination.
  */
-const UNSUPPORTED_SEARCH =
-  "Search will work once the backend adds a ?q parameter to this endpoint.";
-const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = { title: "Employees" };
 
@@ -310,13 +312,11 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
       {header}
 
       <ListToolbar
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name, ID or designation…" />}
+        search={<ListSearch placeholder="Search by name, ID or designation…" />}
         filters={
           <>
             <ListFilter
               paramKey="status"
-              unsupported={UNSUPPORTED_FILTER}
               label="Status"
               hideLabel
               allLabel="All statuses"
@@ -327,7 +327,6 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
             />
             <ListFilter
               paramKey="type"
-              unsupported={UNSUPPORTED_FILTER}
               label="Type"
               hideLabel
               allLabel="All types"
@@ -338,7 +337,6 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Se
             />
             <ListFilter
               paramKey="departmentId"
-              unsupported={UNSUPPORTED_FILTER}
               label="Department"
               hideLabel
               allLabel="All departments"

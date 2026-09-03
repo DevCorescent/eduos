@@ -55,9 +55,12 @@ const EMPLOYEE_SELECT = {
 // GET
 // ACCESS     : UNIVERSITY_ADMIN
 // VALIDATION : employeeQuerySchema — ?page (default 1) and ?limit (default 20,
-//              max 100), from the shared pagination contract. No search
-//              parameter is defined: the project implements none on any existing
-//              collection endpoint.
+//              max 100) from the shared pagination contract, plus the four
+//              parameters this screen's controls already send: ?q over name,
+//              employee ID, designation and address, ?status, ?type and
+//              ?departmentId. Each is optional, and an empty value means "no
+//              filter" — which is what "All statuses", "All types" and "All
+//              departments" write.
 // FLOW       : Authorise → resolve tenant → read one page of that tenant's
 //              employees alongside the total in a single transaction.
 //              Both queries are filtered by the tenant id that requireTenant
@@ -97,8 +100,60 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
-    const where = { tenantId: tenant.id };
+    const { page, limit, q, status, type, departmentId } = parsed.data;
+
+    // WHY THE TERM IS SPLIT ON WHITESPACE
+    //   Employee has no name column — the name lives on the related User as
+    //   firstName and lastName, and Prisma cannot concatenate two columns inside
+    //   a `where`. A plain OR matches "Asha" and matches "Rao" but never "Asha
+    //   Rao" typed in full, which is the most natural thing to type into a box
+    //   labelled "Search by name". The students and faculty routes record the
+    //   same trap and solve it the same way.
+    //
+    //   So every whitespace-separated term must match SOMEWHERE, in any order.
+    //   A single term behaves exactly as a plain OR would.
+    //
+    // The fields are the ones the placeholder promises — name, ID and
+    // designation — plus the address, which is the other thing an administrator
+    // has to hand when looking someone up.
+    //
+    // `mode: "insensitive"` makes "ASHA", "Asha" and "asha" one search;
+    // `contains` makes "as" match "Asha" rather than only an exact name.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    // THE TENANT PREDICATE IS NEVER OPTIONAL AND NEVER OVERRIDABLE. It comes
+    // from requireTenant, and every filter is composed INSIDE it, so no value of
+    // ?q, ?status, ?type or ?departmentId can reach another institution's rows —
+    // and a ?tenantId in the query string is not read at all.
+    //
+    // Employee.departmentId is a plain nullable scalar with NO Prisma relation
+    // (see the note on the POST handler below), so the department filter is a
+    // direct equality rather than a nested relation filter. There is also no
+    // department scoping on this endpoint, so unlike the faculty listing there
+    // is no restriction for this filter to intersect with.
+    //
+    // The conditions are ANDed, not ORed: the toolbar reads as a narrowing —
+    // this text, with this status, of this type, in this department — and an OR
+    // would widen the result the moment a second control was touched.
+    const where: Prisma.EmployeeWhereInput = {
+      tenantId: tenant.id,
+      ...(terms.length > 0
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { employeeId: { contains: term, mode: "insensitive" as const } },
+                { designation: { contains: term, mode: "insensitive" as const } },
+                { user: { firstName: { contains: term, mode: "insensitive" as const } } },
+                { user: { lastName: { contains: term, mode: "insensitive" as const } } },
+                { user: { email: { contains: term, mode: "insensitive" as const } } },
+              ],
+            })),
+          }
+        : {}),
+      ...(status ? { status } : {}),
+      ...(type ? { type } : {}),
+      ...(departmentId ? { departmentId } : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two reads.
     // The ordering is required for correctness, not presentation: offset
