@@ -27,7 +27,9 @@ import type {
   Transcript,
   TranscriptRow,
 } from "@/types";
+import { ROLES } from "@/constants/roles";
 import { apiList, apiRequest } from "./client";
+import { assignRole, findTenantRoleByName } from "./users";
 
 /**
  * One row as GET /api/students returns it.
@@ -144,7 +146,7 @@ export interface EnrolStudentInput {
 export async function enrolStudent(
   input: EnrolStudentInput
 ): Promise<ApiResponse<Student>> {
-  // Live: the same two steps, in the same order.
+  // Live: the same three steps, in the same order — account, record, role.
   const account = await apiRequest<{ id: string }>("/api/users", {
     method: "POST",
     body: {
@@ -157,7 +159,7 @@ export async function enrolStudent(
   });
   if (!account.success) return account;
 
-  return apiRequest<Student>("/api/students", {
+  const student = await apiRequest<Student>("/api/students", {
     method: "POST",
     body: {
       userId: account.data.id,
@@ -170,6 +172,30 @@ export async function enrolStudent(
       admissionDate: input.admissionDate,
     },
   });
+  if (!student.success) return student;
+
+  // THE THIRD WRITE. See addFaculty in services/faculty.ts — this is the same
+  // defect and the same repair.
+  //   POST /api/users grants no role, so an enrolled student signed in and
+  //   landed on /no-access: "Your account holds no role that opens a portal."
+  //   STUDENT is what homeRouteForRoles() reads to open /student/dashboard.
+  //
+  // ROLES.STUDENT IS A CONSTANT, NOT INPUT. EnrolStudentInput carries no role,
+  // so nothing typed into the enrolment form can influence what is granted.
+  //
+  // LAST, for the reason given in full at the faculty call site: enrollmentNo
+  // is unique per tenant, so the Student write can fail on an ordinary
+  // duplicate. Granting the role first would leave an account holding STUDENT
+  // with no student record, and the student pages resolve the student before
+  // they render. Granting it last leaves an account with no role — the state
+  // this fix repairs, and one an administrator clears under Users & Roles.
+  const role = await findTenantRoleByName(ROLES.STUDENT);
+  if (!role.success) return role;
+
+  const granted = await assignRole(account.data.id, role.data.id);
+  if (!granted.success) return granted;
+
+  return student;
 }
 
 export interface UpdateStudentInput {
