@@ -61,9 +61,11 @@ const FACULTY_SELECT = {
 // GET
 // ACCESS     : UNIVERSITY_ADMIN
 // VALIDATION : facultyQuerySchema — ?page (default 1) and ?limit (default 20,
-//              max 100), from the shared pagination contract. No search
-//              parameter is defined: the project implements none on any existing
-//              collection endpoint.
+//              max 100) from the shared pagination contract, plus the three
+//              parameters this screen's controls already send: ?q over name,
+//              employee ID, designation and address, ?status and ?departmentId.
+//              Each is optional, and an empty value means "no filter" — which
+//              is what "All statuses" and "All departments" write.
 // FLOW       : Authorise → resolve tenant → read one page of that tenant's
 //              faculty alongside the total in a single transaction.
 //              Both queries are filtered by the tenant id that requireTenant
@@ -105,7 +107,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q, status, departmentId } = parsed.data;
 
     // The department restriction, derived from the AUTHENTICATED IDENTITY and
     // never from the request. A head who edits the URL changes nothing: no
@@ -114,13 +116,72 @@ export async function GET(request: NextRequest) {
     const scope = await resolveDepartmentScope(guard.session);
     if (!scope.ok) return scope.response;
 
-    // FacultyMember.departmentId is a real column, so the restriction is a
-    // direct equality ANDed under the tenant predicate. A member belonging to
-    // no department is correctly invisible to a head: `departmentId: <id>`
-    // does not match NULL.
+    // THE DEPARTMENT RESTRICTION AND THE ?departmentId FILTER CONSTRAIN THE SAME
+    // COLUMN, so they are INTERSECTED rather than spread side by side.
+    //   Two object spreads both setting `departmentId` do not combine — the
+    //   later one REPLACES the earlier. Written the obvious way, a head passing
+    //   ?departmentId=<another department> would overwrite the restriction
+    //   derived from their identity and read a department that is not theirs.
+    //   That is a privilege escalation through a query string, and it is the
+    //   exact trap the students route already documents.
+    //
+    //   Intersecting instead means a head filtering inside their own department
+    //   gets what they asked for, and a head naming any other department gets an
+    //   empty list — narrowed, never widened.
+    //
+    // FacultyMember.departmentId is a real column, so both are direct
+    // equalities. A member belonging to no department is correctly invisible to
+    // a head: `departmentId: <id>` does not match NULL.
+    const departmentWhere: Prisma.FacultyMemberWhereInput = scope.scope.restricted
+      ? {
+          departmentId: departmentId
+            ? // Both must hold. An out-of-scope id resolves to a value that
+              // matches nothing rather than to the head's own department.
+              departmentId === scope.scope.departmentId
+              ? departmentId
+              : { in: [] }
+            : scope.scope.departmentId,
+        }
+      : departmentId
+        ? { departmentId }
+        : {};
+
+    // WHY THE TERM IS SPLIT ON WHITESPACE
+    //   FacultyMember has no name column — the name lives on the related User
+    //   as firstName and lastName, and Prisma cannot concatenate two columns
+    //   inside a `where`. A plain OR matches "Meera" and matches "Iyer" but
+    //   never "Meera Iyer" typed in full, which is the most natural thing to
+    //   type into a box labelled "Search by name". The students route records
+    //   the same trap and solves it the same way.
+    //
+    //   So every whitespace-separated term must match SOMEWHERE, in any order.
+    //   A single term behaves exactly as a plain OR did.
+    //
+    // The fields are the ones the placeholder promises — name, ID and
+    // designation — plus the address, which is the other thing an administrator
+    // has to hand when looking someone up.
+    //
+    // `mode: "insensitive"` makes "MEERA", "Meera" and "meera" one search;
+    // `contains` makes "mee" match "Meera" rather than only an exact name.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
     const where: Prisma.FacultyMemberWhereInput = {
       tenantId: tenant.id,
-      ...(scope.scope.restricted ? { departmentId: scope.scope.departmentId } : {}),
+      ...departmentWhere,
+      ...(terms.length > 0
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { employeeId: { contains: term, mode: "insensitive" as const } },
+                { designation: { contains: term, mode: "insensitive" as const } },
+                { user: { firstName: { contains: term, mode: "insensitive" as const } } },
+                { user: { lastName: { contains: term, mode: "insensitive" as const } } },
+                { user: { email: { contains: term, mode: "insensitive" as const } } },
+              ],
+            })),
+          }
+        : {}),
+      ...(status ? { status } : {}),
     };
 
     // Paired in one transaction so the total cannot shift between the two reads.

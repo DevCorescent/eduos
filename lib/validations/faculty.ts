@@ -14,13 +14,53 @@ import { EmployeeStatus } from "@/app/generated/prisma/client";
 import { paginationQuerySchema } from "./pagination";
 
 /**
- * Query schema for GET /api/faculty.
+ * A filter the toolbar may send empty.
  *
- * Pagination is the shared contract. No search or filter parameter is defined:
- * the project implements none on any existing collection endpoint, so adding one
- * here would introduce a capability the rest of the API does not have.
+ * Restated from listStudentsQuerySchema rather than shared, matching how each
+ * validation module in this project keeps its own copy. "" means "no filter":
+ * the ListFilter reset writes an empty value, and a hand-edited or bookmarked
+ * "?departmentId=" must mean the same rather than answer 400.
+ *
+ * NO FORMAT ASSERTION on the id: it is an opaque foreign key, and one naming
+ * nothing — or naming another tenant's row — simply matches no faculty, because
+ * the tenant predicate is ANDed alongside it in the route.
  */
-export const facultyQuerySchema = paginationQuerySchema;
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
+ * Query schema for GET /api/faculty — tester issue #26.
+ *
+ * WHAT WAS WRONG
+ *   This was `paginationQuerySchema` and nothing else, so Zod dropped ?q,
+ *   ?status and ?departmentId before the handler saw them and the route read
+ *   every faculty member in the tenant. The Faculty page knew: it rendered its
+ *   search box and both filters DISABLED, with a note saying they would work
+ *   once the backend accepted the parameters. This is that.
+ *
+ *   The page has always read q, status and departmentId from its searchParams,
+ *   passed them to listFaculty and carried them through pagination, so nothing
+ *   there changes except removing the disabled state.
+ *
+ * WHY status IS PREPROCESSED
+ *   "All statuses" writes an empty value. Treating it as absent BEFORE the enum
+ *   check is what stops "no filter" being reported as an invalid EmployeeStatus
+ *   — the same reason listStudentsQuerySchema does it for StudentStatus.
+ */
+export const facultyQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  departmentId: optionalFilter,
+  status: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.nativeEnum(EmployeeStatus).optional()
+    )
+    .optional(),
+});
 
 export type FacultyQuery = z.infer<typeof facultyQuerySchema>;
 
@@ -113,9 +153,32 @@ export type CreateFacultyInput = z.infer<typeof createFacultySchema>;
  * As elsewhere, omitting a key leaves the column unchanged; there is no way to
  * clear a nullable column back to null through this endpoint.
  */
+/**
+ * departmentId gains the same three states the student update has — tester
+ * issue #25, which reproduced identically here.
+ *
+ *   omitted   leave the column unchanged
+ *   ""        clear it to null
+ *   an id     point it at that department
+ *
+ * `.partial()` alone gives only the first and third: a key that IS present must
+ * still satisfy the create rule, and there departmentId is `min(1)`. So
+ * updateFacultyAction, which sends "" for a blank department select, made an
+ * unchanged Save fail with 400 "Invalid input" for any faculty member who had
+ * no department — the same defect the tester reported against Edit Student.
+ *
+ * The create schema is unchanged: creating a faculty member with
+ * departmentId: "" is meaningless; only an edit can clear an existing value.
+ */
+const clearableId = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+  z.string().trim().min(1).nullable().optional()
+);
+
 export const updateFacultySchema = createFacultySchema
   .omit({ userId: true })
   .partial()
+  .extend({ departmentId: clearableId })
   .refine((data) => Object.keys(data).length > 0);
 
 export type UpdateFacultyInput = z.infer<typeof updateFacultySchema>;

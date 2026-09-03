@@ -155,12 +155,51 @@ export type CreateStudentInput = z.infer<typeof createStudentSchema>;
  * Every key is optional, but at least one must be present: an empty body is a
  * client error, not a silent no-op that would still advance updatedAt.
  *
- * As elsewhere, omitting a key leaves the column unchanged; there is no way to
- * clear a nullable column back to null through this endpoint.
+ * THREE STATES, NOT TWO — tester issue #25.
+ *   omitted    leave the column unchanged
+ *   ""         clear the column to null
+ *   an id      point the column at that row
+ *
+ *   The nullable reference fields are re-declared below because `.partial()`
+ *   alone gives only two of those. It makes a key optional, but a key that IS
+ *   present must still satisfy the create rule, and there the fields are
+ *   `min(1)` — so an explicit "" was rejected outright.
+ *
+ *   That is what tester issue #25 reported. updateStudentAction sends "" for a
+ *   blank select, saying in its own comment that "" means "unset this"; nothing
+ *   implemented that contract. Opening a student whose programme, batch or
+ *   section was empty and pressing Save unchanged therefore sent three empty
+ *   strings and got 400 "Invalid input" — the record could not be saved at all
+ *   without first filling in fields the model says are optional.
+ *
+ *   The create schema is deliberately NOT changed. Creating a student with
+ *   programmeId: "" is meaningless; only an edit can clear a value that is
+ *   already there.
  */
+
+/**
+ * A nullable foreign key on an update: "" clears it, an id sets it, and an
+ * absent key leaves it alone.
+ *
+ * The preprocess runs BEFORE the string rule, so "" never reaches `min(1)`.
+ * `.nullable()` is what lets the resulting null through, and `.optional()` is
+ * what keeps "absent" distinct from "null" — the route relies on exactly that
+ * distinction to decide whether to touch the column.
+ */
+const clearableId = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+  z.string().trim().min(1).nullable().optional()
+);
+
 export const updateStudentSchema = createStudentSchema
   .omit({ userId: true })
   .partial()
+  .extend({
+    programmeId: clearableId,
+    batchId: clearableId,
+    sectionId: clearableId,
+    specialisationId: clearableId,
+  })
   .refine((data) => Object.keys(data).length > 0);
 
 export type UpdateStudentInput = z.infer<typeof updateStudentSchema>;

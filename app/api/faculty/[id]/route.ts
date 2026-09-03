@@ -210,8 +210,14 @@ export async function PATCH(
 
     const input = parsedBody.data;
 
+    // `typeof === "string"`, not `!== undefined` — tester issue #25. A null is
+    // the caller clearing the column with "", and there is no row to look up:
+    // asking for one by a null id would find nothing and answer "Department not
+    // found" for a request that named no department. The column is nullable, so
+    // emptying it cannot dangle a reference. This gates the EXISTENCE CHECK
+    // only; the write below still passes the null through to Prisma.
     const departmentChanging =
-      input.departmentId !== undefined && input.departmentId !== existing.departmentId;
+      typeof input.departmentId === "string" && input.departmentId !== existing.departmentId;
     const employeeIdChanging =
       input.employeeId !== undefined && input.employeeId !== existing.employeeId;
 
@@ -220,7 +226,7 @@ export async function PATCH(
     const [department, duplicateEmployeeId] = await Promise.all([
       departmentChanging
         ? prisma.department.findFirst({
-            where: { id: input.departmentId, tenantId: tenant.id },
+            where: { id: input.departmentId as string, tenantId: tenant.id },
             select: { id: true },
           })
         : Promise.resolve(null),

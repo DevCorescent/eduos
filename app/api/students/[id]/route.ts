@@ -216,41 +216,60 @@ export async function PATCH(
 
     const input = parsedBody.data;
 
+    // `typeof === "string"`, not `!== undefined` — tester issue #25.
+    //   undefined  the key was absent: leave the column alone.
+    //   null       the caller sent "" to CLEAR the column. There is no row to
+    //              look up, and asking for one by a null id would find nothing
+    //              and answer "Programme not found" for a request that named no
+    //              programme. Clearing is always allowed: the column is
+    //              nullable, so emptying it cannot dangle a reference.
+    //   a string   a real id, which must be proven to exist in this tenant
+    //              before it is written.
+    //
+    // These flags gate the EXISTENCE CHECKS only. The write below still passes
+    // the parsed input straight through, so a null reaches Prisma and clears
+    // the column.
     const programmeChanging =
-      input.programmeId !== undefined && input.programmeId !== existing.programmeId;
-    const batchChanging = input.batchId !== undefined && input.batchId !== existing.batchId;
+      typeof input.programmeId === "string" && input.programmeId !== existing.programmeId;
+    const batchChanging =
+      typeof input.batchId === "string" && input.batchId !== existing.batchId;
     const sectionChanging =
-      input.sectionId !== undefined && input.sectionId !== existing.sectionId;
+      typeof input.sectionId === "string" && input.sectionId !== existing.sectionId;
     const specialisationChanging =
-      input.specialisationId !== undefined &&
+      typeof input.specialisationId === "string" &&
       input.specialisationId !== existing.specialisationId;
     const enrollmentChanging =
       input.enrollmentNo !== undefined && input.enrollmentNo !== existing.enrollmentNo;
 
     // Independent, so they are issued together rather than in sequence. An
     // unchanged field contributes no query at all.
+    //
+    // The `as string` casts are what the *Changing flags above already prove:
+    // each is only true when the value is a string. TypeScript cannot carry a
+    // boolean's narrowing into this block, and the enrolment lookup below has
+    // always been written the same way for the same reason.
     const [programme, batch, section, specialisation, duplicateEnrollment] = await Promise.all([
       programmeChanging
         ? prisma.programme.findFirst({
-            where: { id: input.programmeId, tenantId: tenant.id },
+            where: { id: input.programmeId as string, tenantId: tenant.id },
             select: { id: true },
           })
         : Promise.resolve(null),
       batchChanging
         ? prisma.batch.findFirst({
-            where: { id: input.batchId, tenantId: tenant.id },
+            where: { id: input.batchId as string, tenantId: tenant.id },
             select: { id: true },
           })
         : Promise.resolve(null),
       sectionChanging
         ? prisma.section.findFirst({
-            where: { id: input.sectionId, tenantId: tenant.id },
+            where: { id: input.sectionId as string, tenantId: tenant.id },
             select: { id: true },
           })
         : Promise.resolve(null),
       specialisationChanging
         ? prisma.specialisation.findFirst({
-            where: { id: input.specialisationId, tenantId: tenant.id },
+            where: { id: input.specialisationId as string, tenantId: tenant.id },
             select: { id: true },
           })
         : Promise.resolve(null),
