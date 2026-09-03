@@ -26,7 +26,11 @@
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db/prisma";
-import { getPlatformSession, type PlatformJwtPayload } from "@/lib/auth/platformSession";
+import {
+  getPlatformSession,
+  renewPlatformSession,
+  type PlatformJwtPayload,
+} from "@/lib/auth/platformSession";
 import { getSession } from "@/lib/auth/session";
 import { fail } from "@/types";
 
@@ -135,6 +139,17 @@ export async function requirePlatformAdmin(): Promise<PlatformGuardResult> {
       ),
     };
   }
+
+  // The session is proven: signature, sessionType, a live PlatformUser, still
+  // active, still holding the admin role. Only now is it extended, and only if
+  // it is past halfway — see renewPlatformSession.
+  //
+  // AFTER every refusal above, never before one. A token that failed to verify
+  // is not renewed, a deleted or deactivated operator is not renewed, and one
+  // whose admin grant was revoked is not renewed: each has already returned.
+  // Renewal is therefore a consequence of being authorised, never a step on the
+  // way to deciding it.
+  await renewPlatformSession(session);
 
   return { authorized: true, session, platformUserId: platformUser.id };
 }
