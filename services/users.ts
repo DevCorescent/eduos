@@ -25,6 +25,7 @@ import type {
   User,
   UserWithRoles,
 } from "@/types";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { apiList, apiRequest } from "./client";
 
 /**
@@ -109,6 +110,54 @@ export async function assignRole(
   roleId: string
 ): Promise<ApiResponse<null>> {
   return apiRequest<null>(`/api/users/${userId}/roles`, { method: "POST", body: { roleId } });
+}
+
+/**
+ * Resolve one of the tenant's own roles by NAME, to its id.
+ *
+ * WHY THIS EXISTS
+ *   Creating a faculty member or enrolling a student writes a User and then the
+ *   domain record. Neither step grants a role — POST /api/users accepts no role
+ *   field — so the account signed in holding nothing, homeRouteForRoles() found
+ *   no portal for it and sent the person to /no-access: "Your account holds no
+ *   role that opens a portal." The form had just asked for their password and
+ *   promised they would change it after signing in.
+ *
+ * THE NAME IS THE CALLER'S, NEVER THE CLIENT'S
+ *   Callers pass a constant from constants/roles.ts. Nothing in a form body
+ *   reaches this argument, so a created account cannot be talked into holding a
+ *   role somebody typed — which is the reason this resolves a name rather than
+ *   accepting a roleId from the caller's input.
+ *
+ * TENANT SCOPING IS THE ENDPOINT'S, NOT THIS FUNCTION'S
+ *   GET /api/roles applies requireRole("UNIVERSITY_ADMIN") and requireTenant(),
+ *   so it can only ever return roles belonging to the authenticated tenant.
+ *   This reads that answer; it cannot widen it, and a role name that exists in
+ *   another university is simply not found here.
+ *
+ * A MISSING ROLE IS REPORTED, NOT CREATED
+ *   TENANT_SYSTEM_ROLES provisions FACULTY and STUDENT with every tenant, so an
+ *   absent one means the university predates that provisioning — a
+ *   configuration fact an administrator must see and fix. Minting the role here
+ *   would hide it, and would also mean this function could invent authority.
+ */
+export async function findTenantRoleByName(name: string): Promise<ApiResponse<Role>> {
+  // One page is enough: roles are per-tenant system roles plus whatever few an
+  // administrator has added, and the endpoint caps a page at MAX_LIST_LIMIT.
+  const result = await listRoles({ page: 1, limit: MAX_LIST_LIMIT });
+  if (!result.success) return result;
+
+  const role = result.data.items.find((candidate) => candidate.name === name);
+
+  if (!role) {
+    return {
+      success: false,
+      error: `This university has no "${name}" role. Create it under Users & Roles, then try again.`,
+      code: "NOT_FOUND",
+    };
+  }
+
+  return { success: true, data: role };
 }
 
 export async function unassignRole(

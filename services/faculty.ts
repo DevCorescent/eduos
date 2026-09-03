@@ -19,7 +19,9 @@ import type {
   ListParams,
   PaginatedResult,
 } from "@/types";
+import { ROLES } from "@/constants/roles";
 import { apiList, apiRequest } from "./client";
+import { assignRole, findTenantRoleByName } from "./users";
 
 /** Placeholder user block for live rows that carry no name. */
 function placeholderUser(userId: string) {
@@ -103,12 +105,15 @@ export async function countEmployees(params?: ListParams): Promise<number | null
 // --- Staff creation ---------------------------------------------------------
 
 /**
- * Adding a staff member is two writes, exactly like enrolling a student.
+ * Adding a staff member is three writes, exactly like enrolling a student.
  *
  * POST /api/faculty takes a `userId` — it links an existing User to a new
  * FacultyMember row rather than creating the person. The account is written
  * first and the staff record second, which is why the form asks for a name and
  * an email alongside the employment fields.
+ *
+ * The third write is the FACULTY role. Without it the account exists, signs in,
+ * and opens nothing — see the note at the grant below.
  */
 export interface AddFacultyInput {
   firstName: string;
@@ -144,7 +149,7 @@ export async function addFaculty(
   });
   if (!account.success) return account;
 
-  return apiRequest<FacultyMember>("/api/faculty", {
+  const member = await apiRequest<FacultyMember>("/api/faculty", {
     method: "POST",
     body: {
       userId: account.data.id,
@@ -157,6 +162,41 @@ export async function addFaculty(
       joinDate: input.joinDate,
     },
   });
+  if (!member.success) return member;
+
+  // THE THIRD WRITE, WITHOUT WHICH THE OTHER TWO ARE USELESS.
+  //   POST /api/users grants no role — it accepts no role field at all — so
+  //   until this ran, a lecturer created here signed in successfully and landed
+  //   on /no-access: "Your account holds no role that opens a portal." The form
+  //   had just taken their password and told them they would change it after
+  //   signing in. FACULTY is what homeRouteForRoles() reads to open
+  //   /faculty/dashboard.
+  //
+  // ROLES.FACULTY IS A CONSTANT, NOT INPUT.
+  //   AddFacultyInput carries no role of any kind, so nothing a user types can
+  //   reach this. The name is resolved against the tenant's own roles by an
+  //   endpoint that is itself tenant-guarded.
+  //
+  // WHY THIS RUNS LAST.
+  //   These three writes are separate HTTP calls and cannot share a database
+  //   transaction from here without changing the architecture, so one of them
+  //   can fail after another succeeded. The order decides which wreck is left.
+  //   Creating the FacultyMember can genuinely fail — employeeId is unique per
+  //   tenant, so a duplicate is an ordinary mistake, not a rare one. Granting
+  //   the role first would then leave an account holding FACULTY with no
+  //   faculty record, and every faculty page resolves the lecturer before it
+  //   renders: getCurrentFaculty() returns null and redirects to /login while
+  //   the person is signed in. Granting it last leaves, in the same case, an
+  //   account with no role — precisely the state this fix exists to repair,
+  //   which an administrator resolves in one step under Users & Roles. So this
+  //   ordering introduces NO failure mode that did not already exist.
+  const role = await findTenantRoleByName(ROLES.FACULTY);
+  if (!role.success) return role;
+
+  const granted = await assignRole(account.data.id, role.data.id);
+  if (!granted.success) return granted;
+
+  return member;
 }
 
 export interface UpdateFacultyInput {
