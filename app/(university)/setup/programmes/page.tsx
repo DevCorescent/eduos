@@ -14,7 +14,7 @@ import type { FormField } from "@/components/shared/EntityFormModal";
 import { Card } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
 import { Table, type TableColumn } from "@/components/ui/Table";
-import { listDepartments, listProgrammes } from "@/services/setup";
+import { listCampuses, listDepartments, listProgrammes, listSchools } from "@/services/setup";
 import {
   createProgrammeAction,
   deleteProgrammeAction,
@@ -35,6 +35,8 @@ type SearchParams = Promise<{
   q?: string;
   departmentId?: string;
   type?: string;
+  campusId?: string;
+  schoolId?: string;
   page?: string;
 }>;
 
@@ -43,13 +45,35 @@ export default async function ProgrammesPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const { q, departmentId, type, page } = await searchParams;
+  const { q, departmentId, type, campusId, schoolId, page } = await searchParams;
   const currentPage = Math.max(1, Number(page) || 1);
 
-  const [result, departmentsResult] = await Promise.all([
-    listProgrammes({ page: currentPage, limit: PAGE_SIZE, q, departmentId, type }),
+  // Campus and school are applied by the API through the department relation —
+  // a Programme carries neither column. They are read here only to populate the
+  // controls and to travel in the pagination links.
+  const [result, departmentsResult, campusesResult, schoolsResult] = await Promise.all([
+    listProgrammes({
+      page: currentPage,
+      limit: PAGE_SIZE,
+      q,
+      departmentId,
+      type,
+      campusId,
+      schoolId,
+    }),
     listDepartments({ page: 1, limit: 100 }),
+    listCampuses({ page: 1, limit: 100 }),
+    listSchools({ page: 1, limit: 100 }),
   ]);
+
+  const campuses = campusesResult.success ? campusesResult.data.items : [];
+  const schools = schoolsResult.success ? schoolsResult.data.items : [];
+
+  // The school list is narrowed to the selected campus, matching the
+  // Departments page: offering every school regardless would let a user build a
+  // campus/school pair that no department satisfies, and an empty result then
+  // reads as missing data rather than an impossible combination.
+  const schoolsForFilter = campusId ? schools.filter((s) => s.campusId === campusId) : schools;
 
   const departments = departmentsResult.success ? departmentsResult.data.items : [];
   const departmentOptions = departments.map((d) => ({
@@ -251,6 +275,20 @@ export default async function ProgrammesPage({
         filters={
           <>
             <ListFilter
+              paramKey="campusId"
+              label="Campus"
+              hideLabel
+              allLabel="All campuses"
+              options={campuses.map((c) => ({ value: c.id, label: c.name }))}
+            />
+            <ListFilter
+              paramKey="schoolId"
+              label="School"
+              hideLabel
+              allLabel="All schools"
+              options={schoolsForFilter.map((sc) => ({ value: sc.id, label: sc.name }))}
+            />
+            <ListFilter
               paramKey="departmentId"
               label="Department"
               hideLabel
@@ -301,6 +339,10 @@ export default async function ProgrammesPage({
               ...(q ? { q } : {}),
               ...(departmentId ? { departmentId } : {}),
               ...(type ? { type } : {}),
+              // Carried into page 2, or paging would silently drop the filter
+              // and show the unfiltered list under a filtered toolbar.
+              ...(campusId ? { campusId } : {}),
+              ...(schoolId ? { schoolId } : {}),
             }}
           />
         </div>

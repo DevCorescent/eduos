@@ -3,12 +3,14 @@
 // PURPOSE: The four auth flows the UI calls, each a thin wrapper over its route
 //          so that no page touches fetch directly.
 //
-// TWO OF THE FOUR HAVE NO ROUTE BEHIND THEM
-//   POST /api/auth/forgot-password and POST /api/auth/reset-password are
-//   specified in FRONTEND.md but do not exist under app/api. The calls below
-//   are written against the contract every other auth route follows, so those
-//   pages fail with the standard NOT_FOUND envelope and render their error
-//   state rather than breaking. Adding the routes changes nothing in this file.
+// ALL FOUR NOW HAVE A ROUTE BEHIND THEM
+//   POST /api/auth/forgot-password and POST /api/auth/reset-password were
+//   specified in FRONTEND.md and had no handler under app/api, so Next answered
+//   with its 404 HTML page, apiRequest could not parse it, and the screens
+//   showed "the server returned an unreadable response" — tester issue #15.
+//   The routes exist as of that fix. Nothing in this file changed to
+//   accommodate them: they were written to the contract these calls already
+//   assumed, which is why the field names below are `otp` and `newPassword`.
 // ============================================================================
 
 import type { ApiResponse, AuthUser } from "@/types";

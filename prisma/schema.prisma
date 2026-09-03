@@ -74,6 +74,7 @@ model Tenant {
   @@index([slug])
   @@index([status])
   @@index([supportManagerId])
+  passwordResetCodes PasswordResetCode[]
 }
 
 /// PRD §49.1 — the University Onboarding Workflow, verbatim and in order.
@@ -278,6 +279,7 @@ model User {
   employee    Employee?
   faculty     FacultyMember?
   sessions    Session[]
+  passwordResetCodes PasswordResetCode[]
   student     Student?
   /// W2 — back-relation for the parent portal. Emits no column on User.
   parent      Parent?
@@ -345,6 +347,53 @@ model Session {
 
   @@index([userId])
   @@index([token])
+}
+
+/// A one-time code issued by the self-service password reset flow.
+///
+/// WHY A TABLE AND NOT A COLUMN ON USER
+///   A reset is an event with its own lifetime: issued, expiring, consumed. As
+///   columns on User those facts would have no history, and "was this code
+///   already used" could not be answered after the next one was issued.
+///
+/// ONLY THE HASH IS STORED
+///   `codeHash` is a bcrypt hash of the six digits, written with the same
+///   helper the password column uses. A plaintext column would mean anybody who
+///   could read the table could take over any account, which is the whole thing
+///   a reset flow must not allow. The code exists in plaintext exactly twice:
+///   in the email, and in memory for the moment it takes to hash it.
+///
+/// TENANT AND USER BOTH, DELIBERATELY
+///   userId alone would identify the account, but every lookup in this codebase
+///   is tenant-scoped and a reset must not be checkable across institutions —
+///   two universities can hold the same email address.
+model PasswordResetCode {
+  id       String @id @default(cuid())
+  tenantId String
+  userId   String
+
+  /// bcrypt hash of the six-digit code. Never the code itself.
+  codeHash String
+
+  expiresAt  DateTime
+  consumedAt DateTime?
+
+  /// Recorded for the audit trail an account takeover investigation needs.
+  requestedIp String?
+  userAgent   String?
+
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The lookup the reset endpoint performs: this user's live codes, newest
+  /// first.
+  @@index([userId, consumedAt])
+  /// Tenant-scoped cleanup and reporting.
+  @@index([tenantId])
+  /// Expiry sweeps.
+  @@index([expiresAt])
 }
 
 model Role {

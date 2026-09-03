@@ -142,3 +142,104 @@ describe("Archive tenant — 401 and 403 stay distinct", () => {
     );
   });
 });
+
+// ============================================================================
+// The restore path — found while verifying #10 end to end against the database.
+// ============================================================================
+
+describe("Restoring a tenant clears the archive stamp", () => {
+  it("clears archivedAt AND archivedBy in the same update as the status", () => {
+    // The bug: restore set status back to SUSPENDED and left archivedAt and
+    // archivedBy exactly as the archive had written them. A restored
+    // university then carried a timestamp and an operator id asserting it was
+    // archived while its status said it was not — two columns of one row
+    // disagreeing about the same fact. The panel branches on `status`, so the
+    // screen looked correct and only the data was wrong, which is the kind of
+    // defect that surfaces much later as a report nobody can explain.
+    const route = readFileSync(
+      join(process.cwd(), "app/api/platform/tenants/[id]/archive/route.ts"),
+      "utf8"
+    );
+
+    const restoreAt = route.indexOf("if (restore) {");
+    assert.ok(restoreAt > 0, "the restore branch has moved or gone");
+
+    // Bounded to the restore branch so the archive branch's own writes, which
+    // legitimately SET these columns, cannot satisfy this assertion.
+    const branch = route.slice(restoreAt, route.indexOf("if (isArchived) {", restoreAt));
+
+    assert.match(
+      branch,
+      /data: \{ status: "SUSPENDED", archivedAt: null, archivedBy: null \}/,
+      "restore must clear the archive stamp it is undoing"
+    );
+  });
+
+  it("archiving still records the status, who archived it and when", () => {
+    // The counterpart: clearing on restore must not have been achieved by
+    // never writing the stamp in the first place.
+    const route = readFileSync(
+      join(process.cwd(), "app/api/platform/tenants/[id]/archive/route.ts"),
+      "utf8"
+    );
+
+    const archiveAt = route.indexOf("const archived = await prisma.tenant.update");
+    assert.ok(archiveAt > 0, "the archive write has moved or gone");
+    const branch = route.slice(archiveAt, archiveAt + 500);
+
+    assert.match(branch, /status: "ARCHIVED"/);
+    assert.match(branch, /archivedAt: new Date\(\)/);
+    assert.match(branch, /archivedBy: guard\.platformUserId/);
+  });
+
+  it("restore returns the tenant to SUSPENDED, not ACTIVE", () => {
+    // A deliberate product decision recorded in the route: restoring makes the
+    // institution manageable again; putting its students back online is a
+    // separate, explicit status change. Pinned so a later "convenience" edit
+    // cannot quietly bring a suspended university back online.
+    const route = readFileSync(
+      join(process.cwd(), "app/api/platform/tenants/[id]/archive/route.ts"),
+      "utf8"
+    );
+
+    const restoreAt = route.indexOf("if (restore) {");
+    const branch = route.slice(restoreAt, route.indexOf("if (isArchived) {", restoreAt));
+
+    assert.match(branch, /status: "SUSPENDED"/);
+    assert.ok(!/status: "ACTIVE"/.test(branch), "restore must not reactivate the tenant");
+  });
+
+  it("refuses to restore a tenant that is not archived, and says so", () => {
+    // Without this the update would run against a live university and set it
+    // to SUSPENDED — an outage caused by a button that should have been a
+    // no-op.
+    const route = readFileSync(
+      join(process.cwd(), "app/api/platform/tenants/[id]/archive/route.ts"),
+      "utf8"
+    );
+
+    const restoreAt = route.indexOf("if (restore) {");
+    const branch = route.slice(restoreAt, route.indexOf("if (isArchived) {", restoreAt));
+
+    assert.match(branch, /if \(!isArchived\)/);
+    assert.match(branch, /"This university is not archived", "CONFLICT"/);
+    assert.match(branch, /status: 409/);
+
+    // And the guard is decided BEFORE the write, not after it.
+    assert.ok(
+      branch.indexOf("if (!isArchived)") < branch.indexOf("prisma.tenant.update"),
+      "the conflict must be refused before the restore writes anything"
+    );
+  });
+
+  it("refuses to archive one that is already archived", () => {
+    // Re-archiving would overwrite archivedAt and archivedBy, losing the record
+    // of who actually archived it and when.
+    const route = readFileSync(
+      join(process.cwd(), "app/api/platform/tenants/[id]/archive/route.ts"),
+      "utf8"
+    );
+
+    assert.match(route, /"This university is already archived", "CONFLICT"/);
+  });
+});

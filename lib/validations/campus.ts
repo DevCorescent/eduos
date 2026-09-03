@@ -11,6 +11,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { phoneField } from "./phone";
 import { paginationQuerySchema } from "./pagination";
 
 /**
@@ -66,7 +67,16 @@ export const createCampusSchema = z.object({
   name: z.string().trim().min(1),
   code: z.string().trim().min(1),
   address: z.record(z.string(), z.unknown()).optional(),
-  phone: z.string().trim().min(1).optional(),
+  // Tester issue #18: this was `z.string().trim().min(1)`, so "1" and a line
+  // of prose were both storable as a campus telephone number. The rule is the
+  // shared one in ./phone — the same rule the university contact number (#12)
+  // and student enrolment (#24) apply, so a number valid on one screen is
+  // valid on all of them.
+  //
+  // Reached by BOTH create and update: updateCampusSchema is
+  // createCampusSchema.partial(), so a value refused here cannot be introduced
+  // by a later edit.
+  phone: phoneField.optional(),
   email: z.email().optional(),
   isMain: z.boolean().optional(),
 });

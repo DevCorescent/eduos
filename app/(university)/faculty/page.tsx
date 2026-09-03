@@ -22,15 +22,17 @@ import { EMPLOYEE_STATUS_LABELS, EMPLOYEE_STATUS_VARIANTS } from "@/constants/la
 import { EMPLOYEE_STATUS_VALUES, type FacultyWithUser } from "@/types";
 import { formatDate } from "@/utils/format";
 
-/**
- * The backend query schema for this collection accepts page and limit only —
- * every other key is dropped by Zod before the handler sees it. The controls
- * stay visible and disabled rather than being deleted, so the screen keeps its
- * shape for when the parameters land.
+/*
+ * The search box and both filters were rendered DISABLED here, because
+ * facultyQuerySchema accepted page and limit only and Zod dropped ?q, ?status
+ * and ?departmentId before the handler saw them — tester issue #26, which read
+ * to the tester as "search and filters are not working".
+ *
+ * GET /api/faculty now accepts all three, so the `unsupported` props are gone
+ * and nothing else on this page changed: it already read the three parameters
+ * from searchParams, already passed them to listFaculty, and already carried
+ * them through pagination.
  */
-const UNSUPPORTED_SEARCH =
-  "Search will work once the backend adds a ?q parameter to this endpoint.";
-const UNSUPPORTED_FILTER = "Filtering will work once the backend accepts this parameter.";
 
 export const metadata: Metadata = { title: "Faculty" };
 
@@ -82,7 +84,12 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
       required: true,
       helperText: "At least 8 characters. They change it after signing in.",
     },
-    { kind: "text", name: "phone", label: "Phone", placeholder: "+91 98765 43210" },
+    // kind "tel", not "text" — tester issue #27. The API already refuses an
+    // invalid number: this form posts the phone to POST /api/users, whose
+    // createUserSchema uses the shared rule in lib/validations/phone.ts. What
+    // was missing was the message beside the field; without it the refusal
+    // arrived as a generic "Invalid input" banner naming no field.
+    { kind: "tel", name: "phone", label: "Phone", placeholder: "+91 98765 43210" },
     {
       kind: "text",
       name: "employeeId",
@@ -295,13 +302,11 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
       {header}
 
       <ListToolbar
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search by name, ID or designation…" />}
+        search={<ListSearch placeholder="Search by name, ID or designation…" />}
         filters={
           <>
             <ListFilter
               paramKey="status"
-              unsupported={UNSUPPORTED_FILTER}
               label="Status"
               hideLabel
               allLabel="All statuses"
@@ -312,7 +317,6 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
             />
             <ListFilter
               paramKey="departmentId"
-              unsupported={UNSUPPORTED_FILTER}
               label="Department"
               hideLabel
               allLabel="All departments"

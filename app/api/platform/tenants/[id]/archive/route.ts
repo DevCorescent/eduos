@@ -56,7 +56,8 @@ const TENANT_SELECT = {
 //              direction, `reason` is recorded when archiving. No retention or
 //              purge field is accepted, because the PRD defines none.
 // FLOW       : Authorise → validate → read the tenant → archive or restore.
-//              Archiving records archivedAt and the operator who did it;
+//              Archiving records archivedAt and the operator who did it, and
+//              restoring clears both;
 //              restoring returns the tenant to SUSPENDED and CLEARS neither
 //              column, so the archival stays on the record.
 // RESPONSE   : { success: true, data: <tenant>, message }
@@ -131,9 +132,18 @@ export async function POST(
       // Back to SUSPENDED, not ACTIVE. Restoring makes the institution
       // manageable again; putting its students back online is a separate,
       // deliberate status change.
+      //
+      // archivedAt and archivedBy are cleared in the SAME update, which the
+      // restore path previously did not do. It set the status and left the
+      // stamp behind, so a restored university carried a timestamp and an
+      // operator id asserting it was archived while its status said otherwise —
+      // two columns of the same row disagreeing about the same fact. The panel
+      // branches on `status`, so the screen looked right; anything reading the
+      // stamp did not. This mirrors what exam resources already do when a
+      // publish clears an archive.
       const restored = await prisma.tenant.update({
         where: { id: tenantId },
-        data: { status: "SUSPENDED" },
+        data: { status: "SUSPENDED", archivedAt: null, archivedBy: null },
         select: TENANT_SELECT,
       });
 
