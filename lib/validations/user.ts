@@ -16,13 +16,61 @@ import { loginSchema } from "./auth";
 import { paginationQuerySchema } from "./pagination";
 
 /**
- * Query schema for GET /api/users.
+ * A filter value that may legitimately arrive empty.
  *
- * Pagination is the shared contract. No search or filter parameter is defined:
- * the project implements none on any existing collection endpoint, so adding
- * one here would introduce a capability the rest of the API does not have.
+ * The same helper courseQuerySchema and its siblings declare, restated here
+ * because each module in this project keeps its own copy. "" means "no filter":
+ * every ListFilter reset writes an empty value, and a bookmarked "?roleId="
+ * must mean the same thing rather than answer 400.
+ *
+ * NO FORMAT ASSERTION on the id — it is an opaque cuid, and one naming nothing
+ * (or naming another tenant's role) simply matches no users, because the tenant
+ * predicate is ANDed alongside it in the route.
  */
-export const listUsersQuerySchema = paginationQuerySchema;
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
+ * Query schema for GET /api/users — tester issue #34.
+ *
+ * WHAT WAS WRONG
+ *   This was `paginationQuerySchema` and nothing else, so Zod dropped ?q,
+ *   ?roleId and ?isActive before the handler saw them and the route read every
+ *   user in the tenant — a search for a name nobody holds returned the whole
+ *   directory. The Users & Roles page knew: it rendered its search box and both
+ *   filters DISABLED, with a note saying they would work once the backend
+ *   accepted the parameters. This is that.
+ *
+ *   The note this replaces said "the project implements none on any existing
+ *   collection endpoint". That stopped being true with tester issues #22, #23,
+ *   #26, #28 and #30, each of which is the same defect fixed the same way.
+ *
+ *   The page has always read the three parameters from its searchParams, passed
+ *   them to listUsers and carried them through pagination, so nothing there
+ *   changes except removing the disabled state.
+ *
+ * WHY isActive IS PREPROCESSED RATHER THAN z.coerce.boolean()
+ *   z.coerce.boolean() is truthiness, so the string "false" would coerce to
+ *   TRUE and the "Inactive" filter would silently return active users — the
+ *   worst kind of wrong, because the screen looks like it worked. Only the two
+ *   literal strings the control writes are accepted; anything else is a 400,
+ *   and an empty value means "no filter" rather than "false".
+ */
+export const listUsersQuerySchema = paginationQuerySchema.extend({
+  q: optionalFilter,
+  roleId: optionalFilter,
+  isActive: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      z.enum(["true", "false"]).optional()
+    )
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === "true")),
+});
 
 export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>;
 
@@ -87,6 +135,22 @@ export const createUserSchema = z.object({
   displayName: z.string().trim().min(1).optional(),
   avatarUrl: z.url().optional(),
   isActive: z.boolean().optional(),
+  /**
+   * Whether to email this person that an account now exists — tester issue #36.
+   *
+   * OPT-IN, AND DEFAULTED TO FALSE ON PURPOSE. Four flows post to this one
+   * endpoint: Invite User, Add Faculty, Add Employee and Enrol Student. Only
+   * the first is an invitation; the other three create an account as a side
+   * effect of adding a person to a register, and mailing all of them would
+   * change three unrelated flows while fixing one. Absent means "do not send",
+   * so those three behave exactly as before.
+   *
+   * This is an INTENT flag, not identity. It says whether to send, never to
+   * whom or on whose behalf — the recipient comes from the created User row and
+   * the institution from requireTenant, so a client cannot redirect an
+   * invitation or brand it as another tenant by setting this.
+   */
+  sendInvitation: z.boolean().optional(),
 });
 
 export type CreateUserInput = z.infer<typeof createUserSchema>;

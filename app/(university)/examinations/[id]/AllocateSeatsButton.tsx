@@ -66,7 +66,7 @@ export function AllocateSeatsButton({
 
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="secondary" onClick={allocate} disabled={busy || issuedCount === 0}>
-          <LayoutGrid className="h-4 w-4" />
+          <LayoutGrid className="size-4" aria-hidden="true" />
           {busy ? "Allocating…" : "Allocate seats"}
         </Button>
 

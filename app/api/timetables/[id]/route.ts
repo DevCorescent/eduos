@@ -1,12 +1,26 @@
 // ============================================================================
 // OWNER  : Gauransh
 // MODULE : Timetable — Timetable Detail
-// FLOW   : Guard → tenant → param → tenant-scoped lookup → read / hard delete →
-//          response.
-// ACCESS : UNIVERSITY_ADMIN
+// FLOW   : Guard → tenant → param → tenant-scoped lookup → read / update /
+//          hard delete → response.
+// ACCESS : GET    — UNIVERSITY_ADMIN
+//          PATCH  — UNIVERSITY_ADMIN (any slot in the tenant)
+//                   FACULTY          (only their own authorized classes)
+//          DELETE — UNIVERSITY_ADMIN
 // BACKEND: Prisma
-// PURPOSE: View and permanently remove a single timetable slot within the
-//          authenticated tenant.
+// PURPOSE: View, reschedule, cancel and permanently remove a single timetable
+//          slot within the authenticated tenant.
+//
+// PATCH IS THE SCHEDULING EDIT PATH; DELETE IS NOT
+//   Rescheduling a class must not destroy and recreate the row. Attendance
+//   references Timetable, so a new id would orphan every register already taken
+//   against that slot — the class would keep its name and lose its history.
+//   Cancelling is `isActive: false` for the same reason, which is the soft-delete
+//   convention this schema already carries and the one Certificate revocation
+//   and Notification deletion both follow.
+//
+//   DELETE is left exactly as it was: an administrative hard removal, unchanged
+//   in behaviour and access. The scheduling UI never calls it.
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,8 +28,27 @@ import { prisma } from "@/lib/db/prisma";
 import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
-import { isRecordNotFound } from "@/lib/utils/prisma-errors";
-import { timetableIdParamSchema } from "@/lib/validations/timetable";
+import { requireFacultyTimetableAccess } from "@/lib/middleware/requireFacultyTimetableAccess";
+import { isForeignKeyViolation, isRecordNotFound } from "@/lib/utils/prisma-errors";
+import {
+  isBefore,
+  timetableIdParamSchema,
+  updateTimetableSchema,
+} from "@/lib/validations/timetable";
+import {
+  FACULTY_SCHEDULE_REFUSALS,
+  facultyMayScheduleClass,
+} from "@/lib/services/facultyTeaching";
+import {
+  describeSlot,
+  findScheduleConflicts,
+  resolveReferences,
+} from "@/lib/services/timetableScheduling";
+import {
+  notifyClassCancelled,
+  notifyClassRescheduled,
+  notifyClassScheduled,
+} from "@/lib/controllers/classScheduling.controller";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
@@ -27,11 +60,16 @@ import { validationDetails } from "@/lib/utils/validation-error";
  * segment config, so this constant cannot be shared from there — the same reason
  * COURSE_SELECT and FACULTY_SELECT are restated in their own detail routes.
  *
- * No relation is expanded. Timetable does carry four real relations — semester,
- * section, course and faculty — so unlike Course these joins are possible; they
- * are simply not taken here, matching the collection route and every other detail
- * route in the project. The response carries the four ids and the client resolves
- * names through their own endpoints.
+ * Three relations ARE expanded, matching the collection route. That reverses the
+ * original projection, which carried the four ids alone on the reasoning that a
+ * client resolves them through their own endpoints — true for an administrator
+ * and false for everybody else, since /api/courses is COURSE_READ_ROLES and
+ * /api/faculty is closed to FACULTY entirely. Without the joins the client had
+ * nowhere to get a course name from, and services/academics.ts filled the gap
+ * with a literal "—" on every row.
+ *
+ * The semester is deliberately NOT expanded: nothing on the scheduling screens
+ * displays a semester name per row, and the id is what the filters send.
  *
  * Timetable has no updatedAt column, so createdAt is the only timestamp there is
  * to report.
@@ -50,6 +88,13 @@ const TIMETABLE_SELECT = {
   sessionType: true,
   isActive: true,
   createdAt: true,
+  // Expanded for the same reason the collection route expands them: a slot is
+  // meaningless as four opaque cuids, and the roles that read this endpoint
+  // cannot resolve them — /api/courses is COURSE_READ_ROLES and /api/faculty is
+  // closed to FACULTY. See the collection route for the full note.
+  course: { select: { code: true, name: true } },
+  faculty: { select: { user: { select: { firstName: true, lastName: true } } } },
+  section: { select: { name: true } },
 } as const;
 
 // Timetable holds no BigInt, Decimal or Json column, so the shared serialize()
@@ -135,6 +180,260 @@ export async function GET(
     return NextResponse.json(ok(timetable));
   } catch (err) {
     console.error("[GET /api/timetables/[id]]", err);
+    return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
+  }
+}
+
+// PATCH
+// ACCESS     : UNIVERSITY_ADMIN — any slot within their own tenant.
+//              FACULTY          — only a class they are assigned to teach, and
+//                                 they may not hand it to a colleague.
+//
+//              Guarded by requireFacultyTimetableAccess, the same guard the
+//              collection route's POST uses, so the create and edit paths cannot
+//              disagree about who may schedule what.
+//
+// VALIDATION : updateTimetableSchema — every writable column optional, at least
+//              one required, and endTime after startTime whenever both arrive.
+//              A body changing only one of the two is checked against the
+//              STORED value of the other, below, where that value is known.
+//
+// FLOW       : Authorise → tenant-scoped lookup → merge body onto stored row →
+//              re-validate the merged time range → re-resolve references →
+//              re-run faculty ownership on the MERGED pair → re-run conflict
+//              detection excluding this row → update → notify.
+//
+//              EVERY CHECK RE-RUNS. An edit is not a smaller write than a
+//              create: moving a class into an occupied period is the same
+//              double-booking as scheduling it there, and a lecturer editing a
+//              class they own into a section they do not teach is exactly the
+//              escalation the create path refuses. The one difference is that
+//              this row is excluded from its own conflict scan, or a slot would
+//              always collide with itself and nothing could ever be edited.
+//
+//              THE OWNERSHIP TEST USES THE MERGED PAIR, not the stored one. A
+//              lecturer who owns (section A, course X) must not be able to
+//              rewrite that slot into (section B, course Y) that they do not
+//              own — checking the row as it stands would authorise exactly that.
+//
+// RESPONSE   : { success: true, data: <Timetable>, message: … }
+// STATUS     : 200 OK · 400 VALIDATION_ERROR · 401 UNAUTHORIZED
+//              403 FORBIDDEN · 404 NOT_FOUND · 409 CONFLICT · 500 SERVER_ERROR
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const guard = await requireFacultyTimetableAccess();
+    if (!guard.granted) return guard.response;
+
+    const { tenantId, userId, scope } = guard.access;
+
+    const parsedParam = timetableIdParamSchema.safeParse(await params);
+    if (!parsedParam.success) {
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParam.error),
+        },
+        { status: 400 }
+      );
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(fail("Invalid input", "VALIDATION_ERROR"), { status: 400 });
+    }
+
+    const parsed = updateTimetableSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsed.error),
+        },
+        { status: 400 }
+      );
+    }
+
+    const input = parsed.data;
+    const timetableId = parsedParam.data.id;
+
+    // Ownership of the ROW is proven before anything else. A foreign or unknown
+    // id stops here with the same 404 an administrator would receive, so a
+    // faculty caller probing ids learns nothing about which ones exist.
+    const existing = await prisma.timetable.findFirst({
+      where: { id: timetableId, tenantId },
+      select: TIMETABLE_SELECT,
+    });
+
+    if (!existing) {
+      return timetableNotFound();
+    }
+
+    // The slot as it WOULD be. Every subsequent check reads this, never the
+    // stored row, because the question is whether the RESULT is legal.
+    const merged = {
+      semesterId: input.semesterId ?? existing.semesterId,
+      sectionId: input.sectionId ?? existing.sectionId,
+      courseId: input.courseId ?? existing.courseId,
+      facultyId: input.facultyId ?? existing.facultyId,
+      day: input.day ?? existing.day,
+      startTime: input.startTime ?? existing.startTime,
+      endTime: input.endTime ?? existing.endTime,
+      roomNo: input.roomNo === undefined ? existing.roomNo : input.roomNo,
+      sessionType: input.sessionType ?? existing.sessionType,
+      isActive: input.isActive ?? existing.isActive,
+    };
+
+    // The half of the time rule the schema cannot apply: a body supplying only
+    // startTime is legal on its own and illegal against the stored endTime.
+    if (!isBefore(merged.startTime, merged.endTime)) {
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: { endTime: ["End time must be after start time"] },
+        },
+        { status: 400 }
+      );
+    }
+
+    // Re-resolved rather than trusted, because an edit may point the slot at a
+    // different semester, section, course or faculty member — and each of those
+    // has to belong to this tenant just as it did on create.
+    const references = await resolveReferences(tenantId, merged);
+    if (!references.ok) {
+      const label = references.missing === "faculty" ? "Faculty member" : references.missing;
+      return NextResponse.json(
+        fail(`${label.charAt(0).toUpperCase()}${label.slice(1)} not found`, "NOT_FOUND"),
+        { status: 404 }
+      );
+    }
+
+    let facultyId = merged.facultyId;
+
+    if (scope === "OWN") {
+      // The MERGED pair. See the flow note above for why the stored pair would
+      // be the wrong thing to authorise against.
+      //
+      // The requested facultyId is the merged value, which for a body that does
+      // not mention it is the STORED one — so a lecturer cannot edit a class
+      // timetabled under a colleague's name, even one they co-teach.
+      const decision = await facultyMayScheduleClass(
+        tenantId,
+        userId,
+        { sectionId: merged.sectionId, courseId: merged.courseId },
+        merged.facultyId
+      );
+
+      if (!decision.allowed) {
+        return NextResponse.json(
+          fail(FACULTY_SCHEDULE_REFUSALS[decision.reason], "FORBIDDEN"),
+          { status: 403 }
+        );
+      }
+
+      facultyId = decision.facultyId;
+    }
+
+    // Skipped when the class is being cancelled: a slot going inactive occupies
+    // nothing, so refusing it for clashing with a live class would make an
+    // already double-booked timetable impossible to clean up.
+    if (merged.isActive) {
+      const conflicts = await findScheduleConflicts(
+        tenantId,
+        { ...merged, facultyId },
+        timetableId
+      );
+
+      if (conflicts.length > 0) {
+        return NextResponse.json(
+          fail(conflicts.map((conflict) => conflict.message).join(" "), "CONFLICT"),
+          { status: 409 }
+        );
+      }
+    }
+
+    // Scoped by tenantId as well as id, so the write cannot reach another
+    // tenant's row even if the id were guessed.
+    const updated = await prisma.timetable.update({
+      where: { id: timetableId, tenantId },
+      data: { ...input, facultyId },
+      select: TIMETABLE_SELECT,
+    });
+
+    // --- Notification -------------------------------------------------------
+    //
+    // WHICH EVENT, exactly once. The three cases are mutually exclusive and are
+    // decided from the isActive transition, so a cancellation is never also
+    // announced as a reschedule and a no-op edit announces nothing at all.
+    const facultyName =
+      `${updated.faculty.user.firstName} ${updated.faculty.user.lastName}`.trim();
+
+    const notice = {
+      tenantId,
+      slotId: updated.id,
+      courseId: updated.courseId,
+      sectionId: updated.sectionId,
+      facultyUserId: references.references.facultyUserId,
+      courseLabel: `${references.references.courseCode} — ${references.references.courseName}`,
+      description: describeSlot(updated, { ...references.references, facultyName }),
+    };
+
+    const previousDescription = describeSlot(existing, {
+      courseCode: existing.course.code,
+      courseName: existing.course.name,
+      sectionName: existing.section.name,
+      facultyName:
+        `${existing.faculty.user.firstName} ${existing.faculty.user.lastName}`.trim(),
+    });
+
+    const notifyScope = "PATCH /api/timetables/[id]";
+
+    if (existing.isActive && !updated.isActive) {
+      await notifyClassCancelled(notifyScope, notice);
+    } else if (!existing.isActive && updated.isActive) {
+      // Restoring a cancelled class is a new class from a student's side: it is
+      // back on the timetable and they need to know it is happening again.
+      await notifyClassScheduled(notifyScope, notice);
+    } else if (previousDescription !== notice.description) {
+      // Only when something a student can SEE has moved. An edit that changes
+      // nothing visible does not interrupt a whole section for nothing.
+      await notifyClassRescheduled(notifyScope, { ...notice, previousDescription });
+    }
+
+    const message = !updated.isActive
+      ? "Class cancelled"
+      : existing.isActive
+        ? "Class updated"
+        : "Class restored";
+
+    return NextResponse.json(ok(updated, message));
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      // The row was removed between the lookup and the update. Reported as the
+      // same 404 the lookup would have produced.
+      if (isRecordNotFound(err)) {
+        return timetableNotFound();
+      }
+
+      if (isForeignKeyViolation(err)) {
+        return NextResponse.json(
+          fail("Referenced semester, section, course or faculty member not found", "NOT_FOUND"),
+          { status: 404 }
+        );
+      }
+    }
+
+    console.error("[PATCH /api/timetables/[id]]", err);
     return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
   }
 }

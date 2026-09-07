@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/Button";
 export function PrintButton() {
   return (
     <Button variant="secondary" onClick={() => window.print()}>
-      <Printer className="h-4 w-4" />
+      <Printer className="size-4" aria-hidden="true" />
       Print / Save as PDF
     </Button>
   );

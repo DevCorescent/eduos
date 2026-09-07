@@ -78,6 +78,14 @@ export interface CreateUserInput {
   lastName: string;
   phone?: string;
   isActive?: boolean;
+  /**
+   * Email the person that an account now exists — tester issue #36.
+   *
+   * Set by the Invite User flow only. Adding faculty, employees and students
+   * posts to the same endpoint and deliberately omits it, so those three send
+   * nothing and behave exactly as before.
+   */
+  sendInvitation?: boolean;
 }
 
 export async function createUser(input: CreateUserInput): Promise<ApiResponse<User>> {

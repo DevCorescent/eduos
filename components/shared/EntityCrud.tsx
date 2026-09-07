@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Eye, Pencil, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
@@ -87,6 +88,19 @@ export interface EntityRowActionsProps {
   entityLabel: string;
   /** The specific record's name, used in the delete confirmation. */
   recordName: string;
+  /**
+   * Where this row's detail page is. Renders a View action before Edit.
+   *
+   * Added for tester issue #37: the Faculty screen has had a detail page at
+   * /faculty/[id] all along and linked to it from the person's NAME, which is
+   * discoverable only by hovering. The actions column offered Edit and nothing
+   * else, so the tester correctly reported that there was no way to view a
+   * faculty member's details.
+   *
+   * A Link, not a button with a router push, so the row keeps every navigation
+   * affordance a link has — middle-click, open in a new tab, copy the address.
+   */
+  viewHref?: string;
   /** Omit to hide the edit action. */
   editFields?: FormField[];
   editValues?: FormValues;
@@ -118,6 +132,7 @@ export interface EntityRowActionsProps {
 export function EntityRowActions({
   entityLabel,
   recordName,
+  viewHref,
   editFields,
   editValues,
   onUpdate,
@@ -134,6 +149,18 @@ export function EntityRowActions({
 
   return (
     <div className="flex items-center justify-end gap-1">
+      {viewHref && (
+        // First, because reading a record precedes changing it — and because
+        // "view" is the safe action, so it sits furthest from delete.
+        <Link
+          href={viewHref}
+          aria-label={`View ${recordName}`}
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Eye className="size-4" aria-hidden="true" />
+        </Link>
+      )}
+
       {canEdit && (
         <button
           type="button"

@@ -15,6 +15,9 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
+import { resolveDepartmentScope } from "@/lib/auth/departmentScope";
+import { canWriteDepartmentRow } from "@/lib/auth/departmentWrite";
+import { FACULTY_WRITE_ROLES } from "@/lib/constants/departmentAcademics";
 import { isForeignKeyViolation, isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { facultyIdParamSchema, updateFacultySchema } from "@/lib/validations/faculty";
 import { ok, fail } from "@/types";
@@ -145,7 +148,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // TESTER ISSUE #49 — a head of department was answered "Forbidden".
+    //
+    // The role gate admits them; canWriteDepartmentRow below confines them to
+    // their own department, both for the row being changed and for the
+    // department they may move it to.
+    const guard = await requireRole(...FACULTY_WRITE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -209,6 +217,30 @@ export async function PATCH(
     }
 
     const input = parsedBody.data;
+
+    // MAY THIS CALLER CHANGE THIS ROW — tester issue #49.
+    //
+    // Two questions, both required: the member must already be in the head's
+    // department, and must still be in it afterwards. Checking only the first
+    // would let a head hand their staff to another department; checking only
+    // the second would let them claim another department's member by setting
+    // the column to their own.
+    //
+    // 403 rather than 404: the row is in the caller's own tenant and they were
+    // permitted to ask, so the honest answer is that it is not theirs — the
+    // same reading result.service applies to a head reading out of scope.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    const departmentDecision = canWriteDepartmentRow(
+      scope.scope,
+      existing.departmentId,
+      input.departmentId
+    );
+
+    if (!departmentDecision.allowed) {
+      return NextResponse.json(fail(departmentDecision.reason, "FORBIDDEN"), { status: 403 });
+    }
 
     // `typeof === "string"`, not `!== undefined` — tester issue #25. A null is
     // the caller clearing the column with "", and there is no row to look up:

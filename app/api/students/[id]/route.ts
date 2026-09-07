@@ -14,6 +14,11 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
+import {
+  programmeIdsForDepartment,
+  resolveDepartmentScope,
+} from "@/lib/auth/departmentScope";
+import { STUDENT_READ_ROLES } from "@/lib/constants/departmentAcademics";
 import { isForeignKeyViolation, isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { studentIdParamSchema, updateStudentSchema } from "@/lib/validations/student";
 import { ok, fail } from "@/types";
@@ -53,7 +58,11 @@ const STUDENT_SELECT = {
 // helper is not applied here.
 
 // GET
-// ACCESS     : UNIVERSITY_ADMIN
+// ACCESS     : STUDENT_READ_ROLES — UNIVERSITY_ADMIN and DEPARTMENT_HOD, the
+//              same set the listing admits. A head is narrowed to the students
+//              of their own department by the scope below; one outside it is a
+//              404, never a 403, so no id is confirmed to exist elsewhere.
+//              Tester issue #47.
 // VALIDATION : studentIdParamSchema — the [id] segment must be non-empty once
 //              trimmed.
 // FLOW       : Authorise → resolve tenant → read the student filtered by BOTH
@@ -67,7 +76,20 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // TESTER ISSUE #47 — a head of department opened a student and got
+    // "Something went wrong. Try again."
+    //
+    // THE LIST AND THE DETAIL DISAGREED. GET /api/students admits
+    // STUDENT_READ_ROLES, which has included DEPARTMENT_HOD since the
+    // department-scope work — so a head sees the register and can click a row.
+    // This handler was still requireRole("UNIVERSITY_ADMIN") alone, so the row
+    // they had just been shown answered 403, and the page's failure path became
+    // the generic error the tester saw.
+    //
+    // Reading ONE student is strictly narrower than reading the list of them,
+    // so this is the list's own rule finally applied here — not a widening.
+    // The department restriction below is what keeps it narrower.
+    const guard = await requireRole(...STUDENT_READ_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -95,10 +117,37 @@ export async function GET(
       );
     }
 
+    // The SAME department restriction the listing applies, derived from the
+    // authenticated identity — never from anything the caller sent.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    // Student carries no departmentId: it points at a Programme, and the
+    // Programme belongs to a Department. An empty array is applied rather than
+    // skipped — a department with no programmes has no students, and `in: []`
+    // matches nothing, which is the correct answer. Treating it as "no filter"
+    // would hand that head the whole university, which is the exact mistake the
+    // listing documents.
+    //
+    // A student with a null programmeId is invisible to a head, for the same
+    // reason an unowned course is: nobody has placed them in this department.
+    const departmentProgrammeIds = scope.scope.restricted
+      ? await programmeIdsForDepartment(tenant.id, scope.scope.departmentId)
+      : null;
+
     // findFirst rather than findUnique: the tenant filter is part of the lookup,
-    // so another tenant's row can never be returned or even acknowledged.
+    // so another tenant's row can never be returned or even acknowledged. A
+    // student outside the head's department is NOT FOUND rather than forbidden,
+    // so the response cannot confirm that a given id exists elsewhere in the
+    // tenant — the same shape the listing's `in` produces.
     const student = await prisma.student.findFirst({
-      where: { id: parsed.data.id, tenantId: tenant.id },
+      where: {
+        id: parsed.data.id,
+        tenantId: tenant.id,
+        ...(departmentProgrammeIds !== null
+          ? { programmeId: { in: departmentProgrammeIds } }
+          : {}),
+      },
       select: STUDENT_SELECT,
     });
 

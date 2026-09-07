@@ -18,14 +18,20 @@ import { roleLabel } from "@/constants/roles";
 import { formatNumber } from "@/utils/format";
 import type { RoleWithCounts } from "@/types";
 
-/**
- * The backend query schema for this collection accepts page and limit only —
- * every other key is dropped by Zod before the handler sees it. The controls
- * stay visible and disabled rather than being deleted, so the screen keeps its
- * shape for when the parameters land.
+/*
+ * The search box was rendered DISABLED here, because listRolesQuerySchema
+ * accepted page and limit only and Zod dropped ?q before the handler saw it —
+ * tester issue #35, which read to the tester as "search is not working".
+ *
+ * GET /api/roles now accepts it, so the `unsupported` prop is gone and nothing
+ * else on this page changed: it already read ?q from searchParams and already
+ * passed it to listRoles.
+ *
+ * NO FILTER CONTROL is added. The tester reported "search and filters", but
+ * this screen has never rendered one — a role carries a name, a description and
+ * the isSystem flag, and the flag is shown as a badge rather than filtered on.
+ * Inventing a filter here would be adding a feature under a bug fix.
  */
-const UNSUPPORTED_SEARCH =
-  "Search will work once the backend adds a ?q parameter to this endpoint.";
 
 export const metadata: Metadata = { title: "Roles" };
 
@@ -179,8 +185,7 @@ export default async function RolesPage({
     <>
       {header}
 
-      <ListToolbar search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search roles…" />} />
+      <ListToolbar search={<ListSearch placeholder="Search roles…" />} />
 
       <Card noPadding>
         <Table

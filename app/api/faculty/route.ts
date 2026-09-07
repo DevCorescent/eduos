@@ -15,7 +15,11 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import { resolveDepartmentScope } from "@/lib/auth/departmentScope";
-import { FACULTY_READ_ROLES } from "@/lib/constants/departmentAcademics";
+import { departmentForCreate } from "@/lib/auth/departmentWrite";
+import {
+  FACULTY_READ_ROLES,
+  FACULTY_WRITE_ROLES,
+} from "@/lib/constants/departmentAcademics";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
 import { createFacultySchema, facultyQuerySchema } from "@/lib/validations/faculty";
 import { generateIdentifier } from "@/lib/services/identifier.service";
@@ -244,7 +248,13 @@ export async function GET(request: NextRequest) {
 //              403 FORBIDDEN · 404 NOT_FOUND · 409 CONFLICT · 500 SERVER_ERROR
 export async function POST(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // TESTER ISSUE #49 — a head of department was answered "Forbidden".
+    //
+    // The role gate admits them; departmentForCreate below is what confines
+    // them. Admitting the role alone would have handed a head tenant-wide
+    // faculty creation, which is a worse bug than the one being fixed — the
+    // same split the listing above already uses.
+    const guard = await requireRole(...FACULTY_WRITE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -338,6 +348,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // WHICH DEPARTMENT THIS MEMBER BELONGS TO — tester issue #49.
+    //
+    // Resolved from the authenticated identity, never taken on trust: a head
+    // creates into their OWN department, and a body naming another one is
+    // refused rather than quietly rewritten. An administrator is unrestricted
+    // and keeps whatever the body asked for, including nothing.
+    //
+    // Runs AFTER the reference and duplicate checks so a head supplying a
+    // department that does not exist still gets the 404 an administrator would,
+    // rather than a 403 that would confirm nothing about it.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    const departmentDecision = departmentForCreate(scope.scope, input.departmentId);
+    if (!departmentDecision.allowed) {
+      return NextResponse.json(fail(departmentDecision.reason, "FORBIDDEN"), { status: 403 });
+    }
+
     // Single write — already atomic, so no transaction is warranted. tenantId
     // comes from the resolved tenant context, never from the request body.
         // PRD §9 — the identifier engine issues employeeId when the caller omits it.
@@ -370,6 +398,9 @@ export async function POST(request: NextRequest) {
           ...input,
           employeeId,
           tenantId: tenant.id,
+          // AFTER the spread, so a body value cannot override the department
+          // the caller is actually permitted to write into — tester issue #49.
+          departmentId: departmentDecision.departmentId,
         },
         select: FACULTY_SELECT,
       });

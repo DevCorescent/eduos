@@ -66,7 +66,14 @@ export default async function HallTicketPage({ params }: { params: Params }) {
       {/* Screen-only chrome. `print:hidden` keeps the navigation and buttons
           off the printed sheet, which is the whole point of a print stylesheet
           rather than a separate renderer. */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 print:hidden">
+      {/* Constrained to the SAME width as the ticket below — tester issue #43.
+          This row was full-bleed while the <article> beneath it is
+          `mx-auto max-w-2xl`, so `justify-between` threw the Print button out to
+          the far right edge of the viewport while the sheet it prints sat
+          centred and much narrower. On a wide screen the button appeared to
+          belong to nothing, which is the misalignment reported. Matching the
+          article's width puts it flush with the ticket's own right edge. */}
+      <div className="mx-auto mb-4 flex max-w-2xl flex-wrap items-center justify-between gap-3 print:hidden">
         <Link
           href="/student/examinations"
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-heading"

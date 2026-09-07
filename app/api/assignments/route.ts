@@ -16,8 +16,11 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
-import { paginationQuerySchema } from "@/lib/validations/pagination";
-import { createAssignmentSchema } from "@/lib/validations/assignment";
+
+import {
+  createAssignmentSchema,
+  listAssignmentsQuerySchema,
+} from "@/lib/validations/assignment";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
@@ -86,7 +89,7 @@ const ASSIGNMENT_SELECT = {
 //              costs one guard call and only a student pays for a second. An
 //              anonymous caller fails both and receives requireAuth's 401 from
 //              the second, so the fallback cannot turn a 401 into a 403.
-// VALIDATION : paginationQuerySchema — ?page (default 1) and ?limit (default 20,
+// VALIDATION : listAssignmentsQuerySchema — pagination plus ?q. Tester issues
 //              max 100). The shared contract is consumed directly rather than
 //              through a module-local alias, exactly as in the timetable and
 //              attendance routes; lib/validations/assignment.ts declares no query
@@ -134,7 +137,7 @@ export async function GET(request: NextRequest) {
 
     const { tenant } = tenantGuard;
 
-    const parsed = paginationQuerySchema.safeParse(
+    const parsed = listAssignmentsQuerySchema.safeParse(
       Object.fromEntries(request.nextUrl.searchParams)
     );
     if (!parsed.success) {
@@ -149,13 +152,40 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q } = parsed.data;
 
-    // The published predicate is applied to the count as well as the page, so a
-    // student is never told a wider total than they can read.
-    const where = isElevated
-      ? { tenantId: tenant.id }
-      : { tenantId: tenant.id, publishedAt: { not: null } };
+    // Whitespace-split, AND of ORs — the same search shape the users, roles,
+    // faculty, employee and course listings use, so a second word narrows the
+    // result rather than widening it.
+    //
+    // Title AND description are searched: an assignment is found by its name,
+    // and the description is the only other free text it carries. The course is
+    // searchable too, through the relation — "search by assignment name or
+    // keyword" in practice means "the DBMS one" as often as an exact title.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    // The tenant predicate LEADS and the search is ANDed onto it. The published
+    // predicate is applied to the count as well as the page, so a student is
+    // never told a wider total than they can read — and the search NARROWS that
+    // set rather than replacing it, so no term can surface an unpublished
+    // assignment to a student or another tenant's work to anyone.
+    const where: Prisma.AssignmentWhereInput = {
+      ...(isElevated
+        ? { tenantId: tenant.id }
+        : { tenantId: tenant.id, publishedAt: { not: null } }),
+      ...(terms.length > 0
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { title: { contains: term, mode: "insensitive" as const } },
+                { description: { contains: term, mode: "insensitive" as const } },
+                { course: { code: { contains: term, mode: "insensitive" as const } } },
+                { course: { name: { contains: term, mode: "insensitive" as const } } },
+              ],
+            })),
+          }
+        : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two reads.
     const [assignments, total] = await prisma.$transaction([

@@ -487,6 +487,109 @@ export class NotificationEmitterService {
       }))
     );
   }
+
+  // --- Class scheduling -----------------------------------------------------
+  //
+  // THREE EVENTS, NOT ONE. `timetableUpdated` above already exists and is kept
+  // untouched — it is the generic "something about this course's timetable
+  // changed" line, and other callers rely on it. It is not enough for class
+  // scheduling: a student who is told "the timetable for CS101 has changed"
+  // still has to go and find out what changed, and cannot tell a new class from
+  // a cancelled one. These three say which, and carry the period itself.
+  //
+  // WHY THE BODY IS PRE-COMPOSED BY THE CALLER
+  //   `description` arrives from describeSlot() in
+  //   lib/services/timetableScheduling.ts, so the created, rescheduled and
+  //   cancelled messages describe a slot identically. Building it here instead
+  //   would mean this module resolving course codes and lecturer names, which
+  //   is a database concern and not what an emitter does.
+  //
+  // WHY `data` CARRIES THE SLOT ID
+  //   It is the only stable handle on the class the notification is about. The
+  //   bell renders subject and body; anything richer later — a link straight to
+  //   the period in the student's timetable — needs this id and nothing else.
+
+  /**
+   * A class has been put on the timetable.
+   *
+   * Addressed to the students of the section the class is for, and to the
+   * lecturer teaching it. An empty recipient list is a no-op rather than an
+   * error: a section with no students admitted yet is an ordinary state at the
+   * start of a term, and refusing to schedule a class over it would be absurd.
+   */
+  async classScheduled(input: {
+    tenantId: string;
+    recipientUserIds: readonly string[];
+    slotId: string;
+    courseLabel: string;
+    description: string;
+  }): Promise<void> {
+    await this.emitQuietly(
+      input.recipientUserIds.map((userId) => ({
+        tenantId: input.tenantId,
+        userId,
+        category: NotificationCategory.TIMETABLE,
+        subject: `Class scheduled: ${input.courseLabel}`,
+        body: `A new class has been added to your timetable — ${input.description}.`,
+        data: { slotId: input.slotId, event: "SCHEDULED" },
+      }))
+    );
+  }
+
+  /**
+   * A scheduled class has moved.
+   *
+   * Carries BOTH periods. "Your class has been rescheduled" without saying from
+   * what is unactionable for a student who has already written the old time
+   * down — and the old period is what makes the message recognisable as being
+   * about the class they know.
+   */
+  async classRescheduled(input: {
+    tenantId: string;
+    recipientUserIds: readonly string[];
+    slotId: string;
+    courseLabel: string;
+    previousDescription: string;
+    description: string;
+  }): Promise<void> {
+    await this.emitQuietly(
+      input.recipientUserIds.map((userId) => ({
+        tenantId: input.tenantId,
+        userId,
+        category: NotificationCategory.TIMETABLE,
+        subject: `Class rescheduled: ${input.courseLabel}`,
+        body: `A class on your timetable has changed. It was ${input.previousDescription}. It is now ${input.description}.`,
+        data: { slotId: input.slotId, event: "RESCHEDULED" },
+      }))
+    );
+  }
+
+  /**
+   * A scheduled class has been cancelled.
+   *
+   * Cancellation here means `isActive: false` — the row survives, because
+   * Attendance references Timetable and destroying the slot would orphan every
+   * register already taken against it. The notification is the same either way
+   * from the student's side: the class is not happening.
+   */
+  async classCancelled(input: {
+    tenantId: string;
+    recipientUserIds: readonly string[];
+    slotId: string;
+    courseLabel: string;
+    description: string;
+  }): Promise<void> {
+    await this.emitQuietly(
+      input.recipientUserIds.map((userId) => ({
+        tenantId: input.tenantId,
+        userId,
+        category: NotificationCategory.TIMETABLE,
+        subject: `Class cancelled: ${input.courseLabel}`,
+        body: `A class has been removed from your timetable — ${input.description}.`,
+        data: { slotId: input.slotId, event: "CANCELLED" },
+      }))
+    );
+  }
 }
 
 /** The delivery channel every row this module writes carries. See the header. */

@@ -15,6 +15,8 @@ import { hashPassword } from "@/lib/auth/password";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { createUserSchema, listUsersQuerySchema } from "@/lib/validations/user";
+import { sendMail } from "@/lib/services/mail";
+import { invitationEmail } from "@/lib/services/invitationEmail";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
 
@@ -51,10 +53,11 @@ const USER_SELECT = {
 
 // GET
 // ACCESS     : UNIVERSITY_ADMIN
-// VALIDATION : listUsersQuerySchema — ?page (default 1) and ?limit (default 20,
-//              max 100), from the shared pagination contract. No search
-//              parameter is defined: the project implements none on any
-//              existing collection endpoint.
+// VALIDATION : listUsersQuerySchema — pagination plus ?q, ?roleId and
+//              ?isActive. An empty filter value means "no filter" rather than
+//              400, because that is what every ListFilter reset writes.
+//              Tester issue #34: this parsed bare pagination, so Zod dropped
+//              all three and the screen rendered its controls disabled.
 // FLOW       : Authorise → resolve tenant → read one page of that tenant's
 //              users alongside the total in a single transaction.
 //              Both queries are filtered by the tenant id that requireTenant
@@ -90,8 +93,48 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
-    const where = { tenantId: tenant.id };
+    const { page, limit, q, roleId, isActive } = parsed.data;
+
+    // Whitespace-split so a full name typed into one box matches in any order:
+    // User has firstName and lastName as separate columns and Prisma cannot
+    // concatenate them, so a plain OR would match "Asha" and "Rao" but never
+    // "Asha Rao". Every term must hit SOME column (AND of ORs), which is what
+    // makes a second word narrow the result instead of widening it.
+    //
+    // The same shape the faculty, employee and course listings use.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    // The tenant predicate LEADS and every filter is ANDed onto it, so no
+    // filter can widen the result beyond the caller's own tenant. A roleId
+    // naming another tenant's role matches nobody rather than reaching across.
+    const where: Prisma.UserWhereInput = {
+      tenantId: tenant.id,
+      ...(terms.length > 0
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { firstName: { contains: term, mode: "insensitive" as const } },
+                { lastName: { contains: term, mode: "insensitive" as const } },
+                { displayName: { contains: term, mode: "insensitive" as const } },
+                { email: { contains: term, mode: "insensitive" as const } },
+                { phone: { contains: term, mode: "insensitive" as const } },
+                // The screen's placeholder says "name, email or role", so the
+                // role name is searchable too — through the join table, since
+                // User carries no role column of its own.
+                { userRoles: { some: { role: { name: { contains: term, mode: "insensitive" as const } } } } },
+              ],
+            })),
+          }
+        : {}),
+      // `some`, not `every`: a user holding several roles matches when ANY of
+      // them is the one filtered for. The role is tenant-scoped alongside, so
+      // a guessed id from another tenant cannot select anybody.
+      ...(roleId ? { userRoles: { some: { roleId, role: { tenantId: tenant.id } } } } : {}),
+      // Explicitly undefined-checked rather than truthy: `false` is a real
+      // filter value here and `...(isActive ? …)` would drop the Inactive case
+      // entirely.
+      ...(isActive === undefined ? {} : { isActive }),
+    };
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The ordering is required for correctness, not presentation:
@@ -129,9 +172,15 @@ export async function GET(request: NextRequest) {
 // POST
 // ACCESS     : UNIVERSITY_ADMIN
 // VALIDATION : createUserSchema — email, password, firstName and lastName
-//              required; phone, displayName, avatarUrl and isActive optional.
-//              tenantId, passwordHash and isVerified are absent from the schema
-//              and so are stripped from any body that supplies them.
+//              required; phone, displayName, avatarUrl, isActive and
+//              sendInvitation optional. tenantId, passwordHash and isVerified
+//              are absent from the schema and so are stripped from any body
+//              that supplies them.
+//
+//              sendInvitation is an instruction to this handler rather than a
+//              column, and is opt-in: Invite User sets it, while Add Faculty,
+//              Add Employee and Enrol Student post here without it and are
+//              unaffected. See the invitation block below — tester issue #36.
 // FLOW       : Authorise → resolve tenant → parse body → reject an email
 //              already used within this tenant → hash the password → create the
 //              user under the resolved tenant.
@@ -179,7 +228,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { password, ...profile } = parsed.data;
+    // sendInvitation is pulled OUT of the spread deliberately: it is an
+    // instruction to this handler, not a User column, and leaving it in
+    // `profile` would send it straight into prisma.user.create.
+    const { password, sendInvitation, ...profile } = parsed.data;
 
     const existing = await prisma.user.findUnique({
       where: { tenantId_email: { tenantId: tenant.id, email: profile.email } },
@@ -212,7 +264,56 @@ export async function POST(request: NextRequest) {
       select: USER_SELECT,
     });
 
-    return NextResponse.json(ok(user, "User created"), { status: 201 });
+    // --- Invitation email — tester issue #36 --------------------------------
+    //
+    // "The user is created successfully, but the invitation email is not
+    // received." Nothing sent one: this handler created the row and returned.
+    // There was no trigger, no template and no failure to diagnose.
+    //
+    // SENT ONLY WHEN ASKED. Add Faculty, Add Employee and Enrol Student post
+    // here too and do not set the flag, so they are unchanged — see
+    // createUserSchema.sendInvitation.
+    //
+    // EVERY VALUE IS SERVER-RESOLVED. The recipient is `user.email`, read back
+    // from the row that was just written, never `profile.email` from the body;
+    // the institution is `tenant.name`, read from the database by requireTenant;
+    // and the origin is the host requireTenant already PROVED resolves to this
+    // caller's own tenant, so the link cannot point at another university's
+    // sign-in page.
+    //
+    // AFTER the write, never inside it. The account exists either way, and a
+    // mail relay being down must not roll back a created user.
+    let message = "User created";
+
+    if (sendInvitation) {
+      const { subject, text } = invitationEmail({
+        tenantName: tenant.name,
+        email: user.email,
+        signInUrl: `${request.nextUrl.origin}/login`,
+      });
+
+      const delivery = await sendMail({ to: user.email, subject, text });
+
+      if (delivery.delivered) {
+        message = "User invited";
+      } else {
+        // The provider's reason can name the recipient and the relay host, so
+        // it goes to the server log and never into the response body — the same
+        // rule POST /api/auth/forgot-password follows. No password and no token
+        // is logged, because neither is in the message.
+        console.error("[POST /api/users] invitation delivery failed:", delivery.reason);
+
+        // 201 still, because the account really was created — but the message
+        // says what did NOT happen rather than reporting a send that failed as
+        // a success. An administrator who reads "User created" and no more can
+        // pass the password on themselves; one told "invited" when nothing left
+        // the building would wait for a mail that never arrives, which is
+        // precisely how this issue was reported.
+        message = "User created, but the invitation email could not be sent";
+      }
+    }
+
+    return NextResponse.json(ok(user, message), { status: 201 });
   } catch (err) {
     // The uniqueness pre-check above narrows the common case; this covers the
     // race where a concurrent request inserted the same email in between.

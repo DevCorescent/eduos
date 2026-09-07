@@ -25,14 +25,13 @@ import {
 } from "@/constants/labels";
 import { formatDate, formatNumber } from "@/utils/format";
 
-/**
- * Verified against the running API, not inferred: this collection's query
- * schema accepts page and limit only, and drops every other key before the
- * handler sees it — a filtered request returns the same rows as an unfiltered
- * one. The controls stay visible and disabled rather than silently returning
- * everything.
+/*
+ * The search box was rendered DISABLED here, because the assignments listing
+ * parsed bare pagination and Zod dropped ?q before the handler saw it — tester
+ * issue #39. GET /api/assignments now accepts it, so the `unsupported` prop is
+ * gone and nothing else on this page changed: it already read ?q from
+ * searchParams and already passed it to listAssignments.
  */
-const UNSUPPORTED_SEARCH = "Search will be available when backend support is enabled.";
 
 export const metadata: Metadata = { title: "My Assignments" };
 
@@ -156,8 +155,7 @@ export default async function FacultyAssignmentsPage({
 
       <ListToolbar
         className="mt-6"
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search assignments…" />}
+        search={<ListSearch placeholder="Search assignments…" />}
       />
 
       <Card noPadding>
