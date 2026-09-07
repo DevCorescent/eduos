@@ -11,6 +11,7 @@
 
 import { z } from "zod";
 import { DayOfWeek, SessionType } from "@/app/generated/prisma/client";
+import { paginationQuerySchema } from "@/lib/validations/pagination";
 
 /**
  * Strict 24-hour HH:mm.
@@ -151,3 +152,140 @@ export type CreateTimetableInput = z.infer<typeof createTimetableSchema>;
 // /api/attendance, which names student, section and date. With neither pagination
 // nor filters there is nothing for a query schema to validate, so exporting an
 // empty one would be dead code.
+
+// ============================================================================
+// CLASS SCHEDULING
+//
+// Everything below was added for the Class Scheduling feature. The notes above
+// describe the endpoint as it was first built — GET and POST for administrators
+// only, no filters, no update, and explicitly no collision checking. All three
+// of those gaps are what this section closes, so the reasoning that follows
+// supersedes the "no query schema" and "no update schema" notes above rather
+// than contradicting them.
+// ============================================================================
+
+/**
+ * A filter value that may legitimately arrive empty.
+ *
+ * The same helper courseQuerySchema and batchQuerySchema declare, restated here
+ * because each module in this project keeps its own copy. "" means "no filter":
+ * every ListFilter reset writes an empty value, and a bookmarked "?sectionId="
+ * must mean the same thing rather than answer 400.
+ *
+ * No format assertion on the id — it is an opaque cuid, and one naming nothing
+ * (or naming another tenant's row) simply matches no slots, because the tenant
+ * predicate is ANDed alongside it in the route.
+ */
+const optionalFilter = z
+  .string()
+  .trim()
+  .max(200)
+  .optional()
+  .transform((value) => (value === undefined || value === "" ? undefined : value));
+
+/**
+ * Treat "" as absent BEFORE an enum check.
+ *
+ * "All days" and "All session types" write an empty value. Without this, "no
+ * filter" would be reported as an invalid DayOfWeek — the same reason
+ * courseQuerySchema preprocesses its `type`.
+ */
+function optionalEnumFilter<T extends z.ZodTypeAny>(schema: T) {
+  return z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+      schema.optional()
+    )
+    .optional();
+}
+
+/**
+ * Query schema for GET /api/timetables.
+ *
+ * WHAT WAS WRONG
+ *   This route parsed `paginationQuerySchema` directly, so Zod dropped every
+ *   other key before the handler saw it and the route read the whole tenant's
+ *   schedule regardless of what was asked for. That is the same defect class as
+ *   tester issues #22, #23, #26, #28 and #30, and it is fixed the same way.
+ *
+ * WHY THESE SIX
+ *   Exactly the controls the Timetable screen offers: semester, section, course,
+ *   faculty, day and session type. Nothing accepts a parameter no toolbar sends.
+ *
+ * NO ?isActive FILTER and no ?q. A cancelled slot lists alongside a live one
+ * with the client reading the flag — the same convention the Courses screen
+ * follows — and roomNo is free text on a grid that is read by day, not searched.
+ */
+export const timetableQuerySchema = paginationQuerySchema.extend({
+  semesterId: optionalFilter,
+  sectionId: optionalFilter,
+  courseId: optionalFilter,
+  facultyId: optionalFilter,
+  day: optionalEnumFilter(z.enum(DayOfWeek)),
+  sessionType: optionalEnumFilter(z.enum(SessionType)),
+});
+
+export type TimetableQuery = z.infer<typeof timetableQuerySchema>;
+
+/**
+ * Body schema for PATCH /api/timetables/[id].
+ *
+ * WHY AN UPDATE SCHEMA NOW EXISTS
+ *   The note above is right that the original phase defined no PATCH. Class
+ *   Scheduling requires rescheduling and cancellation, and both are updates:
+ *   moving a slot to another period must not destroy and recreate the row,
+ *   because Attendance references Timetable and a new id would orphan every
+ *   register already taken against it.
+ *
+ * WHY NOT createTimetableSchema.partial()
+ *   Two reasons. The create schema carries a `.refine`, and calling .partial()
+ *   on a refined schema is not available in Zod 4 — the refinement wraps the
+ *   object rather than living on it. And the rule itself has to change: on a
+ *   partial body, "endTime after startTime" can only be checked when BOTH
+ *   arrive, so the route re-checks the merged pair against the stored row. That
+ *   is a genuinely different rule, not the same one applied loosely.
+ *
+ * roomNo accepts null so a room can be cleared. sessionType and isActive are
+ * plain optionals — isActive is how a class is cancelled and restored, which is
+ * why there is no DELETE in the scheduling flow at all.
+ */
+export const updateTimetableSchema = z
+  .object({
+    semesterId: z.string().trim().min(1).optional(),
+    sectionId: z.string().trim().min(1).optional(),
+    courseId: z.string().trim().min(1).optional(),
+    facultyId: z.string().trim().min(1).optional(),
+    day: z.enum(DayOfWeek).optional(),
+    startTime: timeOfDay.optional(),
+    endTime: timeOfDay.optional(),
+    roomNo: z.string().trim().min(1).nullable().optional(),
+    sessionType: z.enum(SessionType).optional(),
+    isActive: z.boolean().optional(),
+  })
+  // An empty body is a no-op the caller almost certainly did not intend, and it
+  // would otherwise re-run every conflict check and re-notify every student
+  // about a change that did not happen.
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "Supply at least one field to update",
+  })
+  // Only when BOTH are present. A body moving only the start time is checked
+  // against the stored end time in the route, where that value is known.
+  .refine(
+    (data) =>
+      data.startTime === undefined || data.endTime === undefined || data.endTime > data.startTime,
+    { message: "End time must be after start time", path: ["endTime"] }
+  );
+
+export type UpdateTimetableInput = z.infer<typeof updateTimetableSchema>;
+
+/**
+ * The one place the time comparison is spelled out.
+ *
+ * Sound only because timeOfDay above requires zero-padded 24-hour HH:mm: two
+ * fixed-width strings sort identically as text and as clock time. Exported so
+ * the scheduling service compares times the same way the schema validates them,
+ * rather than growing a second notion of "later".
+ */
+export function isBefore(earlier: string, later: string): boolean {
+  return earlier < later;
+}

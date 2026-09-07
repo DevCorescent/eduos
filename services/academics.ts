@@ -15,8 +15,10 @@ import type {
   Curriculum,
   CurriculumSubject,
   CurriculumSubjectRow,
+  DayOfWeek,
   ListParams,
   PaginatedResult,
+  SessionType,
   Timetable,
   TimetableSlot,
 } from "@/types";
@@ -107,6 +109,152 @@ export async function removeCurriculumSubject(
 // --- Timetable --------------------------------------------------------------
 
 /**
+ * A slot as the timetable endpoints now return it.
+ *
+ * The three relations are optional in the type even though the routes always
+ * select them: a response from an older deployment, or from the one endpoint
+ * that omits the section, must degrade to a dash rather than crash a grid on
+ * `undefined.code`.
+ */
+type TimetableWithRelations = Timetable & {
+  course?: { code: string; name: string } | null;
+  faculty?: { user: { firstName: string; lastName: string } } | null;
+  section?: { name: string } | null;
+};
+
+/**
+ * Flatten the joined relations onto the shape the screens read.
+ *
+ * ONE function rather than a mapping per caller, because the em-dash fallback
+ * is a display decision and three copies of it drift — which is exactly how
+ * this module ended up with three hardcoded "—" values and no join behind them.
+ */
+function toSlot({ course, faculty, section, ...slot }: TimetableWithRelations): TimetableSlot {
+  const facultyName = faculty
+    ? `${faculty.user.firstName} ${faculty.user.lastName}`.trim()
+    : "";
+
+  return {
+    ...slot,
+    courseCode: course?.code ?? "—",
+    courseName: course?.name ?? "—",
+    facultyName: facultyName || "—",
+    sectionName: section?.name ?? null,
+  };
+}
+
+/**
+ * The institution-wide schedule, filtered.
+ *
+ * UNIVERSITY_ADMIN only — the endpoint refuses everyone else, deliberately, and
+ * a lecturer's own week is getFacultyTimetable below. `params` carries the six
+ * filters the route accepts: semesterId, sectionId, courseId, facultyId, day
+ * and sessionType.
+ */
+export async function listTimetable(
+  params?: ListParams
+): Promise<ApiResponse<PaginatedResult<TimetableSlot>>> {
+  const result = await apiList<TimetableWithRelations>("/api/timetables", "timetables", params);
+  if (!result.success) return result;
+
+  return {
+    success: true,
+    data: { ...result.data, items: result.data.items.map(toSlot) },
+  };
+}
+
+/** The fields a scheduling form submits. */
+export interface ScheduleClassInput {
+  semesterId: string;
+  sectionId: string;
+  courseId: string;
+  facultyId: string;
+  day: DayOfWeek;
+  startTime: string;
+  endTime: string;
+  roomNo?: string;
+  sessionType?: SessionType;
+}
+
+/**
+ * Put a class on the timetable.
+ *
+ * The API answers 409 CONFLICT with a message naming the clash, so the caller
+ * surfaces `result.error` verbatim rather than replacing it with a generic
+ * failure — the whole point of composing those messages server-side.
+ */
+export async function scheduleClass(
+  input: ScheduleClassInput
+): Promise<ApiResponse<Timetable>> {
+  return apiRequest<Timetable>("/api/timetables", { method: "POST", body: input });
+}
+
+/**
+ * Reschedule, cancel or restore a class.
+ *
+ * PATCH rather than DELETE-and-recreate: Attendance references Timetable, so a
+ * new id would orphan every register already taken against the slot. Cancelling
+ * is `isActive: false` for the same reason.
+ */
+export async function updateTimetableSlot(
+  id: string,
+  // roomNo is OMITTED from the partial before being redeclared, not merely
+  // widened alongside it: an intersection would narrow `string | null` back to
+  // `string` against the create shape, and clearing a room would stop
+  // typechecking. Null is the only way to say "remove the room", because an
+  // omitted key means "leave it alone" to the PATCH handler.
+  input: Omit<Partial<ScheduleClassInput>, "roomNo"> & {
+    roomNo?: string | null;
+    isActive?: boolean;
+  }
+): Promise<ApiResponse<Timetable>> {
+  return apiRequest<Timetable>(`/api/timetables/${id}`, { method: "PATCH", body: input });
+}
+
+/** One class the signed-in lecturer is authorized to schedule. */
+export interface TeachingOption {
+  semesterId: string | null;
+  semesterName: string | null;
+  sectionId: string;
+  sectionName: string;
+  courseId: string;
+  courseCode: string;
+  courseName: string;
+}
+
+/**
+ * The classes the signed-in lecturer may schedule.
+ *
+ * Takes no id — the endpoint resolves the caller from their session — and
+ * returns the same (section, course) pairs the scheduling API will accept, so
+ * the form cannot offer a choice the write then refuses. It is a convenience,
+ * never the authorization: every mutation re-checks the submitted pair
+ * server-side.
+ */
+export async function getMyTeaching(): Promise<ApiResponse<TeachingOption[]>> {
+  const result = await apiRequest<{ teaching: TeachingOption[] }>("/api/faculty/me/teaching");
+  if (!result.success) return result;
+
+  return { success: true, data: result.data.teaching };
+}
+
+/**
+ * The signed-in student's own weekly timetable.
+ *
+ * Takes no id. The endpoint resolves the caller from their session, so this
+ * cannot be asked about another student — the same shape as the rest of the
+ * /api/student surface.
+ */
+export async function getStudentTimetable(): Promise<ApiResponse<TimetableSlot[]>> {
+  const result = await apiRequest<{ timetables: TimetableWithRelations[] }>(
+    "/api/student/timetable"
+  );
+  if (!result.success) return result;
+
+  return { success: true, data: result.data.timetables.map(toSlot) };
+}
+
+/**
  * One section's weekly timetable, joined to course and lecturer.
  *
  * Unpaginated for the same reason as the curriculum: a week grid is read whole,
@@ -115,22 +263,19 @@ export async function removeCurriculumSubject(
 export async function getSectionTimetable(
   sectionId: string
 ): Promise<ApiResponse<TimetableSlot[]>> {
-  const result = await apiList<Timetable>(
+  // The route now joins the course and the lecturer, so the code, name and
+  // lecturer are real values rather than the literal "—" this function used to
+  // invent for every row — which is what made the Timetable screen render a
+  // grid of dashes. Same change, and same reasoning, as getFacultyTimetable
+  // below.
+  const result = await apiList<TimetableWithRelations>(
     `/api/timetables/section/${sectionId}`,
     "timetables",
-    { limit: 100 }
+    { limit: MAX_LIST_LIMIT }
   );
   if (!result.success) return result;
 
-  return {
-    success: true,
-    data: result.data.items.map((slot) => ({
-      ...slot,
-      courseCode: "—",
-      courseName: "—",
-      facultyName: "—",
-    })),
-  };
+  return { success: true, data: result.data.items.map(toSlot) };
 }
 
 /** One lecturer's own week, across every section they teach. */
@@ -143,21 +288,20 @@ export async function getFacultyTimetable(
   // slots, so naming the lecturer on every row would be repeating who is
   // already logged in, and joining User for it would widen the projection for
   // nothing.
-  const result = await apiList<Timetable & { course?: { code: string; name: string } | null }>(
+  const result = await apiList<TimetableWithRelations>(
     `/api/timetables/faculty/${facultyId}`,
     "timetables",
-    { limit: 100 }
+    { limit: MAX_LIST_LIMIT }
   );
   if (!result.success) return result;
 
   return {
     success: true,
-    data: result.data.items.map(({ course, ...slot }) => ({
-      ...slot,
-      courseCode: course?.code ?? "—",
-      courseName: course?.name ?? "—",
-      facultyName: "—",
-    })),
+    // toSlot, like the two reads above. This route joins the course but not the
+    // lecturer, so facultyName falls through to the same "—" the handwritten
+    // mapping produced — with the difference that it is now one fallback rule
+    // rather than three copies of it.
+    data: result.data.items.map(toSlot),
   };
 }
 

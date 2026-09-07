@@ -46,6 +46,14 @@ export type FormField =
   // put beside the field. Declared as a kind rather than a per-field callback,
   // because that is exactly how "email" already works here.
   | (BaseField & { kind: "tel"; placeholder?: string })
+  // Renders as a time-of-day input and is validated against the same strict
+  // 24-hour HH:mm the timetable API requires. Added for Class Scheduling: the
+  // browser's own time picker submits that format on every modern engine, but
+  // a manually typed or autofilled value need not, and the API answers a bad
+  // one with a generic "Invalid input" whose `details` never reach the client.
+  // Declared as a kind rather than a per-field callback for the same reason
+  // "email" and "tel" already are.
+  | (BaseField & { kind: "time" })
   | (BaseField & { kind: "select"; options: SelectOption[]; placeholder?: string })
   | (BaseField & { kind: "switch" });
 
@@ -175,6 +183,18 @@ export function EntityFormModal({
           errors[field.name] = PHONE_SHAPE_MESSAGE;
         } else if (digits < PHONE_MIN_DIGITS || digits > PHONE_MAX_DIGITS) {
           errors[field.name] = PHONE_LENGTH_MESSAGE;
+        }
+      }
+
+      // Optional, but validated when supplied — the same shape as email and tel
+      // above. The pattern is the API's own, restated here rather than imported
+      // because lib/validations/timetable.ts is a server module: it pulls in the
+      // generated Prisma enums, which must not be bundled into a client
+      // component. The rule is three characters of regex and is pinned against
+      // the schema by a test, so the two cannot drift silently.
+      if (field.kind === "time" && String(value ?? "").trim()) {
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(value).trim())) {
+          errors[field.name] = "Enter a time as HH:mm, for example 09:00.";
         }
       }
 
@@ -317,11 +337,13 @@ export function EntityFormModal({
                       ? "number"
                       : field.kind === "date"
                         ? "date"
-                        : field.kind === "tel"
-                        ? "tel"
-                        : field.kind === "email"
-                          ? "email"
-                          : "text"
+                        : field.kind === "time"
+                          ? "time"
+                          : field.kind === "tel"
+                            ? "tel"
+                            : field.kind === "email"
+                              ? "email"
+                              : "text"
                   }
                   placeholder={"placeholder" in field ? field.placeholder : undefined}
                   maxLength={field.kind === "text" ? field.maxLength : undefined}

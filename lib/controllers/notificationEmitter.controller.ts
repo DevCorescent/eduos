@@ -141,6 +141,43 @@ export async function findStudentUserIdsForCourse(
 }
 
 /**
+ * The User ids of the students who sit in a section.
+ *
+ * WHY THIS EXISTS ALONGSIDE findStudentUserIdsForCourse
+ *   They answer different questions, and class scheduling needs both.
+ *   findStudentUserIdsForCourse reads CourseRegistration — who ENROLLED in this
+ *   course — which is the precise audience once registration has run. This
+ *   reads Student.sectionId — who is IN this teaching group — which is the
+ *   relationship the student timetable itself is built on
+ *   (lib/services/parentPortal.service.ts childTimetable does exactly the same
+ *   lookup for a parent).
+ *
+ *   Using only the registration set would notify nobody at all before
+ *   registration opens, which is precisely when a timetable is published. Using
+ *   only the section set would miss a student registered for the course through
+ *   a section that was later changed. The scheduling routes take the UNION, so
+ *   the people notified are exactly the people who will see the class appear.
+ *
+ * Filtered to ACTIVE students: a graduated or withdrawn student is not part of
+ * a teaching group any more, and telling them about next term's lecture would
+ * be addressing someone who has left.
+ *
+ * COST: one statement.
+ */
+export async function findStudentUserIdsForSection(
+  tenantId: string,
+  sectionId: string
+): Promise<readonly string[]> {
+  const rows = await prisma.student.findMany({
+    where: { tenantId, sectionId, status: "ACTIVE" },
+    select: { userId: true },
+    take: MAX_RECIPIENTS,
+  });
+
+  return [...new Set(rows.map((row) => row.userId))];
+}
+
+/**
  * The User id behind a Student id.
  *
  * Used to address a student directly — the assignment-evaluated event knows a

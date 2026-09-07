@@ -50,6 +50,21 @@ const TIMETABLE_SELECT = {
   sessionType: true,
   isActive: true,
   createdAt: true,
+  // The course and lecturer this slot is for, joined here rather than left to
+  // the caller.
+  //
+  // WHY: the note above is right that the section itself would be a repeated
+  // known value on every row — but the COURSE and the LECTURER are what a
+  // weekly grid actually displays, and they differ per row. Leaving them out
+  // meant services/academics.ts had nowhere to read a name from and filled
+  // getSectionTimetable with a literal "—" for courseCode, courseName and
+  // facultyName, so the Timetable screen rendered a grid of dashes.
+  //
+  // The faculty route already takes the course join for exactly this reason.
+  // Two scalar columns off each relation; no new authorization surface, since a
+  // caller who may read the slot may read which class it is.
+  course: { select: { code: true, name: true } },
+  faculty: { select: { user: { select: { firstName: true, lastName: true } } } },
 } as const;
 
 // Timetable holds no BigInt, Decimal or Json column, so the shared serialize()

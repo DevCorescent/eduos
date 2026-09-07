@@ -726,6 +726,15 @@ export interface TimetableSlot extends Timetable {
   courseCode: string;
   courseName: string;
   facultyName: string;
+  /**
+   * The teaching group, when the endpoint that returned this one names it.
+   *
+   * Null rather than "—" on the two routes that omit it, both for good reason:
+   * a section-keyed read would repeat the same known value on every row, and a
+   * student's own timetable is one section by definition. The institution-wide
+   * list is the view that needs it, because there it differs per row.
+   */
+  sectionName?: string | null;
 }
 
 /**

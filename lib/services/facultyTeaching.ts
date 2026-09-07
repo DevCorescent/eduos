@@ -205,3 +205,86 @@ export async function facultyMayMarkRecords(
 
   return deps.teachesAllPairs(tenantId, facultyId, distinctPairs);
 }
+
+// --- Scheduling confinement -------------------------------------------------
+
+/** The reads the scheduling decision composes. Injected so every branch is testable. */
+export interface FacultyScheduleDeps {
+  findFacultyIdForUser: typeof findFacultyIdForUser;
+  teachesPair: typeof teachesPair;
+}
+
+const DEFAULT_SCHEDULE_DEPS: FacultyScheduleDeps = { findFacultyIdForUser, teachesPair };
+
+/** Either the faculty id the caller may schedule as, or why they may not. */
+export type FacultyScheduleDecision =
+  | { allowed: true; facultyId: string }
+  | { allowed: false; reason: "NO_FACULTY_RECORD" | "NOT_YOUR_CLASS" | "OTHER_FACULTY" };
+
+/**
+ * May THIS lecturer schedule or reschedule THIS class — and as whom?
+ *
+ * Stated here beside facultyMayMarkRecords rather than inline in the timetable
+ * routes, for the reason this whole module exists: the rule that decides who may
+ * WRITE a slot has to be the same rule that decides who may read one, and the
+ * only way to guarantee that is for both to consult teachesPair.
+ *
+ * INPUT   : the resolved tenant, `session.sub`, the (section, course) pair the
+ *           slot names, and the facultyId the BODY asked for — which is a claim,
+ *           not an authority.
+ * RETURNS : the caller's own FacultyMember id on success. The route writes THAT
+ *           into the row, never the body's value, so a lecturer cannot put a
+ *           colleague's name on a class even when the pair is one they teach.
+ *
+ * THE THREE REFUSALS ARE DISTINCT ON PURPOSE, unlike facultyMayMarkRecords,
+ * which collapses everything into one boolean. Marking a register is a bulk
+ * operation where a specific message would enumerate which classes exist;
+ * scheduling names exactly one class the caller has already chosen from their
+ * own authorized options, so nothing is disclosed by saying which rule stopped
+ * them — and "you are not assigned to this course" is the difference between a
+ * lecturer filing a support ticket and one giving up.
+ *
+ * Callers must apply this ONLY to a non-elevated caller. An administrator
+ * schedules on behalf of faculty legitimately and holds no FacultyMember row.
+ */
+export async function facultyMayScheduleClass(
+  tenantId: string,
+  userId: string,
+  pair: TeachingPair,
+  requestedFacultyId: string | undefined,
+  deps: FacultyScheduleDeps = DEFAULT_SCHEDULE_DEPS
+): Promise<FacultyScheduleDecision> {
+  // Resolved from the authenticated subject, never from the body.
+  const facultyId = await deps.findFacultyIdForUser(tenantId, userId);
+
+  // The FACULTY role without a FacultyMember row is a misconfigured account,
+  // not an authority to publish a timetable.
+  if (facultyId === null) return { allowed: false, reason: "NO_FACULTY_RECORD" };
+
+  // A body naming someone else is refused rather than quietly rewritten. Both
+  // readings are safe — the write uses `facultyId` either way — but silently
+  // substituting would tell the caller their request succeeded as sent, and the
+  // schedule would then differ from what they submitted.
+  if (requestedFacultyId !== undefined && requestedFacultyId !== facultyId) {
+    return { allowed: false, reason: "OTHER_FACULTY" };
+  }
+
+  // The pair itself. An assignment (or an existing slot) is what makes this
+  // lecturer the owner of this class; without one they may not put a class on
+  // the timetable for it, whichever name they put on the row.
+  const teaches = await deps.teachesPair(tenantId, facultyId, pair.sectionId, pair.courseId);
+
+  if (!teaches) return { allowed: false, reason: "NOT_YOUR_CLASS" };
+
+  return { allowed: true, facultyId };
+}
+
+/** The refusal message each reason produces. One per reason, stated once. */
+export const FACULTY_SCHEDULE_REFUSALS: Record<
+  Exclude<FacultyScheduleDecision, { allowed: true }>["reason"],
+  string
+> = {
+  NO_FACULTY_RECORD: "Your account is not linked to a faculty record.",
+  NOT_YOUR_CLASS: "You are not assigned to teach this course for this section.",
+  OTHER_FACULTY: "You can only schedule classes for yourself.",
+};
