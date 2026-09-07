@@ -12,6 +12,7 @@
 // ============================================================================
 
 import { z } from "zod";
+import { paginationQuerySchema } from "./pagination";
 import { AssignmentType } from "@/app/generated/prisma/client";
 
 /**
@@ -155,12 +156,39 @@ export const assignmentIdParamSchema = z.object({
 
 export type AssignmentIdParam = z.infer<typeof assignmentIdParamSchema>;
 
-// No query schema is declared. GET /api/assignments pages on the shared
-// contract, and paginationQuerySchema is consumed directly by the route exactly
-// as the timetable and attendance routes consume it — the aliases other modules
-// define (courseQuerySchema and siblings) are plain re-exports of that same
-// object, never extensions of it, so declaring one here would add a name without
-// adding a rule. No filter parameter is defined for this phase.
+/**
+ * Query schema for GET /api/assignments — tester issues #39 and #45.
+ *
+ * WHAT WAS WRONG
+ *   The route consumed `paginationQuerySchema` directly, so Zod dropped ?q
+ *   before the handler saw it and every assignment in the tenant came back
+ *   whatever was typed. BOTH assignment screens knew and said so: the faculty
+ *   My Assignments page and the student My Assignments page each rendered their
+ *   search box DISABLED with a note that it would work once the backend
+ *   accepted the parameter. #39 is the faculty screen and #45 the student one —
+ *   one defect, reported twice from two portals.
+ *
+ *   The note this replaces argued that an alias here "would add a name without
+ *   adding a rule". That was true while it was a plain re-export; it is not
+ *   true now, and the same reasoning was retired for courses (#30), employees
+ *   (#28), faculty (#26), users (#34) and roles (#35).
+ *
+ * ONLY ?q. Neither screen renders a ListFilter that reaches this endpoint, so
+ * no other parameter is accepted — adding one nothing sends is how the
+ * disabled-control problem started.
+ */
+export const listAssignmentsQuerySchema = paginationQuerySchema.extend({
+  // "" means "no filter": clearing the box writes an empty value, and a
+  // bookmarked "?q=" must mean the same rather than answer 400.
+  q: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .transform((value) => (value === undefined || value === "" ? undefined : value)),
+});
+
+export type ListAssignmentsQuery = z.infer<typeof listAssignmentsQuerySchema>;
 
 // No publish schema is declared. POST /api/assignments/[id]/publish carries no
 // body: the transition it performs is fixed, its target state is not chosen by

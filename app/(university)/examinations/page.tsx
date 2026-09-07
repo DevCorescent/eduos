@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ClipboardList, CalendarPlus } from "lucide-react";
+import { buttonStyles } from "@/components/ui/Button";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { EmptyState } from "@/components/layout/EmptyState";
 import { StateView } from "@/components/shared/StateView";
@@ -81,11 +82,21 @@ export default async function ExaminationsPage({
       title="Examinations"
       subtitle="The examination calendar for this university."
       action={
-        <Link
-          href="/examinations/new"
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-        >
-          <CalendarPlus className="h-4 w-4" />
+        // buttonStyles, not hand-rolled classes — tester issue #40.
+        //
+        // This was `rounded-md bg-primary px-3 py-2` with no focus ring: a
+        // square-cornered, flat-filled box of a different height sitting among
+        // the pill-shaped, gradient-filled buttons every other screen uses.
+        // DESIGN.md is explicit — "Buttons & Chips: Always fully pill-shaped" —
+        // and Button's own base styles encode it, so the control read as
+        // misaligned against the header row it shares. The `link-as-button`
+        // pattern already exists on the Users screen ("Manage roles").
+        //
+        // It also restores the keyboard focus ring the hand-rolled classes
+        // dropped, which is an accessibility regression rather than a cosmetic
+        // one.
+        <Link href="/examinations/new" className={buttonStyles()}>
+          <CalendarPlus className="size-4" aria-hidden="true" />
           Schedule examination
         </Link>
       }

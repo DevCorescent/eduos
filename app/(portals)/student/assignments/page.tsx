@@ -25,13 +25,20 @@ import { cn } from "@/lib/utils";
 import type { AssignmentRow } from "@/types";
 
 /**
- * Verified against the running API, not inferred: GET /api/assignments accepts
- * page and limit only, and drops ?q and ?state before the handler sees them —
- * a filtered request returns the same three rows as an unfiltered one. The
- * controls stay visible and disabled rather than quietly returning everything.
+ * The search box was rendered DISABLED here, because GET /api/assignments
+ * parsed bare pagination and Zod dropped ?q before the handler saw it — tester
+ * issue #45, the student-side report of the same defect the faculty screen hit
+ * as #39. The endpoint now accepts ?q, so the search is live and nothing else
+ * changed: this page already read it from searchParams and already passed it to
+ * listStudentAssignments.
+ *
+ * ?state STAYS DISABLED, deliberately. It is not the same gap. "Not submitted /
+ * awaiting marks / graded" is a property of THIS student's submission, not a
+ * column on Assignment — the endpoint has nothing to filter on, and answering
+ * it would mean joining each row's submissions and paginating on the result.
+ * That is a feature, not the reported bug, and #45 reports search only. The
+ * control keeps saying so rather than silently returning everything.
  */
-const UNSUPPORTED_SEARCH =
-  "Search will be available when backend support is enabled.";
 const UNSUPPORTED_FILTER =
   "Filtering will be available when backend support is enabled.";
 
@@ -179,8 +186,7 @@ export default async function StudentAssignmentsPage({
 
       <ListToolbar
         className="mt-6"
-        search={<ListSearch
-              unsupported={UNSUPPORTED_SEARCH} placeholder="Search assignments…" />}
+        search={<ListSearch placeholder="Search assignments…" />}
         filters={
           <ListFilter
             paramKey="state"

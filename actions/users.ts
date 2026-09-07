@@ -50,6 +50,14 @@ export async function createUserAction(values: FormValues): Promise<ActionResult
     lastName: str(values, "lastName"),
     phone: optionalStr(values, "phone"),
     isActive: Boolean(values.isActive),
+    // Tester issue #36: the account was created and nothing was ever sent, so
+    // the invited person never learned they had one. THIS action is the invite
+    // flow, so it opts in; addFaculty, addEmployee and the enrolment wizard
+    // post to the same endpoint without it and are unchanged.
+    //
+    // A literal, not a form value: whether an invitation is sent is what this
+    // action MEANS, not something the dialog offers to turn off.
+    sendInvitation: true,
   };
 
   // Checked here as well as by the schema so the message lands on the password

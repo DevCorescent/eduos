@@ -2,10 +2,33 @@
 // OWNER  : Gauransh
 // MODULE : Curriculum — Course Detail
 // FLOW   : Guard → tenant → param → load course → body → validate changed
-//          references → duplicate check → update → response.
+//          references → duplicate check → update / delete → response.
 // ACCESS : UNIVERSITY_ADMIN
 // BACKEND: Prisma
-// PURPOSE: View and update a single course within the authenticated tenant.
+// PURPOSE: View, update and delete a single course within the authenticated
+//          tenant.
+//
+// DELETE IS A HARD DELETE, REFUSED WHEN THE COURSE IS REFERENCED
+//   Not a soft retire, and that is the product's existing semantics rather than
+//   a decision taken here. Retiring a course already exists as its OWN
+//   operation: the edit dialog carries an `isActive` switch, the list renders
+//   "Offered" / "Retired" from it, and both go through PATCH. Making DELETE
+//   flip the same flag would give one screen two controls that do the same
+//   thing while the confirmation dialog promised something else.
+//
+//   Both existing pieces of copy already state this contract in as many words.
+//   services/courses.ts: "Refused while the course is timetabled, assigned to a
+//   lecturer or placed in a curriculum … Retiring it (isActive false) is the
+//   operation that is almost always meant instead." And the dialog itself:
+//   "will be permanently removed. A course that is timetabled, assigned to
+//   faculty or in a curriculum cannot be deleted — retire it instead."
+//
+//   Tester issue #31 was that this handler did not exist at all. The UI, the
+//   Server Action and services/courses.ts have always sent DELETE
+//   /api/courses/[id]; the route module exported GET and PATCH only, so the App
+//   Router answered 405 Method Not Allowed. Nothing on the frontend needed to
+//   change — this is the endpoint the three of them were already written
+//   against.
 // ============================================================================
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,7 +37,10 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
-import { isRecordNotFound } from "@/lib/utils/prisma-errors";
+import { resolveDepartmentScope } from "@/lib/auth/departmentScope";
+import { canWriteDepartmentRow } from "@/lib/auth/departmentWrite";
+import { COURSE_WRITE_ROLES } from "@/lib/constants/departmentAcademics";
+import { isForeignKeyViolation, isRecordNotFound } from "@/lib/utils/prisma-errors";
 import { courseIdParamSchema, updateCourseSchema } from "@/lib/validations/course";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -171,7 +197,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // TESTER ISSUE #50 — a head of department was answered "Forbidden".
+    //
+    // The role gate admits them; canWriteDepartmentRow below confines them to
+    // their own department, both for the course being changed and for the
+    // department they may move it to.
+    const guard = await requireRole(...COURSE_WRITE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -235,6 +266,28 @@ export async function PATCH(
     }
 
     const input = parsedBody.data;
+
+    // MAY THIS CALLER CHANGE THIS COURSE — tester issue #50.
+    //
+    // The course must already be in the head's department and must still be in
+    // it afterwards. An UNOWNED course (departmentId null) is not theirs: it
+    // belongs to the university, and "nobody has claimed it" must not read as
+    // "anybody may" — the same reading the listing applies by excluding NULL.
+    //
+    // 403 rather than 404: the row is in the caller's own tenant, so the honest
+    // answer is that it is not theirs.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    const departmentDecision = canWriteDepartmentRow(
+      scope.scope,
+      existing.departmentId,
+      input.departmentId
+    );
+
+    if (!departmentDecision.allowed) {
+      return NextResponse.json(fail(departmentDecision.reason, "FORBIDDEN"), { status: 403 });
+    }
 
     const departmentChanging =
       input.departmentId !== undefined && input.departmentId !== existing.departmentId;
@@ -302,6 +355,125 @@ export async function PATCH(
     }
 
     console.error("[PATCH /api/courses/[id]]", err);
+    return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
+  }
+}
+
+// DELETE
+// ACCESS     : UNIVERSITY_ADMIN — the same authority PATCH requires, and the
+//              same three guards in the same order, so removing a course is
+//              never reachable from a role or a tenant that could not already
+//              edit it.
+// VALIDATION : courseIdParamSchema — the [id] segment must be non-empty once
+//              trimmed. Course.id is a cuid, not a UUID, so no UUID assertion is
+//              applied; an unrecognised-but-well-formed id is a 404 rather than
+//              a 400. No body is read: a delete names its subject in the path.
+// FLOW       : Authorise → resolve tenant → apply the tenant's module selection
+//              → confirm the course belongs to THIS tenant (404 otherwise) →
+//              issue a single delete scoped by id AND tenantId.
+//
+//              The tenant comes from requireTenant, which proved it equal to
+//              the caller's own session; nothing in the path or any body
+//              contributes to it. findFirst rather than findUnique(id), so
+//              another tenant's course is never loaded and never acknowledged —
+//              an unknown id and a foreign id produce the identical 404, so no
+//              id is ever confirmed to exist elsewhere. The delete restates the
+//              tenant predicate rather than trusting the lookup, so the write
+//              cannot reach another tenant's row even if the id were guessed.
+//
+//              NO CASCADE IS PERFORMED IN APPLICATION CODE; the database owns
+//              that. Course carries no foreign key of its own, but twelve models
+//              reference it — Timetable, FacultyCourseAssignment,
+//              CurriculumSubject, CourseRegistration, Examination, Assignment,
+//              AssessmentEvent, OpenElectiveOffering, FeedbackSubmission,
+//              AttendanceLock, InternalAssessmentSuggestion and ExamResource —
+//              and none of them cascades or nulls out. A course carrying any of
+//              them is refused by the database and surfaces as a foreign-key
+//              violation, which is reported as a CONFLICT rather than worked
+//              around. Deleting a timetabled course would orphan every register
+//              taken against it.
+// RESPONSE   : { success: true, data: null, message: "Course deleted" }
+// STATUS     : 200 OK · 400 VALIDATION_ERROR · 401 UNAUTHORIZED
+//              403 FORBIDDEN · 404 NOT_FOUND · 409 CONFLICT · 500 SERVER_ERROR
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const guard = await requireRole("UNIVERSITY_ADMIN");
+    if (!guard.authorized) return guard.response;
+
+    const tenantGuard = await requireTenant();
+    if (!tenantGuard.resolved) return tenantGuard.response;
+
+    // GAP-01 — the tenant's module selection, applied AFTER role and tenant so
+    // a 403 here can only ever describe the caller's own university. Ungoverned
+    // paths cost no query. Restated from PATCH deliberately: a delete must not
+    // be reachable on a module the university has switched off when an edit is
+    // not.
+    const moduleGuard = await requireModule(tenantGuard.tenant.id, request.nextUrl.pathname);
+    if (!moduleGuard.allowed) return moduleGuard.response;
+
+    const { tenant } = tenantGuard;
+
+    const parsedParams = courseIdParamSchema.safeParse(await params);
+    if (!parsedParams.success) {
+      return NextResponse.json(
+        {
+          success: false as const,
+          error: "Invalid input",
+          code: "VALIDATION_ERROR",
+          details: validationDetails(parsedParams.error),
+        },
+        { status: 400 }
+      );
+    }
+
+    const courseId = parsedParams.data.id;
+
+    // Ownership is proven before anything is removed. A foreign or unknown id
+    // stops here and no write is issued at all.
+    const existing = await prisma.course.findFirst({
+      where: { id: courseId, tenantId: tenant.id },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(fail("Course not found", "NOT_FOUND"), { status: 404 });
+    }
+
+    // Scoped by tenantId as well as id. Single statement, so the delete is
+    // atomic on its own.
+    await prisma.course.delete({
+      where: { id: courseId, tenantId: tenant.id },
+    });
+
+    return NextResponse.json(ok(null, "Course deleted"));
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError) {
+      // Something still references this course — a timetable slot, a faculty
+      // assignment, a curriculum subject, a registration, an examination — and
+      // the database refuses the delete rather than orphaning it. Reported as
+      // the conflict it is, with the remedy the UI already names.
+      if (isForeignKeyViolation(err)) {
+        return NextResponse.json(
+          fail(
+            "Course has dependent records and cannot be deleted. Retire it instead.",
+            "CONFLICT"
+          ),
+          { status: 409 }
+        );
+      }
+
+      // The course was deleted between the lookup and the delete. Reported as
+      // the same 404 the lookup would have produced, so a losing racer and an
+      // unknown id are indistinguishable.
+      if (isRecordNotFound(err)) {
+        return NextResponse.json(fail("Course not found", "NOT_FOUND"), { status: 404 });
+      }
+    }
+
+    console.error("[DELETE /api/courses/[id]]", err);
     return NextResponse.json(fail("Internal server error", "SERVER_ERROR"), { status: 500 });
   }
 }

@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { activeNavHref, flattenNavItems } from "@/lib/nav-active";
 
 export interface SidebarNavItem {
   label: string;
@@ -52,6 +53,10 @@ export interface SidebarProps {
  * rather than from an `isActive` flag passed per item, so the highlight cannot
  * drift out of sync with the page actually rendered.
  *
+ * WHICH entry that is, is resolved for the whole tree at once by
+ * lib/nav-active.ts — longest match wins, so exactly one link can be lit. See
+ * tester issue #33 there for why deciding it per item lit two.
+ *
  * Responsive behaviour is two distinct modes, not one element being resized.
  * At `lg` and up it is a static column that can collapse to an icon rail. Below
  * `lg` it leaves the document flow entirely and becomes an off-canvas panel
@@ -85,6 +90,11 @@ export function Sidebar({
   // consequence of this flag is therefore written as an `lg:` variant.
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const pathname = usePathname();
+
+  // Resolved ONCE for the whole tree, across every section — a parent and its
+  // child routinely sit in different groups, so deciding per section would let
+  // both light up again. Exactly one entry can come back, or none.
+  const activeHref = activeNavHref(pathname, flattenNavItems(sections));
 
   useEffect(() => {
     if (!isMobileOpen || !onMobileClose) return;
@@ -161,12 +171,14 @@ export function Sidebar({
 
               <ul className="flex flex-col gap-0.5">
                 {section.items.map((item) => {
-                  // Prefix match so a detail page (/students/abc) keeps its
-                  // parent link lit. The trailing slash is load-bearing:
-                  // without it "/faculty" would also light up on
-                  // "/faculty-development".
-                  const isActive =
-                    pathname === item.href || pathname?.startsWith(`${item.href}/`);
+                  // Compared against the ONE winner resolved above, not decided
+                  // per item — tester issue #33. A per-item prefix match lit
+                  // both "Overview" (/evaluation) and "Semester Results"
+                  // (/evaluation/results/semester) at once, because neither
+                  // knew about the other. See lib/nav-active.ts for why the
+                  // prefix behaviour is still needed and how longest-match-wins
+                  // preserves it for detail pages.
+                  const isActive = item.href === activeHref;
 
                   return (
                     <li key={item.href}>

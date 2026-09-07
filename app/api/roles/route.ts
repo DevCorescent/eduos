@@ -62,7 +62,34 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { page, limit } = parsed.data;
+    const { page, limit, q } = parsed.data;
+
+    // Whitespace-split, AND of ORs — the same search shape the users, faculty,
+    // employee and course listings use, so a second word narrows the result
+    // rather than widening it.
+    //
+    // Name AND description are both searched: a tenant's custom role is found
+    // by what it is called, and a stock one by what it does, which is the only
+    // text a `EXAM_CONTROLLER`-style identifier carries in plain words.
+    const terms = q ? q.split(/\s+/).filter(Boolean) : [];
+
+    // The tenant predicate LEADS and the search is ANDed onto it, so no term
+    // can reach another tenant's roles. Declared once and used for BOTH the
+    // page and the count — a count over a wider predicate would report a total
+    // the filtered list can never reach, and paginate into empty pages.
+    const where: Prisma.RoleWhereInput = {
+      tenantId: tenant.id,
+      ...(terms.length > 0
+        ? {
+            AND: terms.map((term) => ({
+              OR: [
+                { name: { contains: term, mode: "insensitive" as const } },
+                { description: { contains: term, mode: "insensitive" as const } },
+              ],
+            })),
+          }
+        : {}),
+    };
 
     // Paired in one transaction so the total cannot shift between the two
     // reads. The explicit ordering is required for correctness, not
@@ -70,7 +97,7 @@ export async function GET(request: NextRequest) {
     // skip rows. Ordering matches every previous collection endpoint.
     const [roles, total] = await prisma.$transaction([
       prisma.role.findMany({
-        where: { tenantId: tenant.id },
+        where,
         orderBy: { createdAt: "desc" },
         skip: (page - 1) * limit,
         take: limit,
@@ -84,7 +111,7 @@ export async function GET(request: NextRequest) {
           updatedAt: true,
         },
       }),
-      prisma.role.count({ where: { tenantId: tenant.id } }),
+      prisma.role.count({ where }),
     ]);
 
     return NextResponse.json(

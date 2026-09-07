@@ -8,20 +8,32 @@ import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { Card } from "@/components/ui/Card";
 import { TranscriptViewer } from "@/components/evaluation/TranscriptViewer";
-import { getTranscript } from "@/services/evaluation";
-import { listStudents } from "@/services/students";
+import { getTranscript, listResultStudents } from "@/services/evaluation";
 
 export const metadata: Metadata = { title: "Transcript" };
 
 type SearchParams = Promise<{ studentId?: string }>;
 
 /**
- * A student's transcript, chosen from the register.
+ * A student's transcript, chosen from the students this caller may read.
  *
- * The picker is a plain student list rather than a search box because
- * GET /api/students implements no ?q — listStudentsQuerySchema is pagination
- * and nothing else. A search input that filtered nothing would be worse than a
- * list that plainly shows its bounds.
+ * THE PICKER NO LONGER READS THE STUDENT REGISTRY — tester issue #48.
+ *   It filled itself from GET /api/students, which is STUDENT_READ_ROLES:
+ *   [UNIVERSITY_ADMIN, DEPARTMENT_HOD]. The Controller of Examination is
+ *   deliberately absent from that set — a test asserts it — so this screen
+ *   showed a head a full list and the examination office an empty one, while
+ *   the transcript BELOW it was readable by both. The office held the
+ *   permission to read the document and no permitted way to name its subject.
+ *
+ *   listResultStudents reads /api/results/students instead, gated on
+ *   requireResultAccess — the same authority this page's own transcript call
+ *   uses. The list therefore cannot offer a student whose transcript would then
+ *   be refused, and a head is still narrowed to their own department by the
+ *   same rule as before.
+ *
+ * It stays a plain list rather than a search box: the endpoint takes no
+ * parameters at all, which is what makes it impossible for client input to
+ * widen the predicate.
  */
 export default async function TranscriptPage({
   searchParams,
@@ -30,8 +42,8 @@ export default async function TranscriptPage({
 }) {
   const { studentId } = await searchParams;
 
-  const studentsResult = await listStudents({ page: 1, limit: 100 });
-  const students = studentsResult.success ? studentsResult.data.items : [];
+  const studentsResult = await listResultStudents();
+  const students = studentsResult.success ? studentsResult.data : [];
 
   const header = (
     <PageHeader
@@ -50,10 +62,11 @@ export default async function TranscriptPage({
           allLabel="Select a student"
           options={students.map((student) => ({
             value: student.id,
-            // The list endpoint returns no name, so the enrollment number is
-            // the only identifier available here — and the one a registrar
-            // actually searches by.
-            label: student.enrollmentNo,
+            // Name AND enrolment number. The registry listing returned no name,
+            // so this picker could only ever show the number; /api/results/
+            // students joins the User, which is what tester issue #48 asked for
+            // — "students along with their Enrollment Numbers".
+            label: `${student.name} — ${student.enrollmentNo}`,
           }))}
         />
       }

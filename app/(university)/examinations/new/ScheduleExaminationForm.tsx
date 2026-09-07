@@ -83,9 +83,40 @@ export function ScheduleExaminationForm({
   }
 
   async function submit() {
-    setSaving(true);
     setError(null);
     setField(null);
+
+    // TESTER ISSUE #41 — "clicking the button keeps the user on the same page".
+    //
+    // It did, and the button was the reason: it was `disabled={saving ||
+    // incomplete}`, so on arrival — with course, semester and title all empty —
+    // it was inert. Clicking an inert button produces no navigation, no error
+    // and no feedback of any kind, which is exactly what was reported. (The
+    // navigation itself was never broken: POST /api/examinations returns 201 for
+    // the minimal payload and this function already pushes to /examinations.)
+    //
+    // Validated on submit and reported on the field instead, which is what
+    // EntityFormModal does everywhere else in this project — a required field is
+    // named when the user asks to save, not enforced by making the control dead.
+    if (courseId === "") {
+      setError("Choose the course this examination is for.");
+      setField("courseId");
+      return;
+    }
+
+    if (semesterId === "") {
+      setError("Choose the semester this examination belongs to.");
+      setField("semesterId");
+      return;
+    }
+
+    if (title.trim() === "") {
+      setError("Give the examination a title.");
+      setField("title");
+      return;
+    }
+
+    setSaving(true);
 
     const result = await scheduleExaminationAction({
       courseId,
@@ -120,7 +151,7 @@ export function ScheduleExaminationForm({
     router.refresh();
   }
 
-  const incomplete = courseId === "" || semesterId === "" || title.trim() === "";
+
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -144,6 +175,10 @@ export function ScheduleExaminationForm({
             onChange={setSemesterId}
             placeholder="Select a semester"
             options={semesters}
+            // Wired like Course and Title, so the required-field message from
+            // submit() lands on the control it names rather than only in the
+            // banner — tester issue #41.
+            error={field === "semesterId" ? error ?? undefined : undefined}
           />
           <div className="sm:col-span-2">
             <Input
@@ -233,8 +268,8 @@ export function ScheduleExaminationForm({
       </Card>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={submit} disabled={saving || incomplete}>
-          <CalendarPlus className="h-4 w-4" />
+        <Button onClick={submit} disabled={saving}>
+          <CalendarPlus className="size-4" aria-hidden="true" />
           {saving ? "Scheduling…" : "Schedule examination"}
         </Button>
         <p className="text-xs text-muted-foreground">

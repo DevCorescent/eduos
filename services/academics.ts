@@ -424,9 +424,43 @@ export async function markAttendance(
   date: string,
   entries: MarkAttendanceEntry[]
 ): Promise<ApiResponse<{ marked: number }>> {
+  // TESTER ISSUE #38 — "Couldn't save, invalid input", for every status.
+  //
+  // THE BODY WAS THE WRONG SHAPE. This sent
+  //   { sectionId, courseId, date, entries }
+  // and createAttendanceSchema requires
+  //   { records: [{ studentId, sectionId, courseId, date, status, … }] }
+  //
+  // Two faults at once. The array was named `entries`, so `records` was absent
+  // and `.min(1)` failed — a 400 before a single field was looked at, which is
+  // why EVERY status failed identically and why the message was the generic
+  // "Invalid input". And section, course and date sat at the TOP level, where
+  // the schema strips them, while each record carried only studentId and
+  // status — so even a renamed key would have failed on the missing `date`.
+  //
+  // Flattened here rather than by widening the schema: the endpoint marks in
+  // bulk and its records are deliberately independent — the README's shape lets
+  // one batch span several sections — so the envelope is the caller's job. Every
+  // record repeats the section, course and date this screen is marking, which is
+  // exactly what the register means.
+  //
+  // sectionId and courseId are put on EVERY record deliberately, not just
+  // because the schema allows it: facultyMayMarkRecords refuses any record that
+  // names neither, so a lecturer's own register would 403 without them.
+  //
+  // facultyId is NOT sent. It is a client claim about who taught the session and
+  // the route resolves the real one from the session — see facultyTeaching.ts.
   return apiRequest<{ marked: number }>("/api/attendance", {
     method: "POST",
-    body: { sectionId, courseId, date, entries },
+    body: {
+      records: entries.map((entry) => ({
+        studentId: entry.studentId,
+        status: entry.status,
+        sectionId,
+        courseId,
+        date,
+      })),
+    },
   });
 }
 

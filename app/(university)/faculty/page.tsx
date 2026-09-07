@@ -288,6 +288,7 @@ export default async function FacultyPage({ searchParams }: { searchParams: Sear
             experience: faculty.experience ?? "",
             status: faculty.status,
           }}
+          viewHref={`/faculty/${faculty.id}`}
           onUpdate={updateFacultyAction.bind(null, faculty.id)}
           // No delete: a faculty record anchors teaching assignments,
           // timetables and attendance. Leaving is a status change — TERMINATED

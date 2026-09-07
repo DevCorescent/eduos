@@ -13,13 +13,34 @@ import { z } from "zod";
 import { paginationQuerySchema } from "./pagination";
 
 /**
- * Query schema for GET /api/roles.
+ * Query schema for GET /api/roles — tester issue #35.
  *
- * Pagination is the shared contract. No search or filter parameter is defined:
- * the project implements none on any existing collection endpoint, so adding
- * one here would introduce a capability the rest of the API does not have.
+ * WHAT WAS WRONG
+ *   This was `paginationQuerySchema` and nothing else, so Zod dropped ?q before
+ *   the handler saw it and the route read every role in the tenant. The Roles
+ *   screen knew: it rendered its search box DISABLED, with a note saying it
+ *   would work once the backend accepted the parameter.
+ *
+ *   The note this replaces said "the project implements none on any existing
+ *   collection endpoint". That stopped being true with tester issues #22, #23,
+ *   #26, #28 and #30 — this is the same defect, fixed the same way.
+ *
+ * ONLY ?q, DELIBERATELY. The tester reported "search and filters", but the
+ * Roles screen exposes no filter control at all — not one ListFilter — so
+ * there is no filter parameter to accept. Adding ?isSystem here would be
+ * inventing a capability no control sends, which is how the disabled-control
+ * problem started. If the screen grows a filter, the parameter is added with it.
  */
-export const listRolesQuerySchema = paginationQuerySchema;
+export const listRolesQuerySchema = paginationQuerySchema.extend({
+  // "" means "no filter": clearing the search box writes an empty value, and a
+  // bookmarked "?q=" must mean the same rather than answer 400.
+  q: z
+    .string()
+    .trim()
+    .max(200)
+    .optional()
+    .transform((value) => (value === undefined || value === "" ? undefined : value)),
+});
 
 export type ListRolesQuery = z.infer<typeof listRolesQuerySchema>;
 

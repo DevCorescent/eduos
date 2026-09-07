@@ -15,7 +15,11 @@ import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { requireModule } from "@/lib/middleware/requireModule";
 import { resolveDepartmentScope } from "@/lib/auth/departmentScope";
-import { COURSE_READ_ROLES } from "@/lib/constants/departmentAcademics";
+import { departmentForCreate } from "@/lib/auth/departmentWrite";
+import {
+  COURSE_READ_ROLES,
+  COURSE_WRITE_ROLES,
+} from "@/lib/constants/departmentAcademics";
 import { courseQuerySchema, createCourseSchema } from "@/lib/validations/course";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -232,7 +236,12 @@ export async function GET(request: NextRequest) {
 //              index.
 export async function POST(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN");
+    // TESTER ISSUE #50 — a head of department was answered "Forbidden".
+    //
+    // The role gate admits them; departmentForCreate below confines them: a
+    // head authors courses into their OWN department, never unowned and never
+    // another department's.
+    const guard = await requireRole(...COURSE_WRITE_ROLES);
     if (!guard.authorized) return guard.response;
 
     const tenantGuard = await requireTenant();
@@ -301,10 +310,32 @@ export async function POST(request: NextRequest) {
 
     // Single write — already atomic, so no transaction is warranted. tenantId
     // comes from the resolved tenant context, never from the request body.
+    // WHICH DEPARTMENT OWNS THIS COURSE — tester issue #50.
+    //
+    // Resolved from the authenticated identity: a head authors into their own
+    // department, and a body naming another is refused rather than silently
+    // rewritten. An administrator keeps whatever the body asked for, including
+    // nothing — an unowned course is legitimately the university's.
+    //
+    // A head cannot create an unowned course. Course.departmentId is nullable
+    // and `departmentId: <id>` excludes NULL, so an unowned course is invisible
+    // to every head — authoring one would mean writing a row the author could
+    // not afterwards read or edit.
+    const scope = await resolveDepartmentScope(guard.session);
+    if (!scope.ok) return scope.response;
+
+    const departmentDecision = departmentForCreate(scope.scope, input.departmentId);
+    if (!departmentDecision.allowed) {
+      return NextResponse.json(fail(departmentDecision.reason, "FORBIDDEN"), { status: 403 });
+    }
+
     const course = await prisma.course.create({
       data: {
         ...input,
         tenantId: tenant.id,
+        // AFTER the spread, so a body value cannot override the department the
+        // caller is actually permitted to write into.
+        departmentId: departmentDecision.departmentId,
       },
       select: COURSE_SELECT,
     });

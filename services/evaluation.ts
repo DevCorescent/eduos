@@ -249,6 +249,37 @@ export async function uploadExternalMarks(
 
 // --- Results ----------------------------------------------------------------
 
+/** One option in a transcript or result student picker. */
+export interface ResultStudentOption {
+  id: string;
+  name: string;
+  enrollmentNo: string;
+}
+
+/**
+ * The students whose results this caller may read — tester issue #48.
+ *
+ * NOT listStudents(). That reads /api/students, the student REGISTRY, which is
+ * STUDENT_READ_ROLES and deliberately closed to the examination office — so the
+ * Transcript picker was empty for a Controller of Examination and populated for
+ * a head of department, which is exactly what was reported.
+ *
+ * This reads /api/results/students, gated on requireResultAccess — the same
+ * boundary the transcript itself applies. The list can therefore never offer a
+ * student whose transcript would then be refused, and it returns three columns
+ * rather than the registry's fifteen.
+ *
+ * Unpaginated: an option list is read whole. The route caps it.
+ */
+export async function listResultStudents(): Promise<ApiResponse<ResultStudentOption[]>> {
+  const result = await apiRequest<{ students: ResultStudentOption[] }>(
+    "/api/results/students"
+  );
+  if (!result.success) return result;
+
+  return { success: true, data: result.data.students };
+}
+
 /** One student's computed result: components, totals, grades, SGPA and CGPA. */
 export async function getStudentResult(
   studentId: string

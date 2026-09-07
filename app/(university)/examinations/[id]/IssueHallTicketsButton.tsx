@@ -71,7 +71,7 @@ export function IssueHallTicketsButton({
 
       <div className="flex flex-wrap items-center gap-3">
         <Button onClick={issue} disabled={busy || eligibleCount === 0}>
-          <TicketCheck className="h-4 w-4" />
+          <TicketCheck className="size-4" aria-hidden="true" />
           {busy ? "Issuing…" : "Issue hall tickets"}
         </Button>
 

@@ -71,7 +71,62 @@ export const COURSE_READ_ROLES = [
   // not create an examination at all.
   //
   // READ of the course catalogue and nothing more. The COE is deliberately NOT
-  // added to STUDENT_READ_ROLES or FACULTY_READ_ROLES above, course writes stay
-  // with UNIVERSITY_ADMIN, and a test asserts both.
+  // added to STUDENT_READ_ROLES or FACULTY_READ_ROLES above, and it is NOT in
+  // COURSE_WRITE_ROLES below either — a test asserts all three.
   ROLES.CONTROLLER_OF_EXAMINATION,
+] as const;
+
+// --- Writes -----------------------------------------------------------------
+//
+// WHY THESE EXIST — tester issues #49 and #50
+//   A head of department could READ the faculty directory and the course
+//   catalogue and write neither: both POST and PATCH were
+//   requireRole("UNIVERSITY_ADMIN"), so a head managing their own department's
+//   staff and syllabus was answered "Forbidden". The product decision has since
+//   confirmed that a head SHOULD create and edit both.
+//
+// THE ROLE LIST IS HALF OF THE RULE, AND THE SMALLER HALF
+//   A role array can only say yes or no, so admitting a head here would grant
+//   tenant-wide writes — a head editing another department's professor, or
+//   retitling a course they do not own. The other half is
+//   resolveDepartmentScope, applied in each route exactly as the matching
+//   listing already applies it: a restricted head writes rows whose
+//   departmentId equals their own, and nothing else.
+//
+//   That is why these are separate constants rather than the READ sets reused.
+//   The COE reads the course catalogue and must not write it, so the two lists
+//   genuinely differ — and a single list would have quietly granted that.
+
+/**
+ * Who may create and edit faculty records.
+ *
+ * FacultyMember.departmentId is a real column, so a head's restriction is a
+ * direct equality — the same instrument the listing uses. A head may not create
+ * a member into another department, nor move one out of theirs.
+ *
+ * Deleting is not here because there is no faculty delete: a faculty record
+ * anchors teaching assignments, timetables and attendance, and leaving is a
+ * status change through the same edit path.
+ */
+export const FACULTY_WRITE_ROLES = [
+  ROLES.UNIVERSITY_ADMIN,
+  ROLES.DEPARTMENT_HOD,
+] as const;
+
+/**
+ * Who may create and edit courses.
+ *
+ * Course.departmentId is nullable, and an unowned course stays the
+ * university's: a head cannot edit one, for the same reason they cannot see it.
+ * A course a head CREATES is stamped with their own department rather than left
+ * unowned, or they would author rows they could not afterwards read.
+ *
+ * DELETE is deliberately absent. Removing a course is destructive and
+ * irreversible — it is refused outright while anything references it — and the
+ * confirmed decision covers create and edit. Retiring a course (isActive false)
+ * is an edit and is therefore available to a head.
+ */
+export const COURSE_WRITE_ROLES = [
+  ROLES.UNIVERSITY_ADMIN,
+  ROLES.DEPARTMENT_HOD,
 ] as const;
