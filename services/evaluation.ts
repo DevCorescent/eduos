@@ -25,13 +25,19 @@ import type {
   BulkRegistrationResultDTO,
   CourseRegistrationDTO,
 } from "@/lib/dto/courseRegistration.dto";
-import type { EvaluationComponentTreeDTO } from "@/lib/dto/evaluationComponent.dto";
-import type { EvaluationRuleListDTO } from "@/lib/dto/evaluationRule.dto";
+import type {
+  EvaluationComponentDTO,
+  EvaluationComponentTreeDTO,
+} from "@/lib/dto/evaluationComponent.dto";
+import type { EvaluationRuleDTO, EvaluationRuleListDTO } from "@/lib/dto/evaluationRule.dto";
 import type {
   EvaluationSchemeDTO,
   EvaluationSchemeDetailDTO,
 } from "@/lib/dto/evaluationScheme.dto";
-import type { PassingCriterionListDTO } from "@/lib/dto/passingCriterion.dto";
+import type {
+  PassingCriterionDTO,
+  PassingCriterionListDTO,
+} from "@/lib/dto/passingCriterion.dto";
 import type {
   SemesterCohortResultDTO,
   StudentAnalyticsDTO,
@@ -46,6 +52,7 @@ import type {
   RegistrationType,
 } from "@/app/generated/prisma/enums";
 import type { ApiResponse, ListParams, PaginatedResult } from "@/types";
+import { MAX_LIST_LIMIT } from "@/types/api";
 import { apiList, apiRequest } from "./client";
 
 // --- Evaluation schemes -----------------------------------------------------
@@ -66,6 +73,94 @@ export async function getScheme(
   id: string
 ): Promise<ApiResponse<EvaluationSchemeDetailDTO>> {
   return apiRequest<EvaluationSchemeDetailDTO>(`/api/evaluation-schemes/${id}`);
+}
+
+/**
+ * What POST /api/evaluation-schemes accepts.
+ *
+ * Mirrors createEvaluationSchemeSchema — the contract the endpoint actually
+ * applies — rather than a looser restatement that would move the rejection
+ * later. `code`, `name` and `gradeScaleId` are required; everything else
+ * carries a schema default, so an omitted key lets the database apply it.
+ *
+ * `status`, `version` and `supersededById` are absent and unsettable. A new
+ * regulation is always DRAFT at version 1, and the lifecycle moves only through
+ * activateScheme and archiveScheme below.
+ */
+export interface SchemeInput {
+  code: string;
+  name: string;
+  description?: string;
+  gradeScaleId: string;
+  attemptPolicy?: EvaluationSchemeDTO["attemptPolicy"];
+  marksRounding?: EvaluationSchemeDTO["marksRounding"];
+  marksPrecision?: number;
+  gpaRounding?: EvaluationSchemeDTO["gpaRounding"];
+  gpaPrecision?: number;
+}
+
+export async function createScheme(
+  input: SchemeInput
+): Promise<ApiResponse<EvaluationSchemeDTO>> {
+  return apiRequest<EvaluationSchemeDTO>("/api/evaluation-schemes", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/**
+ * Amend a draft regulation.
+ *
+ * `code` is deliberately absent from the patchable set: it is the identity a
+ * revision shares with its siblings, and changing it would move the revision
+ * into a different family while keeping a version number computed against the
+ * old one. The endpoint refuses anything but a DRAFT.
+ */
+export async function updateScheme(
+  id: string,
+  input: Partial<Omit<SchemeInput, "code">>
+): Promise<ApiResponse<EvaluationSchemeDTO>> {
+  return apiRequest<EvaluationSchemeDTO>(`/api/evaluation-schemes/${id}`, {
+    method: "PATCH",
+    body: input,
+  });
+}
+
+/**
+ * Discard a draft regulation.
+ *
+ * Only a DRAFT may be discarded — an ACTIVE or ARCHIVED revision is part of the
+ * historical record, because results computed under it must remain explicable.
+ * Archival is the retirement path for those, and the endpoint answers 409 here.
+ */
+export async function deleteScheme(id: string): Promise<ApiResponse<null>> {
+  return apiRequest<null>(`/api/evaluation-schemes/${id}`, { method: "DELETE" });
+}
+
+/** One grade scale a regulation may cite. */
+export interface GradeScaleOption {
+  id: string;
+  code: string;
+  name: string;
+  version: number;
+  status: string;
+  method: string;
+  /** Decimal(4,2) as a lossless string, e.g. "10.00". */
+  maxGradePoint: string;
+}
+
+/**
+ * The grade scales this tenant has.
+ *
+ * Required to create a scheme at all: `gradeScaleId` is mandatory and there was
+ * no way for any client to resolve one before GET /api/grade-scales existed.
+ * See that route for why it is read-only.
+ */
+export async function listGradeScales(): Promise<ApiResponse<GradeScaleOption[]>> {
+  const result = await apiRequest<{ gradeScales: GradeScaleOption[] }>("/api/grade-scales");
+  if (!result.success) return result;
+
+  return { success: true, data: result.data.gradeScales };
 }
 
 /**
@@ -115,6 +210,156 @@ export async function getPassingCriteria(
 ): Promise<ApiResponse<PassingCriterionListDTO>> {
   return apiRequest<PassingCriterionListDTO>(
     `/api/evaluation-schemes/${schemeId}/passing-criteria`
+  );
+}
+
+// --- Scheme sub-collections: components, rules, passing criteria ------------
+//
+// EVERY ONE OF THESE REQUIRES THE OWNING SCHEME TO BE A DRAFT. That is not
+// restated per function: it is a rule about stored state, applied by each
+// service against the scheme it reads, and the endpoints answer 409
+// ("Only a draft evaluation scheme can be modified or deleted") when it does
+// not hold. The UI reads `isMutable` off the component tree rather than
+// re-deriving it.
+
+/** What POST/PATCH on a scheme's components accepts. Mirrors componentFields. */
+export interface ComponentInput {
+  code: string;
+  name: string;
+  description?: string;
+  type: EvaluationComponentDTO["type"];
+  sourceType?: EvaluationComponentDTO["sourceType"];
+  maxMarks: number;
+  weightage: number;
+  aggregation?: EvaluationComponentDTO["aggregation"];
+  rollup?: EvaluationComponentDTO["rollup"];
+  sequence: number;
+  isMandatory?: boolean;
+  /** Null promotes a nested component back to the top level. */
+  parentComponentId?: string | null;
+}
+
+export async function createComponent(
+  schemeId: string,
+  input: ComponentInput
+): Promise<ApiResponse<EvaluationComponentDTO>> {
+  return apiRequest<EvaluationComponentDTO>(
+    `/api/evaluation-schemes/${schemeId}/components`,
+    { method: "POST", body: input }
+  );
+}
+
+export async function updateComponent(
+  schemeId: string,
+  componentId: string,
+  input: Partial<ComponentInput>
+): Promise<ApiResponse<EvaluationComponentDTO>> {
+  return apiRequest<EvaluationComponentDTO>(
+    `/api/evaluation-schemes/${schemeId}/components/${componentId}`,
+    { method: "PATCH", body: input }
+  );
+}
+
+export async function deleteComponent(
+  schemeId: string,
+  componentId: string
+): Promise<ApiResponse<null>> {
+  return apiRequest<null>(
+    `/api/evaluation-schemes/${schemeId}/components/${componentId}`,
+    { method: "DELETE" }
+  );
+}
+
+/**
+ * What POST/PATCH on a scheme's rules accepts.
+ *
+ * `config` is typed as the DTO's own union rather than `unknown`: the endpoint
+ * validates it against `operation`, and the pairing is exactly what must not be
+ * mismatched. `condition` is omitted from this side — see
+ * components/shared/evaluationSchemeFields.ts for why a conditional rule is not
+ * authored through the generated form.
+ */
+export interface RuleInput {
+  componentId?: string | null;
+  code: string;
+  name: string;
+  description?: string;
+  phase: EvaluationRuleDTO["phase"];
+  operation: EvaluationRuleDTO["operation"];
+  sequence: number;
+  config: EvaluationRuleDTO["config"];
+}
+
+export async function createRule(
+  schemeId: string,
+  input: RuleInput
+): Promise<ApiResponse<EvaluationRuleDTO>> {
+  return apiRequest<EvaluationRuleDTO>(`/api/evaluation-schemes/${schemeId}/rules`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+export async function updateRule(
+  schemeId: string,
+  ruleId: string,
+  input: Partial<RuleInput>
+): Promise<ApiResponse<EvaluationRuleDTO>> {
+  return apiRequest<EvaluationRuleDTO>(
+    `/api/evaluation-schemes/${schemeId}/rules/${ruleId}`,
+    { method: "PATCH", body: input }
+  );
+}
+
+export async function deleteRule(
+  schemeId: string,
+  ruleId: string
+): Promise<ApiResponse<null>> {
+  return apiRequest<null>(`/api/evaluation-schemes/${schemeId}/rules/${ruleId}`, {
+    method: "DELETE",
+  });
+}
+
+/** What POST/PATCH on a scheme's passing criteria accepts. Mirrors criterionFields. */
+export interface CriterionInput {
+  componentId?: string | null;
+  code: string;
+  name: string;
+  description?: string;
+  metric: PassingCriterionDTO["metric"];
+  threshold: number;
+  unit: PassingCriterionDTO["unit"];
+  failureOutcome: PassingCriterionDTO["failureOutcome"];
+}
+
+export async function createCriterion(
+  schemeId: string,
+  input: CriterionInput
+): Promise<ApiResponse<PassingCriterionDTO>> {
+  return apiRequest<PassingCriterionDTO>(
+    `/api/evaluation-schemes/${schemeId}/passing-criteria`,
+    { method: "POST", body: input }
+  );
+}
+
+export async function updateCriterion(
+  schemeId: string,
+  criterionId: string,
+  input: Partial<CriterionInput>
+): Promise<ApiResponse<PassingCriterionDTO>> {
+  return apiRequest<PassingCriterionDTO>(
+    `/api/evaluation-schemes/${schemeId}/passing-criteria/${criterionId}`,
+    { method: "PATCH", body: input }
+  );
+}
+
+export async function deleteCriterion(
+  schemeId: string,
+  criterionId: string
+): Promise<ApiResponse<null>> {
+  return apiRequest<null>(
+    `/api/evaluation-schemes/${schemeId}/passing-criteria/${criterionId}`,
+    { method: "DELETE" }
   );
 }
 
@@ -294,6 +539,30 @@ export async function getSemesterResult(
   return apiRequest<SemesterCohortResultDTO>(`/api/results/semester/${semesterId}`);
 }
 
+/**
+ * Record the Controller of Examination's sign-off on one cohort — PRD §17.4.
+ *
+ * APPROVAL IS NOT PUBLICATION. The endpoint writes APPROVED and never
+ * PUBLISHED; §49.4 keeps the two stages apart, so approving does not release
+ * anything to students.
+ *
+ * Sends at most a remark. The status, the timestamp and the approving user are
+ * all server-side — the last of those comes from the session, so nothing on
+ * this side can attribute the decision to somebody else.
+ *
+ * Returns the whole cohort report carrying the stored decision, so a caller
+ * renders what was persisted rather than assuming its request succeeded as sent.
+ */
+export async function approveSemesterResult(
+  semesterId: string,
+  remarks?: string
+): Promise<ApiResponse<SemesterCohortResultDTO>> {
+  return apiRequest<SemesterCohortResultDTO>(
+    `/api/results/semester/${semesterId}/approve`,
+    { method: "POST", body: remarks ? { remarks } : {} }
+  );
+}
+
 /** The full academic transcript: every semester, credits earned, backlogs. */
 export async function getTranscript(
   studentId: string
@@ -306,4 +575,128 @@ export async function getStudentAnalytics(
   studentId: string
 ): Promise<ApiResponse<StudentAnalyticsDTO>> {
   return apiRequest<StudentAnalyticsDTO>(`/api/results/analytics/${studentId}`);
+}
+
+// --- Scheduling a sitting ---------------------------------------------------
+
+/**
+ * What the examination office supplies when scheduling an assessment event.
+ *
+ * Mirrors createAssessmentEventSchema, which is the contract the endpoint
+ * actually applies. Two of its keys are deliberately absent from every caller
+ * on this side:
+ *
+ *   sequenceNumber — assigned by the server from the sittings that already
+ *                    exist. A caller able to choose it could hide a sitting
+ *                    from a BEST_N aggregation.
+ *   status         — moves only through POST /api/assessment-events/[id]/status,
+ *                    where the state machine is applied.
+ *
+ * `maxMarks` is optional and usually omitted: the service then fills it from
+ * the component's own scale, which is the common case and one the office should
+ * not have to restate.
+ */
+export interface ScheduleAssessmentEventInput {
+  evaluationComponentId: string;
+  courseId: string;
+  semesterId: string;
+  sectionId?: string;
+  title: string;
+  maxMarks?: number;
+  scheduledAt?: string;
+}
+
+/**
+ * Schedule a sitting.
+ *
+ * The endpoint resolves every reference tenant-scoped and requires the
+ * component's SCHEME to be ACTIVE — marks assessed under a still-editable draft
+ * regulation would be graded by rules that could change afterwards. Neither
+ * rule is restated here; this is the request, not a second opinion about it.
+ */
+export async function scheduleAssessmentEvent(
+  input: ScheduleAssessmentEventInput
+): Promise<ApiResponse<AssessmentEventDTO>> {
+  return apiRequest<AssessmentEventDTO>("/api/assessment-events", {
+    method: "POST",
+    body: input,
+  });
+}
+
+/** One component an assessment event may be scheduled against. */
+export interface SchedulableComponent {
+  id: string;
+  code: string;
+  name: string;
+  /** The regulation it belongs to, so two schemes' components stay tellable apart. */
+  schemeCode: string;
+  /** Decimal as a lossless string — what the component itself contributes on. */
+  maxMarks: string;
+}
+
+/**
+ * Every component of every ACTIVE regulation, flattened.
+ *
+ * WHY ONLY ACTIVE SCHEMES
+ *   AssessmentEventService.create refuses a component whose scheme is not
+ *   ACTIVE. Offering a draft scheme's components would present choices the API
+ *   answers 409 for — the options a form shows and the rule the API enforces
+ *   have to be the same statement.
+ *
+ * WHY THE WHOLE TREE AND NOT JUST THE LEAVES
+ *   Nothing in the service, the schema or the constants restricts a sitting to
+ *   a leaf component. Filtering to leaves here would be a new business rule
+ *   invented in the presentation layer, and it would silently withhold a
+ *   legitimate arrangement.
+ *
+ * DEGRADES RATHER THAN FAILS. A scheme whose tree cannot be read contributes
+ * nothing rather than emptying the list — the same treatment the reference
+ * indexes give a forbidden collection.
+ */
+export async function schedulableComponents(): Promise<SchedulableComponent[]> {
+  const schemes = await listSchemes({
+    page: 1,
+    limit: MAX_LIST_LIMIT,
+    status: "ACTIVE",
+  });
+
+  if (!schemes.success) return [];
+
+  // One request per active regulation, issued together. A university holds a
+  // handful of them at once, and awaiting each in turn would put the whole
+  // chain on the critical path of opening a dialog.
+  const trees = await Promise.all(
+    schemes.data.items.map(async (scheme) => ({
+      scheme,
+      result: await getComponentTree(scheme.id),
+    }))
+  );
+
+  const components: SchedulableComponent[] = [];
+
+  for (const { scheme, result } of trees) {
+    if (!result.success) continue;
+
+    // Iterative rather than recursive: the tree is arbitrarily deep and a
+    // cycle would otherwise be a stack overflow instead of a bounded walk.
+    const stack = [...result.data.tree];
+
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+
+      components.push({
+        id: node.id,
+        code: node.code,
+        name: node.name,
+        schemeCode: scheme.code,
+        maxMarks: node.maxMarks,
+      });
+
+      stack.push(...node.children);
+    }
+  }
+
+  return components.sort(
+    (a, b) => a.schemeCode.localeCompare(b.schemeCode) || a.code.localeCompare(b.code)
+  );
 }

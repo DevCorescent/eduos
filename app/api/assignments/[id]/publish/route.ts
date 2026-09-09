@@ -5,6 +5,13 @@
 //          transition → response.
 // ACCESS : UNIVERSITY_ADMIN · FACULTY
 //          Students may read published assignments but never publish one.
+//
+//          FACULTY IS CONFINED TO THEIR OWN TEACHING LOAD, by the same rule
+//          POST /api/assignments applies to creating one. Publication is the
+//          act that makes work visible to students AND notifies them, so a
+//          lecturer able to publish a colleague's draft could announce work on
+//          a course they have nothing to do with. Tenant membership, which is
+//          all the lookup below proves, is not a teaching relationship.
 // BACKEND: Prisma
 // PURPOSE: Move a single assignment from DRAFT to PUBLISHED. This is the only
 //          endpoint in the project permitted to do so.
@@ -16,6 +23,10 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isRecordNotFound } from "@/lib/utils/prisma-errors";
+import {
+  FACULTY_COURSEWORK_REFUSALS,
+  facultyMaySetCoursework,
+} from "@/lib/services/facultyTeaching";
 import { assignmentIdParamSchema } from "@/lib/validations/assignment";
 import { ok, fail } from "@/types";
 import { validationDetails } from "@/lib/utils/validation-error";
@@ -156,13 +167,28 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY");
-    if (!guard.authorized) return guard.response;
+    // Precedence, as in POST /api/assignments: an administrator publishes on
+    // behalf of a department and holds no FacultyMember row, so the elevated
+    // check runs first and only a caller who fails it is confined below. An
+    // anonymous caller fails both and receives requireAuth's 401 from the
+    // second, so the fallback cannot turn a 401 into a 403.
+    const elevatedGuard = await requireRole("UNIVERSITY_ADMIN");
+
+    let isElevated: boolean;
+
+    if (elevatedGuard.authorized) {
+      isElevated = true;
+    } else {
+      const facultyGuard = await requireRole("FACULTY");
+      if (!facultyGuard.authorized) return facultyGuard.response;
+
+      isElevated = false;
+    }
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
 
-    const { tenant } = tenantGuard;
+    const { session, tenant } = tenantGuard;
 
     // Route params resolve asynchronously in this Next.js version.
     const parsed = assignmentIdParamSchema.safeParse(await params);
@@ -182,13 +208,42 @@ export async function POST(
 
     // findFirst rather than findUnique: the tenant filter is part of the lookup,
     // so another tenant's assignment can never be resolved or even acknowledged.
+    // courseId and sectionId are selected alongside the status because the
+    // confinement below is a question about the STORED row, not about anything
+    // the caller sent — the request body is empty and the only client input on
+    // this path is the id in the URL.
     const existing = await prisma.assignment.findFirst({
       where: { id: assignmentId, tenantId: tenant.id },
-      select: { status: true },
+      select: { status: true, courseId: true, sectionId: true },
     });
 
     if (!existing) {
       return assignmentNotFound();
+    }
+
+    // A lecturer may only publish work on a course they teach — the same rule,
+    // from the same module, that POST /api/assignments applies to creating it.
+    // Applied AFTER the tenant-scoped lookup, so a 403 here can only ever
+    // describe an assignment in the caller's own university; another tenant's
+    // id is the 404 above and never reaches this rule.
+    //
+    // Checked BEFORE the DRAFT transition guard on purpose: whether an
+    // assignment has already been published is a fact about a record this
+    // caller has no business reading, so the refusal must not depend on it.
+    if (!isElevated) {
+      const decision = await facultyMaySetCoursework(
+        tenant.id,
+        session.sub,
+        existing.courseId,
+        existing.sectionId
+      );
+
+      if (!decision.allowed) {
+        return NextResponse.json(
+          fail(FACULTY_COURSEWORK_REFUSALS[decision.reason], "FORBIDDEN"),
+          { status: 403 }
+        );
+      }
     }
 
     // PUBLISHED, CLOSED and GRADED are all refused here. DRAFT is the only state

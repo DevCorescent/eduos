@@ -310,6 +310,10 @@ model User {
   internalAssessmentsGenerated InternalAssessmentSuggestion[] @relation("InternalAssessmentGeneratedBy")
   internalAssessmentsDecided   InternalAssessmentSuggestion[] @relation("InternalAssessmentDecidedBy")
 
+  /// PRD §17.4 — semester results this user signed off as Controller of
+  /// Examination. Virtual: emits no DDL against User.
+  semesterResultsApproved SemesterResultApproval[] @relation("SemesterResultApprovedBy")
+
   examResourcesUploaded ExamResource[] @relation("ExamResourceUploadedBy")
   examResourcesVerified ExamResource[] @relation("ExamResourceVerifiedBy")
 
@@ -635,6 +639,11 @@ model Semester {
   attendanceLocks               AttendanceLock[]
   internalAssessmentSuggestions InternalAssessmentSuggestion[]
   examResources                 ExamResource[]
+
+  /// PRD §17.4 — the Controller of Examination's sign-off on this semester's
+  /// cohort result. At most one row per tenant. Virtual: no DDL against
+  /// Semester.
+  resultApprovals SemesterResultApproval[]
 
   @@unique([academicYearId, semesterNumber])
   @@index([tenantId])
@@ -2509,6 +2518,90 @@ model AssessmentEvent {
   /// THE hot query — every sitting for a course in a term. The marks-entry
   /// landing page, and the calculation engine's input set.
   @@index([tenantId, semesterId, courseId])
+}
+
+/// The Controller of Examination's sign-off on one semester's cohort result.
+/// PRD §17.4 "Result approval" · §49.4 stage 8, between Moderation and
+/// Publication.
+///
+/// WHY THIS TABLE HAS TO EXIST
+///   A semester result is COMPUTED, never stored: ResultService.getSemesterResult
+///   derives the whole cohort from CourseRegistration on every request. So there
+///   was no row to carry a sign-off, and nothing anywhere recorded that a human
+///   had approved anything.
+///
+///   This is deliberately NOT the same situation as publication. C6.3 records
+///   that publication "gets no new table" because it is DERIVABLE — a result is
+///   publishable exactly when every sitting that fed it is PUBLISHED, so the
+///   state is read from AssessmentEvent rather than copied. Approval is not
+///   derivable from anything: it is an ACT, and WHO performed it and WHEN are
+///   the two facts an examination sign-off exists to record. Neither can be
+///   recomputed from marks.
+///
+/// THE ENUM IS REUSED, NOT DUPLICATED
+///   ResultPublicationStatus already existed — declared in the Phase 16
+///   migration and, until now, attached to no column in the database. Adopting
+///   it here is what stops this becoming a second lifecycle vocabulary.
+///
+///   DRAFT     — the default. Computed, not yet signed off. Every semester with
+///               no row at all is also DRAFT; absence and DRAFT mean the same
+///               thing, which is why nothing pre-creates rows.
+///   VERIFIED  — reserved for a moderation/verification step that does not exist
+///               yet. No transition writes it; it is left in the enum rather
+///               than removed so the stage has a name when it is built.
+///   APPROVED  — the COE has signed off. Written only by
+///               POST /api/results/semester/[semesterId]/approve.
+///   PUBLISHED — reserved for the separate publication stage. Approval NEVER
+///               writes it: §49.4 keeps the two apart, and conflating them
+///               would release marks to students the moment a controller
+///               approved them.
+///
+/// ONE ROW PER (tenant, semester), enforced by @@unique. Approval is a
+/// statement about a cohort, not about a student or a paper.
+///
+/// TENANCY FOLLOWS AssessmentEvent, the closest analogue — tenant-owned and
+/// semester-scoped in this same module. `tenantId` is a plain column with no
+/// Tenant relation: EvaluationScheme and GradeScale carry one only because they
+/// are composite-FK TARGETS via @@unique([tenantId, id]), and nothing cites
+/// this table, so it needs neither.
+model SemesterResultApproval {
+  id String @id @default(cuid())
+
+  tenantId   String
+  semesterId String
+
+  status ResultPublicationStatus @default(DRAFT)
+
+  /// When the sign-off happened. Null while the row is still DRAFT.
+  approvedAt DateTime?
+
+  /// WHO signed off, from the authenticated session — never from a request
+  /// body. Nullable with SetNull because DELETE /api/users/[id] is a hard
+  /// delete that a Restrict here would start rejecting; AuditLog carries the
+  /// actor record that must outlive the user row.
+  approvedById String?
+
+  /// Optional note from the controller — why this cohort was approved with a
+  /// caveat, typically. Not required: an approval with nothing to add is the
+  /// normal case.
+  remarks String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// NoAction matches AssessmentEvent's treatment of the same column: a
+  /// semester with results signed off against it must not be deletable out
+  /// from under them by a cascade.
+  semester   Semester @relation(fields: [semesterId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  approvedBy User?    @relation("SemesterResultApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  /// One sign-off per cohort. Also the lookup the results page makes on every
+  /// read, so it is the unique index rather than a separate one.
+  @@unique([tenantId, semesterId])
+  /// "Which semesters has this university approved" — the examination office's
+  /// own worklist.
+  @@index([tenantId, status])
+  @@index([approvedById])
 }
 
 /// Phase 16 — Component 6.2.

@@ -9,11 +9,20 @@ import { resolveFailureState } from "@/lib/ui-state";
 import { ListSearch } from "@/components/shared/ListSearch";
 import { ListToolbar } from "@/components/shared/ListToolbar";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { EntityCreateButton } from "@/components/shared/EntityCrud";
+import {
+  SET_ASSIGNMENT_DEFAULTS,
+  courseworkTargetOptions,
+  setAssignmentFields,
+} from "@/components/shared/assignmentFields";
+import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { StatCard } from "@/components/ui/StatCard";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { getCurrentFaculty } from "@/services/portal";
+import { getMyTeaching } from "@/services/academics";
+import { createAssignmentAction } from "@/actions/assignments";
 import {
   listFacultyAssignments,
   type FacultyAssignmentSummary,
@@ -47,13 +56,49 @@ export default async function FacultyAssignmentsPage({
   const faculty = await getCurrentFaculty();
   if (!faculty) redirect("/login");
 
+  // Both are this lecturer's own data and neither depends on the other, so they
+  // are issued together rather than in sequence.
+  //
   // Keyed by user id: Assignment.createdBy is a User id, not a FacultyMember id.
-  const result = await listFacultyAssignments(faculty.userId, { page: 1, limit: 100, q });
+  const [result, teachingResult] = await Promise.all([
+    listFacultyAssignments(faculty.userId, { page: 1, limit: 100, q }),
+    getMyTeaching(),
+  ]);
+
+  // A failure here is not fatal to the page — the list below still renders. It
+  // only means the Set assignment dialog has nothing valid to offer, which is
+  // handled by withholding the control rather than by blocking the screen. Same
+  // treatment as the Schedule class dialog on My Schedule.
+  const teaching = teachingResult.success ? teachingResult.data : [];
+
+  // The classes this lecturer may set work for, drawn from
+  // GET /api/faculty/me/teaching — the endpoint that returns precisely the
+  // pairs POST /api/assignments accepts. This list is a CONVENIENCE and never
+  // the authorization: the route re-runs facultyMaySetCoursework against
+  // whatever is actually submitted.
+  const targets = courseworkTargetOptions(teaching);
+  const canSetWork = targets.length > 0;
 
   const header = (
     <PageHeader
       title="My Assignments"
       subtitle="Work you have set, and what is waiting to be marked."
+      action={
+        // Withheld when there is nothing valid to set work against. A button
+        // opening a dialog whose only select is empty is a control that cannot
+        // be used, and the Alert below says why rather than leaving the
+        // lecturer guessing.
+        canSetWork ? (
+          <EntityCreateButton
+            entityLabel="Assignment"
+            label="Set assignment"
+            fields={setAssignmentFields(targets)}
+            initialValues={{ ...SET_ASSIGNMENT_DEFAULTS }}
+            action={createAssignmentAction}
+            modalSize="lg"
+          />
+        ) : undefined
+      }
     />
   );
 
@@ -142,6 +187,16 @@ export default async function FacultyAssignmentsPage({
   return (
     <>
       {header}
+
+      {!canSetWork && (
+        // The reason the Set assignment button is absent. Without this the
+        // screen looks identical to one where the feature does not exist.
+        <Alert variant="info" title="No course to set work for" className="mb-6">
+          Work is set against a course you are assigned to teach, and your
+          account has no teaching assignment or timetabled class yet. Ask your
+          department to assign you a course.
+        </Alert>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="Assignments Set" value={formatNumber(rows.length)} />

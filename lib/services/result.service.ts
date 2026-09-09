@@ -31,12 +31,14 @@
 // ============================================================================
 
 import { AppError } from "@/lib/errors/AppError";
-import { ERROR_CODE } from "@/lib/constants/errors";
+import { ERROR_CODE, HTTP_STATUS } from "@/lib/constants/errors";
 import {
   MAX_COHORT_SIZE,
   MAX_STUDENT_COURSES,
   PUBLISHED_EVENT_STATUS,
   RESULT_MESSAGE,
+  SEMESTER_APPROVAL_TARGET_STATUS,
+  SEMESTER_APPROVAL_TERMINAL_STATUSES,
 } from "@/lib/constants/result";
 import { GPA_SCALE, MARK_SCALE } from "@/lib/constants/resultEngine";
 import type { ResultRepository } from "@/lib/repositories/result.repository";
@@ -91,6 +93,7 @@ import type {
   GpaDTO,
   ImprovementDTO,
   SemesterCohortResultDTO,
+  SemesterResultApprovalDTO,
   SemesterResultDTO,
   StudentAnalyticsDTO,
   StudentResultDTO,
@@ -98,11 +101,17 @@ import type {
   TranscriptLineDTO,
 } from "@/lib/dto/result.dto";
 import type { AttemptPolicy } from "@/app/generated/prisma/enums";
+import { ResultPublicationStatus } from "@/app/generated/prisma/enums";
 
 type Registration = Awaited<
   ReturnType<ResultRepository["findRegistrationsForStudent"]>
 >[number];
 type Mark = Awaited<ReturnType<ResultRepository["findMarks"]>>[number];
+
+/** The stored approval row, as the repository selects it. */
+type StoredApproval = NonNullable<
+  Awaited<ReturnType<ResultRepository["findSemesterApproval"]>>
+>;
 
 /**
  * How much of the tenant the caller may read.
@@ -300,6 +309,11 @@ export class ResultService {
     const marks = await this.loadMarks(tenantId, registrations);
     const policy = this.policyFor(registrations, config);
 
+    // The stored sign-off, if any. One indexed lookup on the unique
+    // (tenantId, semesterId) pair; it feeds no calculation and is reported
+    // alongside the computed cohort rather than mixed into it.
+    const approval = await this.repository.findSemesterApproval(tenantId, semesterId);
+
     // Grouped ONCE into per-student batches; the engine then computes each
     // independently against the shared prepared schemes.
     const byStudent = new Map<string, Registration[]>();
@@ -409,6 +423,135 @@ export class ResultService {
       failures: batchFailures(outcome).map(
         (failure) => `${failure.subject ?? "unknown"}: ${failure.message}`
       ),
+      // Read, never computed. One indexed lookup on (tenantId, semesterId).
+      approval: this.toApprovalDTO(approval, {
+        cohortSize: students.length,
+        failureCount: batchFailures(outcome).length,
+      }),
+    };
+  }
+
+  // --- Approval — PRD §17.4 · §49.4 stage 8 ----------------------------------
+
+  /**
+   * Map the stored approval row — or its absence — onto the wire shape.
+   *
+   * NO ROW MEANS DRAFT. A semester nobody has signed off and one explicitly
+   * marked DRAFT are the same state, so nothing pre-creates rows and this is
+   * the single place that equivalence is expressed.
+   */
+  private toApprovalDTO(
+    row: StoredApproval | null,
+    cohort: { cohortSize: number; failureCount: number }
+  ): SemesterResultApprovalDTO {
+    const status = row?.status ?? ResultPublicationStatus.DRAFT;
+
+    return {
+      status,
+      approvedAt: row?.approvedAt ? row.approvedAt.toISOString() : null,
+      approvedById: row?.approvedById ?? null,
+      remarks: row?.remarks ?? null,
+      // Derived from the same two preconditions approveSemesterResult enforces,
+      // so a screen can withhold a control that would only ever 409. It is a
+      // convenience and never the authorization: the endpoint re-checks both.
+      canApprove:
+        !SEMESTER_APPROVAL_TERMINAL_STATUSES.includes(status) &&
+        cohort.failureCount === 0 &&
+        cohort.cohortSize > 0,
+    };
+  }
+
+  /**
+   * Approve one semester's cohort result — the Controller of Examination's
+   * sign-off.
+   *
+   * NO CALCULATION IS DUPLICATED. The precondition is checked by running
+   * getSemesterResult, which is the same code path GET /api/results/semester
+   * serves, so approval can never be granted against a different computation
+   * from the one the controller was looking at. That call also performs the
+   * tenant-scoped semester lookup and raises the 404, so this method never
+   * repeats it.
+   *
+   * THE PRECONDITION, STATED EXACTLY
+   *   `failures` must be empty, and the cohort must not be empty.
+   *
+   *   `failures` is `batchFailures(outcome)` — the students the result engine
+   *   could not compute at all. That is existing state produced by the existing
+   *   engine, not a new moderation flag: a cohort carrying one is a cohort whose
+   *   own report says it is incomplete, and signing that off would make the
+   *   institution's official position include students it has no figure for.
+   *
+   *   NOTHING ELSE BLOCKS APPROVAL, deliberately. In particular a student who
+   *   FAILED, carries a backlog, or has no SGPA is not a failure — those are
+   *   academic outcomes the engine computed successfully, and refusing to
+   *   approve a cohort because somebody failed would be inventing a rule the
+   *   project does not have. Nor is any AssessmentEvent status consulted: no
+   *   moderation state machine exists to read, and a sitting outside this
+   *   semester's registrations is outside the calculation's scope entirely.
+   *
+   * LIFECYCLE. Writes APPROVED and nothing else. PRD §49.4 keeps Publication a
+   * separate stage, so this never writes PUBLISHED — a controller approving a
+   * result must not release it to students as a side effect.
+   *
+   * IDEMPOTENCE. Approving an already-APPROVED (or PUBLISHED) cohort is a 409,
+   * not a silent success: the stored approvedAt and approvedById are an audit
+   * fact, and answering 200 would either rewrite them or imply a decision that
+   * did not happen. Same treatment as the assessment-event transitions.
+   */
+  async approveSemesterResult(
+    tenantId: string,
+    semesterId: string,
+    approvedById: string,
+    remarks?: string
+  ): Promise<SemesterCohortResultDTO> {
+    // Reuses the read path in full: 404 for an unknown or other-tenant
+    // semester, 422 for an oversized cohort, and the cohort itself.
+    const result = await this.getSemesterResult(tenantId, semesterId);
+
+    if (result.students.length === 0) {
+      throw new AppError(
+        RESULT_MESSAGE.APPROVAL_EMPTY_COHORT,
+        HTTP_STATUS.CONFLICT,
+        ERROR_CODE.CONFLICT
+      );
+    }
+
+    if (result.failures.length > 0) {
+      throw new AppError(
+        RESULT_MESSAGE.APPROVAL_HAS_FAILURES,
+        HTTP_STATUS.CONFLICT,
+        ERROR_CODE.CONFLICT
+      );
+    }
+
+    // Already-terminal is decided INSIDE the transaction, so two controllers
+    // pressing Approve together cannot both write.
+    const approved = await this.repository.approveSemesterResult({
+      tenantId,
+      semesterId,
+      approvedById,
+      status: SEMESTER_APPROVAL_TARGET_STATUS,
+      terminalStatuses: SEMESTER_APPROVAL_TERMINAL_STATUSES,
+      remarks,
+    });
+
+    if (approved === null) {
+      throw new AppError(
+        RESULT_MESSAGE.ALREADY_APPROVED,
+        HTTP_STATUS.CONFLICT,
+        ERROR_CODE.CONFLICT
+      );
+    }
+
+    // The same cohort report, now carrying the stored decision. Returned rather
+    // than a bare acknowledgement so the caller renders what was actually
+    // persisted instead of assuming its own request succeeded as sent.
+    return {
+      ...result,
+      approval: this.toApprovalDTO(approved, {
+        cohortSize: result.students.length,
+        failureCount: result.failures.length,
+      }),
     };
   }
 

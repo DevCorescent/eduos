@@ -16,6 +16,10 @@ import { Prisma } from "@/app/generated/prisma/client";
 import { requireRole } from "@/lib/middleware/requireRole";
 import { requireTenant } from "@/lib/middleware/requireTenant";
 import { isForeignKeyViolation } from "@/lib/utils/prisma-errors";
+import {
+  FACULTY_COURSEWORK_REFUSALS,
+  facultyMaySetCoursework,
+} from "@/lib/services/facultyTeaching";
 
 import {
   createAssignmentSchema,
@@ -220,6 +224,15 @@ export async function GET(request: NextRequest) {
 // ACCESS     : UNIVERSITY_ADMIN · FACULTY. A caller holding only STUDENT is
 //              rejected by the guard with 403 — students read assignments but do
 //              not create them.
+//
+//              FACULTY IS CONFINED TO THEIR OWN TEACHING LOAD. A lecturer may
+//              create an assignment only for a course they teach, and only for
+//              a section of it they teach when they name one. The rule is
+//              facultyMaySetCoursework in lib/services/facultyTeaching.ts — the
+//              same module that decides who may mark a register and who may put
+//              a class on the timetable, so the three cannot drift apart.
+//              UNIVERSITY_ADMIN is not confined: an administrator sets work on
+//              behalf of a department and holds no FacultyMember row.
 // VALIDATION : createAssignmentSchema — courseId and title required; sectionId,
 //              description, type, maxMarks, dueDate and attachments optional.
 //              maxMarks must be a positive integer. id, tenantId, createdBy,
@@ -264,8 +277,24 @@ export async function GET(request: NextRequest) {
 //              same window leaves a dangling id rather than raising anything.
 export async function POST(request: NextRequest) {
   try {
-    const guard = await requireRole("UNIVERSITY_ADMIN", "FACULTY");
-    if (!guard.authorized) return guard.response;
+    // Precedence, exactly as GET applies it and for the same reason: an
+    // administrator sets work on behalf of a department and holds no
+    // FacultyMember row, so the elevated check runs first and only a caller who
+    // fails it is confined to their own teaching load below. An anonymous
+    // caller fails both and receives requireAuth's 401 from the second, so the
+    // fallback cannot turn a 401 into a 403.
+    const elevatedGuard = await requireRole("UNIVERSITY_ADMIN");
+
+    let isElevated: boolean;
+
+    if (elevatedGuard.authorized) {
+      isElevated = true;
+    } else {
+      const facultyGuard = await requireRole("FACULTY");
+      if (!facultyGuard.authorized) return facultyGuard.response;
+
+      isElevated = false;
+    }
 
     const tenantGuard = await requireTenant();
     if (!tenantGuard.resolved) return tenantGuard.response;
@@ -321,6 +350,40 @@ export async function POST(request: NextRequest) {
 
     if (scalars.sectionId !== undefined && !section) {
       return NextResponse.json(fail("Section not found", "NOT_FOUND"), { status: 404 });
+    }
+
+    // A lecturer may only set work on a course they actually teach.
+    //
+    // WHAT THIS CLOSES. Both checks above prove TENANT membership, which every
+    // lecturer in the university satisfies for every course in it — so until
+    // now any of them could set work on a colleague's course, and publishing it
+    // would notify that colleague's students. Tenant membership is not a
+    // teaching relationship.
+    //
+    // The rule is the one lib/services/facultyTeaching.ts already states for
+    // every other faculty-confined write, so the register, the timetable and
+    // coursework cannot disagree about which classes are a lecturer's own.
+    // Authority is resolved from session.sub; the body carries no facultyId and
+    // createdBy is written from the session below, so there is no client claim
+    // about authorship anywhere on this path.
+    //
+    // Applied AFTER the tenant-scoped lookups, so a 403 here can only ever
+    // describe a course in the caller's own university — another tenant's id is
+    // the 404 above and never reaches this rule.
+    if (!isElevated) {
+      const decision = await facultyMaySetCoursework(
+        tenant.id,
+        session.sub,
+        scalars.courseId,
+        scalars.sectionId
+      );
+
+      if (!decision.allowed) {
+        return NextResponse.json(
+          fail(FACULTY_COURSEWORK_REFUSALS[decision.reason], "FORBIDDEN"),
+          { status: 403 }
+        );
+      }
     }
 
     // Single write — already atomic, so no transaction is warranted. tenantId

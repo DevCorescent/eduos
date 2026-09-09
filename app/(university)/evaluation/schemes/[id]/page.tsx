@@ -7,14 +7,45 @@ import { resolveFailureState } from "@/lib/ui-state";
 import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
+import {
+  COMPONENT_DEFAULTS,
+  CRITERION_DEFAULTS,
+  RULE_DEFAULTS,
+  componentEditValues,
+  componentFields,
+  criterionEditValues,
+  criterionFields,
+  isFormAuthorableRule,
+  ruleEditValues,
+  ruleFields,
+} from "@/components/shared/evaluationSchemeFields";
 import {
   getComponentTree,
   getPassingCriteria,
   getScheme,
   getSchemeRules,
 } from "@/services/evaluation";
-import type { EvaluationComponentNodeDTO } from "@/lib/dto/evaluationComponent.dto";
+import { getPortalSession } from "@/services/session";
+import {
+  createComponentAction,
+  createCriterionAction,
+  createRuleAction,
+  deleteComponentAction,
+  deleteCriterionAction,
+  deleteRuleAction,
+  updateComponentAction,
+  updateCriterionAction,
+  updateRuleAction,
+} from "@/actions/evaluation";
+import { EVALUATION_SCHEME_MANAGE_ROLES } from "@/lib/constants/evaluationScheme";
+import { hasAnyRole } from "@/constants/roles";
+import type {
+  EvaluationComponentDTO,
+  EvaluationComponentNodeDTO,
+} from "@/lib/dto/evaluationComponent.dto";
 import { formatDate } from "@/utils/format";
+import { SchemeLifecycleActions } from "./SchemeLifecycleActions";
 
 export const metadata: Metadata = { title: "Evaluation Scheme" };
 
@@ -36,6 +67,15 @@ type Params = Promise<{ id: string }>;
  */
 export default async function EvaluationSchemePage({ params }: { params: Params }) {
   const { id } = await params;
+
+  const session = await getPortalSession();
+
+  // Gated on the SAME constant every scheme endpoint applies. A head of
+  // department and a lecturer hold EVALUATION_SCHEME_READ_ROLES: they read the
+  // rulebook they are governed by and amend none of it, so every control below
+  // is withheld from them rather than disabled. This is presentation — each
+  // endpoint re-applies EVALUATION_SCHEME_MANAGE_ROLES server-side.
+  const canManage = hasAnyRole(session?.roles ?? [], EVALUATION_SCHEME_MANAGE_ROLES);
 
   const [schemeResult, treeResult, rulesResult, criteriaResult] = await Promise.all([
     getScheme(id),
@@ -69,6 +109,36 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
 
   const scheme = schemeResult.data;
 
+  // Components, rules and criteria may only be changed while the regulation is
+  // a DRAFT. `isMutable` is DERIVED by the backend from the scheme's status and
+  // read as given — re-deriving it here would be a second implementation of the
+  // same lifecycle rule, and the two would disagree the first time a status was
+  // added. When the tree read failed there is no answer, so nothing is offered.
+  const isMutable = treeResult.success && treeResult.data.isMutable;
+  const canEditContents = canManage && isMutable;
+
+  // Every component in the tree, flattened, for the parent / component-scope
+  // selects. Iterative rather than recursive: a cycle would otherwise be a
+  // stack overflow instead of a bounded walk.
+  const flatComponents: EvaluationComponentDTO[] = [];
+
+  if (treeResult.success) {
+    const stack = [...treeResult.data.tree];
+
+    while (stack.length > 0) {
+      const node = stack.pop()!;
+      flatComponents.push(node);
+      stack.push(...node.children);
+    }
+  }
+
+  const componentOptions = flatComponents
+    .map((component) => ({
+      value: component.id,
+      label: `${component.code} — ${component.name}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
   return (
     <>
       {back}
@@ -76,17 +146,30 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
         title={scheme.name}
         subtitle={`${scheme.code} · version ${scheme.version}`}
         action={
-          <Badge
-            variant={
-              scheme.status === "ACTIVE"
-                ? "success"
-                : scheme.status === "DRAFT"
-                  ? "warning"
-                  : "neutral"
-            }
-          >
-            {scheme.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant={
+                scheme.status === "ACTIVE"
+                  ? "success"
+                  : scheme.status === "DRAFT"
+                    ? "warning"
+                    : "neutral"
+              }
+            >
+              {scheme.status}
+            </Badge>
+            {canManage && (
+              <SchemeLifecycleActions
+                schemeId={scheme.id}
+                schemeName={scheme.name}
+                status={scheme.status}
+                // Activation is withheld while the tree does not validate: the
+                // endpoint would answer 409 and the violations are already
+                // listed below with what to fix.
+                canActivate={treeResult.success && treeResult.data.validation.isValid}
+              />
+            )}
+          </div>
         }
       />
 
@@ -147,11 +230,24 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
           header={
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-heading">Components</h2>
-              {treeResult.success && (
-                <span className="text-xs text-muted-foreground">
-                  {treeResult.data.componentCount} in total
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                {treeResult.success && (
+                  <span className="text-xs text-muted-foreground">
+                    {treeResult.data.componentCount} in total
+                  </span>
+                )}
+                {canEditContents && (
+                  <EntityCreateButton
+                    entityLabel="Component"
+                    label="Add"
+                    size="sm"
+                    fields={componentFields(componentOptions)}
+                    initialValues={{ ...COMPONENT_DEFAULTS }}
+                    action={createComponentAction.bind(null, scheme.id)}
+                    modalSize="lg"
+                  />
+                )}
+              </div>
             </div>
           }
           className="lg:col-span-2"
@@ -166,7 +262,14 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
           ) : (
             <ul className="divide-y divide-border">
               {treeResult.data.tree.map((node) => (
-                <ComponentNode key={node.id} node={node} depth={0} />
+                <ComponentNode
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  schemeId={scheme.id}
+                  canEdit={canEditContents}
+                  componentOptions={componentOptions}
+                />
               ))}
             </ul>
           )}
@@ -176,11 +279,24 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
           header={
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-heading">Rules</h2>
-              {rulesResult.success && rulesResult.data.requiresCohortComputation && (
-                <Badge variant="info" size="sm">
-                  Cohort-wide
-                </Badge>
-              )}
+              <div className="flex items-center gap-3">
+                {rulesResult.success && rulesResult.data.requiresCohortComputation && (
+                  <Badge variant="info" size="sm">
+                    Cohort-wide
+                  </Badge>
+                )}
+                {canEditContents && (
+                  <EntityCreateButton
+                    entityLabel="Rule"
+                    label="Add"
+                    size="sm"
+                    fields={ruleFields(componentOptions)}
+                    initialValues={{ ...RULE_DEFAULTS }}
+                    action={createRuleAction.bind(null, scheme.id)}
+                    modalSize="lg"
+                  />
+                )}
+              </div>
             </div>
           }
           className="lg:col-span-2"
@@ -214,6 +330,33 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
                       Cohort
                     </Badge>
                   )}
+                  {canEditContents && (
+                    <EntityRowActions
+                      entityLabel="Rule"
+                      recordName={rule.name}
+                      // A CURVE or CUSTOM_FORMULA rule carries a nested
+                      // configuration the generated form cannot represent, so
+                      // its EDIT dialog is withheld — saving one would have to
+                      // send a config this form never held. It stays listed and
+                      // stays deletable; only authoring it is out of reach.
+                      editFields={
+                        isFormAuthorableRule(rule)
+                          ? ruleFields(componentOptions)
+                          : undefined
+                      }
+                      editValues={
+                        isFormAuthorableRule(rule) ? ruleEditValues(rule) : undefined
+                      }
+                      onUpdate={
+                        isFormAuthorableRule(rule)
+                          ? updateRuleAction.bind(null, scheme.id, rule.id)
+                          : undefined
+                      }
+                      onDelete={deleteRuleAction.bind(null, scheme.id, rule.id)}
+                      deleteWarning={`"${rule.name}" will be permanently removed from this draft. Rules compose, so removing one changes what the regulation computes.`}
+                      modalSize="lg"
+                    />
+                  )}
                 </li>
               ))}
             </ul>
@@ -221,7 +364,22 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
         </Card>
 
         <Card
-          header={<h2 className="text-sm font-semibold text-heading">Passing criteria</h2>}
+          header={
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-heading">Passing criteria</h2>
+              {canEditContents && (
+                <EntityCreateButton
+                  entityLabel="Criterion"
+                  label="Add"
+                  size="sm"
+                  fields={criterionFields(componentOptions)}
+                  initialValues={{ ...CRITERION_DEFAULTS }}
+                  action={createCriterionAction.bind(null, scheme.id)}
+                  modalSize="lg"
+                />
+              )}
+            </div>
+          }
           className="lg:col-span-1"
           noPadding
         >
@@ -242,13 +400,32 @@ export default async function EvaluationSchemePage({ params }: { params: Params 
               </p>
               <ul className="divide-y divide-border">
                 {criteriaResult.data.criteria.map((criterion) => (
-                  <li key={criterion.id} className="px-5 py-3">
-                    <p className="truncate text-sm text-foreground">{criterion.name}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {criterion.metric} ≥ {criterion.threshold}
-                      {criterion.unit === "PERCENT" ? "%" : ` ${criterion.unit.toLowerCase()}`} ·
-                      fails as {criterion.failureOutcome}
-                    </p>
+                  <li
+                    key={criterion.id}
+                    className="flex items-start gap-2 px-5 py-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-foreground">{criterion.name}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {criterion.metric} ≥ {criterion.threshold}
+                        {criterion.unit === "PERCENT"
+                          ? "%"
+                          : ` ${criterion.unit.toLowerCase()}`}{" "}
+                        · fails as {criterion.failureOutcome}
+                      </p>
+                    </div>
+                    {canEditContents && (
+                      <EntityRowActions
+                        entityLabel="Criterion"
+                        recordName={criterion.name}
+                        editFields={criterionFields(componentOptions)}
+                        editValues={criterionEditValues(criterion)}
+                        onUpdate={updateCriterionAction.bind(null, scheme.id, criterion.id)}
+                        onDelete={deleteCriterionAction.bind(null, scheme.id, criterion.id)}
+                        deleteWarning={`"${criterion.name}" will be permanently removed from this draft. Criteria form a conjunction, so removing one relaxes what a student must meet.`}
+                        modalSize="lg"
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -286,7 +463,19 @@ function SectionError({ message }: { message: string }) {
  * meaning: a child's weightage is a share of its parent, not of the course, and
  * a flat list would present the two as comparable numbers.
  */
-function ComponentNode({ node, depth }: { node: EvaluationComponentNodeDTO; depth: number }) {
+function ComponentNode({
+  node,
+  depth,
+  schemeId,
+  canEdit,
+  componentOptions,
+}: {
+  node: EvaluationComponentNodeDTO;
+  depth: number;
+  schemeId: string;
+  canEdit: boolean;
+  componentOptions: { value: string; label: string }[];
+}) {
   return (
     <>
       <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3">
@@ -299,9 +488,34 @@ function ComponentNode({ node, depth }: { node: EvaluationComponentNodeDTO; dept
         </div>
         <span className="shrink-0 text-xs text-muted-foreground">max {node.maxMarks}</span>
         <span className="shrink-0 text-sm font-medium text-foreground">{node.weightage}%</span>
+        {canEdit && (
+          <EntityRowActions
+            entityLabel="Component"
+            recordName={node.name}
+            // A component cannot be its own parent, so it is removed from the
+            // options it is offered. Its descendants are left in: the service
+            // owns cycle detection, and re-implementing that walk here would be
+            // a second opinion about the same tree.
+            editFields={componentFields(
+              componentOptions.filter((option) => option.value !== node.id)
+            )}
+            editValues={componentEditValues(node)}
+            onUpdate={updateComponentAction.bind(null, schemeId, node.id)}
+            onDelete={deleteComponentAction.bind(null, schemeId, node.id)}
+            deleteWarning={`"${node.name}" and every component beneath it will be permanently removed from this draft. This cannot be undone.`}
+            modalSize="lg"
+          />
+        )}
       </li>
       {node.children.map((child) => (
-        <ComponentNode key={child.id} node={child} depth={depth + 1} />
+        <ComponentNode
+          key={child.id}
+          node={child}
+          depth={depth + 1}
+          schemeId={schemeId}
+          canEdit={canEdit}
+          componentOptions={componentOptions}
+        />
       ))}
     </>
   );

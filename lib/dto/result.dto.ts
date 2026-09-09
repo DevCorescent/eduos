@@ -19,6 +19,7 @@
 // ============================================================================
 
 import type { CourseOutcome } from "@/lib/constants/resultEngine";
+import type { ResultPublicationStatus } from "@/app/generated/prisma/enums";
 
 /** One component's contribution to one course. */
 export interface ComponentResultDTO {
@@ -288,6 +289,30 @@ export interface GradeDistributionDTO {
   percent: string;
 }
 
+/**
+ * The Controller of Examination's sign-off on one cohort — PRD §17.4.
+ *
+ * ALWAYS PRESENT on a semester result, even when nobody has approved anything:
+ * a semester with no SemesterResultApproval row reports `status: "DRAFT"` with
+ * both actor fields null. Absence and DRAFT mean the same thing, so returning
+ * null here would make every client re-implement that equivalence.
+ *
+ * `canApprove` is DERIVED by the backend from the same preconditions the
+ * approval endpoint enforces, so a screen can withhold a control that would
+ * only 409. It is not authorization — the endpoint re-checks the caller's role
+ * and the cohort's state regardless of what this said.
+ */
+export interface SemesterResultApprovalDTO {
+  status: ResultPublicationStatus;
+  /** ISO-8601, or null while the result is unapproved. */
+  approvedAt: string | null;
+  /** The approving user's id, or null. Never a name — this DTO joins nothing. */
+  approvedById: string | null;
+  remarks: string | null;
+  /** Derived: the cohort currently satisfies every approval precondition. */
+  canApprove: boolean;
+}
+
 /** GET /api/results/semester/[semesterId] */
 export interface SemesterCohortResultDTO {
   semesterId: string;
@@ -299,6 +324,11 @@ export interface SemesterCohortResultDTO {
   meritList: MeritEntryDTO[];
   /** Students the engine could not compute, never silently dropped. */
   failures: string[];
+  /**
+   * The approval state of this cohort. Additive — every existing field above is
+   * computed exactly as before, and nothing here feeds the calculation.
+   */
+  approval: SemesterResultApprovalDTO;
 }
 
 /** One entry of a merit list. */

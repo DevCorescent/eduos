@@ -34,7 +34,10 @@
 // ============================================================================
 
 import { prisma } from "@/lib/db/prisma";
-import { RegistrationStatus } from "@/app/generated/prisma/enums";
+import {
+  RegistrationStatus,
+  type ResultPublicationStatus,
+} from "@/app/generated/prisma/enums";
 
 /** Registration columns the engine needs. Declared once so every read agrees. */
 export const RESULT_REGISTRATION_SELECT = {
@@ -140,6 +143,109 @@ export class ResultRepository {
     return prisma.semester.findFirst({
       where: { id: semesterId, tenantId },
       select: { id: true, name: true, startDate: true, endDate: true },
+    });
+  }
+
+  /**
+   * This cohort's approval row, or null when nobody has approved it.
+   *
+   * NULL IS NOT AN ERROR AND NOT A MISSING VALUE. A semester nobody has signed
+   * off simply has no row: absence and DRAFT are the same state, so nothing
+   * pre-creates rows and the service maps null onto DRAFT.
+   *
+   * findFirst rather than findUnique on the composite key, matching every other
+   * read here: the tenant predicate is part of the lookup, so another tenant's
+   * approval can never be resolved. The pair is unique, so this matches at most
+   * one row.
+   */
+  async findSemesterApproval(tenantId: string, semesterId: string) {
+    return prisma.semesterResultApproval.findFirst({
+      where: { tenantId, semesterId },
+      select: {
+        id: true,
+        status: true,
+        approvedAt: true,
+        approvedById: true,
+        remarks: true,
+      },
+    });
+  }
+
+  /**
+   * Record the Controller of Examination's sign-off.
+   *
+   * THE ONLY WRITE IN THIS REPOSITORY, and the only place APPROVED is ever
+   * written. Everything else in this module reads.
+   *
+   * WHY A TRANSACTION FOR WHAT LOOKS LIKE ONE STATEMENT
+   *   The check and the write must not be separable. Two controllers pressing
+   *   Approve at the same instant would otherwise both read "not approved" and
+   *   both write, producing two audit-visible approvals of one cohort with the
+   *   second silently overwriting the first's actor and timestamp. The re-read
+   *   inside the transaction is what makes the guard hold, and the unique index
+   *   on (tenantId, semesterId) is the backstop if two transactions still race
+   *   to create — Prisma raises P2002, which the service reports as the same
+   *   409 as an already-approved result.
+   *
+   * RETURNS null when the row is already in a terminal status, so the service
+   * can answer 409 without a second round trip. Anything else is the stored row.
+   */
+  async approveSemesterResult(input: {
+    tenantId: string;
+    semesterId: string;
+    approvedById: string;
+    status: ResultPublicationStatus;
+    terminalStatuses: readonly ResultPublicationStatus[];
+    remarks?: string;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.semesterResultApproval.findFirst({
+        where: { tenantId: input.tenantId, semesterId: input.semesterId },
+        select: { id: true, status: true },
+      });
+
+      // Re-read INSIDE the transaction, so the decision and the write cannot be
+      // separated by a concurrent approval.
+      if (existing !== null && input.terminalStatuses.includes(existing.status)) {
+        return null;
+      }
+
+      const data = {
+        status: input.status,
+        approvedAt: new Date(),
+        // From the authenticated session, never from a request body.
+        approvedById: input.approvedById,
+        remarks: input.remarks ?? null,
+      };
+
+      if (existing !== null) {
+        return tx.semesterResultApproval.update({
+          where: { id: existing.id },
+          data,
+          select: {
+            id: true,
+            status: true,
+            approvedAt: true,
+            approvedById: true,
+            remarks: true,
+          },
+        });
+      }
+
+      return tx.semesterResultApproval.create({
+        data: {
+          tenantId: input.tenantId,
+          semesterId: input.semesterId,
+          ...data,
+        },
+        select: {
+          id: true,
+          status: true,
+          approvedAt: true,
+          approvedById: true,
+          remarks: true,
+        },
+      });
     });
   }
 

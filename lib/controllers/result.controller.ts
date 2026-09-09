@@ -45,6 +45,22 @@ export class ResultController {
     return resultService.getSemesterResult(tenantId, semesterId);
   }
 
+  /**
+   * POST /api/results/semester/[semesterId]/approve
+   *
+   * `approvedById` is the authenticated subject, resolved by the route from the
+   * session — there is no parameter here a client could supply to attribute the
+   * sign-off to somebody else.
+   */
+  async approveSemesterResult(
+    tenantId: string,
+    semesterId: string,
+    approvedById: string,
+    remarks?: string
+  ): Promise<SemesterCohortResultDTO> {
+    return resultService.approveSemesterResult(tenantId, semesterId, approvedById, remarks);
+  }
+
   /** GET /api/results/transcript/[studentId] */
   async getTranscript(
     tenantId: string,

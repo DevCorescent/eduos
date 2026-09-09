@@ -190,3 +190,54 @@ export async function getAssignment(id: string): Promise<ApiResponse<AssignmentR
 
   return { success: true, data: await toRow(result.data, await courseIndex(), true) };
 }
+
+// --- Setting work -----------------------------------------------------------
+
+/**
+ * What a lecturer supplies when setting a new assignment.
+ *
+ * Mirrors createAssignmentSchema, which is the contract the endpoint actually
+ * applies — restating a looser one here would only move the rejection later.
+ *
+ * `sectionId` is optional because Assignment.sectionId is nullable: work set
+ * for the whole course is an ordinary shape, not a missing value.
+ *
+ * There is no `createdBy` and no `facultyId`. Authorship is written by the route
+ * from the authenticated session, and the route resolves the caller's teaching
+ * load from that same session, so neither is a value this side may supply.
+ */
+export interface CreateAssignmentInput {
+  courseId: string;
+  sectionId?: string;
+  title: string;
+  description?: string;
+  type?: Assignment["type"];
+  maxMarks?: number;
+  dueDate?: string;
+}
+
+/**
+ * Set a new assignment.
+ *
+ * Always lands as a DRAFT: the schema omits `status` and `publishedAt`, so the
+ * database defaults apply and the only route into PUBLISHED is publishAssignment
+ * below. That separation is what lets a lecturer draft the brief and set it
+ * live afterwards, rather than notifying a cohort the moment they start typing.
+ */
+export async function createAssignment(
+  input: CreateAssignmentInput
+): Promise<ApiResponse<Assignment>> {
+  return apiRequest<Assignment>("/api/assignments", { method: "POST", body: input });
+}
+
+/**
+ * Publish a draft assignment to the students it was set for.
+ *
+ * No body: the transition is fixed, its target state is not the caller's to
+ * choose, and both columns it writes are server-managed. The route notifies the
+ * course's registered students — narrowed to the section when the assignment
+ * names one — after the transition commits.
+ */
+export async function publishAssignment(id: string): Promise<ApiResponse<Assignment>> {
+  return apiRequest<Assignment>(`/api/assignments/${id}/publish`, { method: "POST" });
+}

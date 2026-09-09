@@ -11,7 +11,10 @@
 // ============================================================================
 
 import { ROLES } from "@/constants/roles";
-import { AssessmentEventStatus } from "@/app/generated/prisma/enums";
+import {
+  AssessmentEventStatus,
+  ResultPublicationStatus,
+} from "@/app/generated/prisma/enums";
 
 // --- Authorization ----------------------------------------------------------
 
@@ -51,6 +54,28 @@ export const SEMESTER_RESULT_READ_ROLES = [
   ROLES.UNIVERSITY_ADMIN,
   ROLES.CONTROLLER_OF_EXAMINATION,
 ] as const;
+
+/**
+ * Roles permitted to APPROVE a semester's cohort result — PRD §17.4, §49.4
+ * stage 8.
+ *
+ * NARROWER THAN THE READ SET BY ONE, AND THE OMISSION IS THE POINT.
+ * UNIVERSITY_ADMIN reads the cohort report and does NOT sign it off. Approval
+ * is the examination controller's statutory act: it is the moment a computed
+ * result becomes the institution's official position on a cohort, and PRD §49.4
+ * places it between Moderation and Publication precisely because it is a named
+ * office's decision rather than an administrative convenience. A confirmed
+ * product decision, not an oversight — a test pins the absence so that widening
+ * it later has to be deliberate.
+ *
+ * DEPARTMENT_HOD is absent here because it is absent from
+ * SEMESTER_RESULT_READ_ROLES too: a head of department cannot read a cohort
+ * report at all, for the reason given above it, so there is nothing for them to
+ * approve.
+ *
+ * FACULTY, STUDENT and PARENT reach neither set.
+ */
+export const SEMESTER_RESULT_APPROVE_ROLES = [ROLES.CONTROLLER_OF_EXAMINATION] as const;
 
 // --- Publication ------------------------------------------------------------
 
@@ -103,4 +128,41 @@ export const RESULT_MESSAGE = {
   TOO_MANY_COURSES: "The student has more registrations than this endpoint will process",
   FORBIDDEN: "Forbidden",
   NO_SCHEME: "A registration cites a regulation that no longer exists",
+  ALREADY_APPROVED: "This semester's result has already been approved",
+  APPROVAL_HAS_FAILURES:
+    "The result cannot be approved while the engine could not compute every student in the cohort",
+  APPROVAL_EMPTY_COHORT:
+    "The result cannot be approved because no student is registered for this semester",
 } as const;
+
+// --- Approval ---------------------------------------------------------------
+
+/**
+ * The status an approval writes, and the one it refuses to write again.
+ *
+ * REUSES ResultPublicationStatus rather than declaring a second lifecycle. That
+ * enum was created by the Phase 16 migration and, until the approval table
+ * existed, was attached to no column anywhere in the database — adopting it is
+ * what stops approval becoming a parallel vocabulary for the same idea.
+ *
+ * APPROVAL NEVER WRITES `PUBLISHED`. PRD §49.4 separates Result Approval from
+ * Publication, and collapsing them would release marks to students the instant
+ * a controller signed off. `VERIFIED` is likewise never written: it names a
+ * moderation step this project has not built, and is left unused rather than
+ * repurposed.
+ */
+export const SEMESTER_APPROVAL_TARGET_STATUS = ResultPublicationStatus.APPROVED;
+
+/**
+ * Statuses from which approval is refused as a 409.
+ *
+ * Only APPROVED. A DRAFT is the ordinary starting point, and a semester with no
+ * row at all is DRAFT by absence — the two mean the same thing, which is why
+ * nothing pre-creates rows. PUBLISHED is included because a published result is
+ * past approval, not before it: re-approving one would move the lifecycle
+ * backwards.
+ */
+export const SEMESTER_APPROVAL_TERMINAL_STATUSES: readonly ResultPublicationStatus[] = [
+  ResultPublicationStatus.APPROVED,
+  ResultPublicationStatus.PUBLISHED,
+];
