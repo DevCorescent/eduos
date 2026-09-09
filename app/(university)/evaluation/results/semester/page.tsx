@@ -13,8 +13,12 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Table, type TableColumn } from "@/components/ui/Table";
 import { getSemesterResult } from "@/services/evaluation";
 import { currentSemester, semesterIndex } from "@/services/reference";
+import { getPortalSession } from "@/services/session";
+import { SEMESTER_RESULT_APPROVE_ROLES } from "@/lib/constants/result";
+import { hasAnyRole } from "@/constants/roles";
 import type { CohortStudentDTO } from "@/lib/dto/result.dto";
-import { formatNumber } from "@/utils/format";
+import { formatDate, formatNumber } from "@/utils/format";
+import { ApproveResultButton } from "./ApproveResultButton";
 
 export const metadata: Metadata = { title: "Semester Results" };
 
@@ -39,7 +43,11 @@ export default async function SemesterResultsPage({
 }) {
   const { semesterId } = await searchParams;
 
-  const [semesters, current] = await Promise.all([semesterIndex(), currentSemester()]);
+  const [semesters, current, session] = await Promise.all([
+    semesterIndex(),
+    currentSemester(),
+    getPortalSession(),
+  ]);
   const activeSemesterId = semesterId ?? current?.id;
 
   const header = (
@@ -99,7 +107,25 @@ export default async function SemesterResultsPage({
   }
 
   const cohort = result.data;
-  const { statistics } = cohort;
+  const { statistics, approval } = cohort;
+
+  // Gated on the SAME constant the endpoint applies — CONTROLLER_OF_EXAMINATION
+  // and nothing else. UNIVERSITY_ADMIN reads this page and does not sign it
+  // off; that is a confirmed product decision, so the control is withheld from
+  // them exactly as it is from a head of department. Presentation only: POST
+  // .../approve re-applies the same set server-side.
+  const canApprove = hasAnyRole(session?.roles ?? [], SEMESTER_RESULT_APPROVE_ROLES);
+
+  // Why the button is disabled, when it is. Derived from the same two
+  // preconditions the service enforces, so the reason on screen is the reason
+  // the endpoint would give.
+  const blockedReason = approval.canApprove
+    ? null
+    : approval.status === "APPROVED" || approval.status === "PUBLISHED"
+      ? "This result has already been approved."
+      : cohort.students.length === 0
+        ? "No student is registered for this semester."
+        : "Every student must be computable before the result can be approved.";
 
   const columns: TableColumn<CohortStudentDTO>[] = [
     {
@@ -183,6 +209,50 @@ export default async function SemesterResultsPage({
           </ul>
         </Alert>
       )}
+
+      {/* The sign-off, beside the cohort it applies to. Sits above the summary
+          rather than in the page header because it is a statement about the
+          SELECTED semester, and the header is rendered before one is known.
+          The status is shown to every reader; only a controller sees the
+          action. */}
+      <Card className="mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">Result approval</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  approval.status === "PUBLISHED"
+                    ? "success"
+                    : approval.status === "APPROVED"
+                      ? "success"
+                      : "neutral"
+                }
+              >
+                {approval.status}
+              </Badge>
+              <span className="text-sm text-muted-foreground">
+                {approval.approvedAt
+                  ? `Approved on ${formatDate(approval.approvedAt)}`
+                  : "Not yet approved by the Controller of Examination."}
+              </span>
+            </div>
+            {approval.remarks && (
+              <p className="mt-2 text-sm text-foreground">{approval.remarks}</p>
+            )}
+          </div>
+
+          {canApprove && (
+            <ApproveResultButton
+              semesterId={activeSemesterId}
+              semesterName={cohort.semesterName}
+              cohortSize={cohort.students.length}
+              canApprove={approval.canApprove}
+              blockedReason={blockedReason}
+            />
+          )}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard

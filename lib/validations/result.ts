@@ -53,3 +53,39 @@ export const studentResultQuerySchema = z.object({
 });
 
 export type StudentResultQuery = z.infer<typeof studentResultQuerySchema>;
+
+/**
+ * Body for POST /api/results/semester/[semesterId]/approve.
+ *
+ * EVERYTHING THAT MATTERS IS ABSENT, AND THAT IS THE SCHEMA'S JOB HERE.
+ *
+ *   status       — fixed by which endpoint was called. A client able to choose
+ *                  it could write PUBLISHED and release a cohort's marks to
+ *                  students without the publication stage ever running.
+ *   approvedAt   — the server's clock. A sign-off is an audit fact, and a
+ *                  back-dated one is a forged one.
+ *   approvedById — the authenticated subject, taken from the session by the
+ *                  route. Accepting it would let any approver attribute a
+ *                  statutory decision to a colleague.
+ *   semesterId   — comes from the route parameter, so a body can never redirect
+ *                  the approval at a different cohort.
+ *
+ * A body supplying any of them has it stripped rather than rejected, which is
+ * the project-wide behaviour of a plain z.object(): no schema here uses
+ * .strict(), and this does not become the first.
+ *
+ * `remarks` is the only writable field and is optional — the ordinary approval
+ * carries no note, so an empty body is the common case rather than an error.
+ * Empty and whitespace-only collapse to undefined so a blank textarea is stored
+ * as absence rather than as "".
+ */
+export const approveSemesterResultSchema = z.object({
+  remarks: z
+    .string()
+    .trim()
+    .max(1000)
+    .optional()
+    .transform((value) => (value === undefined || value === "" ? undefined : value)),
+});
+
+export type ApproveSemesterResultInput = z.infer<typeof approveSemesterResultSchema>;

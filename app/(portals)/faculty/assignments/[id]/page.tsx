@@ -17,6 +17,7 @@ import {
 } from "@/constants/labels";
 import { formatDate, formatNumber } from "@/utils/format";
 import { GradingList } from "./GradingList";
+import { PublishAssignmentButton } from "./PublishAssignmentButton";
 
 type Params = Promise<{ id: string }>;
 
@@ -68,6 +69,23 @@ export default async function AssignmentGradingPage({ params }: { params: Params
               variant={ASSIGNMENT_STATUS_VARIANTS[assignment.status]}
               size="md"
             />
+            {/* DRAFT is the only state publication is permitted from — the
+                route refuses PUBLISHED, CLOSED and GRADED alike — so the
+                control appears only while it can succeed. Without it, work set
+                through the Set assignment dialog would stay invisible to the
+                students it was set for, because a student reads only
+                assignments whose publishedAt is set. */}
+            {assignment.status === "DRAFT" && (
+              <PublishAssignmentButton
+                assignmentId={assignment.id}
+                title={assignment.title}
+                audience={
+                  assignment.sectionId
+                    ? "the students in that section"
+                    : `every student taking ${assignment.courseCode}`
+                }
+              />
+            )}
           </div>
         }
       />

@@ -982,20 +982,60 @@ describe("COE reference access — the minimum for examination setup, and no mor
   });
 });
 
-describe("Locked decisions 5 and 6 — nothing was built", () => {
-  it("no result-approval workflow, state or storage was introduced", () => {
+describe("Locked decisions 5 and 6", () => {
+  // DECISION 5 HAS BEEN REVERSED, DELIBERATELY AND ON THE RECORD.
+  //
+  // It previously read "result approval is not MVP and must not be modelled",
+  // and this test enforced that no approval model or column existed. The
+  // product decision has since been made and confirmed: PRD §17.4 "Result
+  // approval" and §49.4 stage 8 are implemented, with the Controller of
+  // Examination as the approval authority.
+  //
+  // The assertions below are rewritten rather than deleted, because what the
+  // original was really protecting still matters — that approval is not
+  // invented ad hoc, does not spawn a duplicate lifecycle vocabulary, and does
+  // not quietly become publication. See lib/semesterResultApproval.test.ts for
+  // the workflow's own suite.
+  it("result approval is modelled ONCE, at cohort grain, reusing the existing enum", () => {
     const schema = readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8");
 
-    // The orphan ResultPublicationStatus enum predates this work and is left
-    // exactly as it was: declared, used by no model. What must NOT appear is a
-    // model or column that starts persisting an approval.
-    assert.ok(
-      !/model\s+ResultApproval\b/.test(schema),
-      "result approval is not MVP and must not be modelled"
+    assert.match(
+      schema,
+      /model SemesterResultApproval \{/,
+      "approval is persisted — a computed result had no row to carry a sign-off"
     );
+
+    // One approval model, not several. A per-student or per-course approval
+    // table appearing beside this one would mean the grain was never settled.
+    const approvalModels = [...schema.matchAll(/model (\w*Approval\w*) \{/g)].map((m) => m[1]);
+    assert.deepEqual(approvalModels, ["SemesterResultApproval"]);
+
+    // The orphan enum is ADOPTED, not duplicated. This is the one thing the
+    // original decision most needed to protect: a second DRAFT/APPROVED
+    // vocabulary for the same idea.
+    assert.match(schema, /status\s+ResultPublicationStatus\s+@default\(DRAFT\)/);
+    const lifecycleEnums = [...schema.matchAll(/enum (\w*(?:Approval|Publication)\w*) \{/g)].map(
+      (m) => m[1]
+    );
+    assert.deepEqual(lifecycleEnums, ["ResultPublicationStatus"]);
+  });
+
+  it("PUBLICATION still gets no table — that half of the decision stands", () => {
+    const schema = readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8");
+
+    // C6.3's reasoning is unchanged and was never about approval: publication
+    // IS derivable from AssessmentEvent, so copying it into a second source
+    // that could disagree remains forbidden. Approval is an act, which is why
+    // it needed a row and publication does not.
     assert.ok(
-      !/approvedById|approvedAt/.test(schema),
-      "no approval columns may be added to satisfy PRD wording"
+      !/model\s+\w*ResultPublication\w*\s*\{/.test(schema),
+      "publication state stays derived from AssessmentEvent"
+    );
+
+    const service = codeOf("lib/services/result.service.ts");
+    assert.ok(
+      !/status:\s*ResultPublicationStatus\.PUBLISHED/.test(service),
+      "approving must never publish — PRD §49.4 keeps the stages apart"
     );
   });
 

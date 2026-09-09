@@ -288,3 +288,143 @@ export const FACULTY_SCHEDULE_REFUSALS: Record<
   NOT_YOUR_CLASS: "You are not assigned to teach this course for this section.",
   OTHER_FACULTY: "You can only schedule classes for yourself.",
 };
+
+// --- Coursework confinement -------------------------------------------------
+
+/**
+ * Does this faculty member teach this COURSE at all — in any section?
+ *
+ * WHY A SECOND PREDICATE RATHER THAN teachesPair
+ *   Everything above answers about a (section, course) PAIR, because a register
+ *   and a timetable slot are both statements about one class meeting. A piece
+ *   of coursework is not: Assignment.sectionId is NULLABLE, and an assignment
+ *   carrying no section is set for the whole course rather than for one class.
+ *
+ *   Asking teachesPair about that assignment is not possible — there is no
+ *   section to match — and passing null into it would match only a
+ *   FacultyCourseAssignment that itself carries no section, which is the
+ *   narrower question and would refuse a lecturer who teaches every section of
+ *   the course through per-section rows. So the course-wide question gets its
+ *   own predicate rather than a special case bolted onto the pair one.
+ *
+ * WHAT COUNTS IS UNCHANGED. The same two models, read the same way, with the
+ * same isActive rule on the assignment — only the section clause is dropped.
+ *
+ * COMPLEXITY : two reads issued together, for the reason teachesPair gives.
+ */
+export async function teachesCourse(
+  tenantId: string,
+  facultyId: string,
+  courseId: string
+): Promise<boolean> {
+  const [slot, assignment] = await Promise.all([
+    prisma.timetable.findFirst({
+      where: { tenantId, facultyId, courseId },
+      select: { id: true },
+    }),
+
+    // isActive is required here exactly as in teachesPair: a withdrawn
+    // assignment is not a teaching relationship any more.
+    prisma.facultyCourseAssignment.findFirst({
+      where: { tenantId, facultyId, courseId, isActive: true },
+      select: { id: true },
+    }),
+  ]);
+
+  return slot !== null || assignment !== null;
+}
+
+/** The reads the coursework decision composes. Injected so every branch is testable. */
+export interface FacultyCourseworkDeps {
+  findFacultyIdForUser: typeof findFacultyIdForUser;
+  teachesPair: typeof teachesPair;
+  teachesCourse: typeof teachesCourse;
+}
+
+const DEFAULT_COURSEWORK_DEPS: FacultyCourseworkDeps = {
+  findFacultyIdForUser,
+  teachesPair,
+  teachesCourse,
+};
+
+/** Either the faculty id the caller may set work as, or why they may not. */
+export type FacultyCourseworkDecision =
+  | { allowed: true; facultyId: string }
+  | { allowed: false; reason: "NO_FACULTY_RECORD" | "NOT_YOUR_COURSE" | "NOT_YOUR_CLASS" };
+
+/**
+ * May THIS lecturer set or publish coursework for THIS course — and this
+ * section, when one is named?
+ *
+ * WHAT THIS CLOSES
+ *   POST /api/assignments admitted FACULTY and checked only that the course and
+ *   section belonged to the caller's TENANT. Tenant membership is not a teaching
+ *   relationship: every lecturer in the university satisfied it, so any of them
+ *   could set work on any colleague's course — and, once published, that work
+ *   notified that colleague's students. The same hole applies to publishing.
+ *
+ * INPUT   : the resolved tenant, `session.sub`, and the two references the
+ *           assignment names. No facultyId parameter exists, and that is
+ *           deliberate: Assignment.createdBy is written from the session, so
+ *           there is no client-supplied claim about authorship for this
+ *           function to be asked to trust.
+ * RETURNS : the caller's own FacultyMember id on success — the same shape
+ *           facultyMayScheduleClass returns, for the same reason.
+ *
+ * THE SECTION DECIDES WHICH QUESTION IS ASKED
+ *   Named  — the PAIR must be taught, through teachesPair. An assignment set
+ *            for Section A notifies Section A's students on publication, so
+ *            the section is the thing authority has to cover.
+ *   Absent — the COURSE must be taught, through teachesCourse. Course-wide work
+ *            is a legitimate and ordinary shape; requiring a pair would refuse
+ *            it outright.
+ *
+ *   Omitting the section is therefore not a way AROUND the check — it selects
+ *   the course-wide check instead, which is the weaker claim and is verified on
+ *   its own terms. This is the same trap facultyMayMarkRecords documents, and
+ *   it is closed here by having no unchecked branch rather than by refusing.
+ *
+ * THE THREE REFUSALS ARE DISTINCT, as in facultyMayScheduleClass and for the
+ * same reason: the caller chose one course from their own screen, so naming the
+ * rule that stopped them discloses nothing they could not already see.
+ *
+ * Callers must apply this ONLY to a non-elevated caller. A UNIVERSITY_ADMIN
+ * sets work on behalf of a department legitimately and holds no FacultyMember
+ * row, so passing them through here would refuse them for that alone.
+ */
+export async function facultyMaySetCoursework(
+  tenantId: string,
+  userId: string,
+  courseId: string,
+  sectionId: string | null | undefined,
+  deps: FacultyCourseworkDeps = DEFAULT_COURSEWORK_DEPS
+): Promise<FacultyCourseworkDecision> {
+  // Resolved from the authenticated subject, never from the body.
+  const facultyId = await deps.findFacultyIdForUser(tenantId, userId);
+
+  // The FACULTY role without a FacultyMember row is a misconfigured account,
+  // not an authority to set work.
+  if (facultyId === null) return { allowed: false, reason: "NO_FACULTY_RECORD" };
+
+  if (sectionId !== null && sectionId !== undefined) {
+    const teaches = await deps.teachesPair(tenantId, facultyId, sectionId, courseId);
+    if (!teaches) return { allowed: false, reason: "NOT_YOUR_CLASS" };
+
+    return { allowed: true, facultyId };
+  }
+
+  const teaches = await deps.teachesCourse(tenantId, facultyId, courseId);
+  if (!teaches) return { allowed: false, reason: "NOT_YOUR_COURSE" };
+
+  return { allowed: true, facultyId };
+}
+
+/** The refusal message each reason produces. One per reason, stated once. */
+export const FACULTY_COURSEWORK_REFUSALS: Record<
+  Exclude<FacultyCourseworkDecision, { allowed: true }>["reason"],
+  string
+> = {
+  NO_FACULTY_RECORD: "Your account is not linked to a faculty record.",
+  NOT_YOUR_COURSE: "You are not assigned to teach this course.",
+  NOT_YOUR_CLASS: "You are not assigned to teach this course for this section.",
+};

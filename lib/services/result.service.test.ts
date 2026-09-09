@@ -19,6 +19,7 @@ import { ResultService, type ResultAccess } from "@/lib/services/result.service"
 import type { ResultRepository } from "@/lib/repositories/result.repository";
 import { AppError } from "@/lib/errors/AppError";
 import { COURSE_OUTCOME } from "@/lib/domain/result-engine/enums";
+import { RESULT_MESSAGE } from "@/lib/constants/result";
 
 // --- The fake repository ----------------------------------------------------
 
@@ -40,6 +41,14 @@ interface FakeData {
   rules?: unknown[];
   criteria?: unknown[];
   marks?: unknown[];
+  /** The stored sign-off, or null for a semester nobody has approved. */
+  approval?: {
+    id: string;
+    status: string;
+    approvedAt: Date | null;
+    approvedById: string | null;
+    remarks: string | null;
+  } | null;
 }
 
 /** Records every call so the query budget can be asserted, not assumed. */
@@ -94,6 +103,33 @@ function fakeRepository(data: FakeData) {
     async findMarks() {
       calls.push("findMarks");
       return data.marks ?? [];
+    },
+    async findSemesterApproval() {
+      calls.push("findSemesterApproval");
+      return data.approval ?? null;
+    },
+    async approveSemesterResult(input: {
+      terminalStatuses: readonly string[];
+      approvedById: string;
+      status: string;
+      remarks?: string;
+    }) {
+      calls.push("approveSemesterResult");
+
+      // Mirrors the repository's own guard: a terminal row is refused inside
+      // the transaction and reported as null, which the service turns into 409.
+      const existing = data.approval ?? null;
+      if (existing !== null && input.terminalStatuses.includes(existing.status)) {
+        return null;
+      }
+
+      return {
+        id: "approval_1",
+        status: input.status,
+        approvedAt: new Date("2026-09-09T00:00:00.000Z"),
+        approvedById: input.approvedById,
+        remarks: input.remarks ?? null,
+      };
     },
   } as unknown as ResultRepository;
 
@@ -521,7 +557,7 @@ describe("ResultService — the query budget is fixed", () => {
     assert.equal(calls.filter((call) => call === "findMarks").length, 1);
   });
 
-  it("costs eight for a whole cohort, not eight per student", async () => {
+  it("costs NINE for a whole cohort, not nine per student", async () => {
     const registrations = Array.from({ length: 200 }, (_value, index) =>
       registration(`r${index}`, { studentId: `student_${index}` })
     );
@@ -541,7 +577,17 @@ describe("ResultService — the query budget is fixed", () => {
 
     await service.getSemesterResult("tenant_1", "sem_1");
 
-    assert.equal(calls.length, 8, calls.join(", "));
+    // Eight, plus ONE indexed lookup of the cohort's approval row — PRD §17.4.
+    // The number that matters is that it does not scale: two hundred students
+    // cost the same nine as one, because the approval is a statement about the
+    // cohort rather than about a student. A read that grew with the cohort
+    // would be the N+1 this whole budget exists to forbid.
+    assert.equal(calls.length, 9, calls.join(", "));
+    assert.equal(
+      calls.filter((call) => call === "findSemesterApproval").length,
+      1,
+      "one approval lookup for the whole cohort"
+    );
   });
 });
 
@@ -947,5 +993,261 @@ describe("ResultService — bounds", () => {
       () => service.getStudentResult("tenant_1", "student_1", ANY_ACCESS),
       422
     );
+  });
+});
+
+// ============================================================================
+// Semester result approval — PRD §17.4 · §49.4 stage 8.
+//
+// Real service behaviour against the injected fake repository: no database, no
+// request context. What is verified is the decision and what gets persisted —
+// on a path that produces a statutory sign-off, each of these is a correctness
+// property rather than a convenience.
+// ============================================================================
+
+describe("ResultService — approveSemesterResult", () => {
+  const SEMESTER = {
+    id: "sem_1",
+    name: "Semester 1",
+    startDate: new Date("2024-07-01"),
+    endDate: new Date("2024-12-01"),
+  };
+
+  const COE_USER = "user_coe";
+
+  /** A cohort of computable students, optionally already carrying a sign-off. */
+  function approvable(overrides: FakeData = {}) {
+    const registrations = ["90.00", "70.00"].map((_value, index) =>
+      registration(`r${index}`, { studentId: `student_${index}` })
+    );
+
+    return serviceFor(
+      baseData({
+        semester: SEMESTER,
+        registrations,
+        marks: ["90.00", "70.00"].map((value, index) => mark(`r${index}`, value)),
+        ...overrides,
+      })
+    );
+  }
+
+  describe("permitted", () => {
+    it("approves a cohort the engine computed in full", async () => {
+      const { service } = approvable();
+
+      const result = await service.approveSemesterResult("tenant_1", "sem_1", COE_USER);
+
+      assert.equal(result.approval.status, "APPROVED");
+      assert.equal(result.failures.length, 0);
+    });
+
+    it("PERSISTS the approver and the timestamp — the two facts a sign-off is", async () => {
+      const { service } = approvable();
+
+      const result = await service.approveSemesterResult("tenant_1", "sem_1", COE_USER);
+
+      assert.equal(result.approval.approvedById, COE_USER, "the authenticated subject");
+      assert.ok(result.approval.approvedAt, "a timestamp is recorded");
+      assert.doesNotThrow(() => new Date(result.approval.approvedAt!).toISOString());
+    });
+
+    it("writes the approver it was GIVEN, never one derived from the cohort", async () => {
+      const { service } = approvable();
+
+      const result = await service.approveSemesterResult("tenant_1", "sem_1", "user_other_coe");
+
+      assert.equal(result.approval.approvedById, "user_other_coe");
+    });
+
+    it("stores a remark when one is supplied, and null when it is not", async () => {
+      const withNote = await approvable().service.approveSemesterResult(
+        "tenant_1",
+        "sem_1",
+        COE_USER,
+        "Moderated 12 scripts."
+      );
+      assert.equal(withNote.approval.remarks, "Moderated 12 scripts.");
+
+      const without = await approvable().service.approveSemesterResult(
+        "tenant_1",
+        "sem_1",
+        COE_USER
+      );
+      assert.equal(without.approval.remarks, null);
+    });
+
+    it("returns the SAME cohort report, so the caller renders what was stored", async () => {
+      const { service } = approvable();
+
+      const before = await service.getSemesterResult("tenant_1", "sem_1");
+      const after = await service.approveSemesterResult("tenant_1", "sem_1", COE_USER);
+
+      // Every computed figure is unchanged by the act of approving it.
+      assert.deepEqual(after.statistics, before.statistics);
+      assert.deepEqual(after.meritList, before.meritList);
+      assert.deepEqual(after.gradeDistribution, before.gradeDistribution);
+      assert.equal(after.students.length, before.students.length);
+    });
+
+    it("does NOT publish — approval and publication are separate stages", async () => {
+      const { service } = approvable();
+
+      const result = await service.approveSemesterResult("tenant_1", "sem_1", COE_USER);
+
+      assert.notEqual(result.approval.status, "PUBLISHED");
+    });
+  });
+
+  describe("refused — 409 on an invalid transition", () => {
+    it("REFUSES a cohort that is already APPROVED", async () => {
+      const { service } = approvable({
+        approval: {
+          id: "approval_1",
+          status: "APPROVED",
+          approvedAt: new Date("2026-01-01T00:00:00.000Z"),
+          approvedById: "user_first_coe",
+          remarks: null,
+        },
+      });
+
+      const error = await expectAppError(
+        () => service.approveSemesterResult("tenant_1", "sem_1", COE_USER),
+        409
+      );
+
+      assert.equal(error.message, RESULT_MESSAGE.ALREADY_APPROVED);
+    });
+
+    it("REFUSES a cohort that has moved on to PUBLISHED", async () => {
+      // Re-approving a published result would move the lifecycle backwards.
+      const { service } = approvable({
+        approval: {
+          id: "approval_1",
+          status: "PUBLISHED",
+          approvedAt: new Date("2026-01-01T00:00:00.000Z"),
+          approvedById: "user_first_coe",
+          remarks: null,
+        },
+      });
+
+      await expectAppError(
+        () => service.approveSemesterResult("tenant_1", "sem_1", COE_USER),
+        409
+      );
+    });
+
+    it("does not overwrite the first approver's record when it refuses", async () => {
+      const { service, calls } = approvable({
+        approval: {
+          id: "approval_1",
+          status: "APPROVED",
+          approvedAt: new Date("2026-01-01T00:00:00.000Z"),
+          approvedById: "user_first_coe",
+          remarks: null,
+        },
+      });
+
+      await expectAppError(
+        () => service.approveSemesterResult("tenant_1", "sem_1", COE_USER),
+        409
+      );
+
+      // The write WAS attempted — the guard lives inside the transaction, which
+      // is what makes it safe against two controllers approving at once — and
+      // it declined rather than rewriting the stored actor.
+      assert.ok(calls.includes("approveSemesterResult"));
+    });
+
+    it("REFUSES a cohort with nobody registered", async () => {
+      const { service } = serviceFor(
+        baseData({ semester: SEMESTER, registrations: [], marks: [] })
+      );
+
+      const error = await expectAppError(
+        () => service.approveSemesterResult("tenant_1", "sem_1", COE_USER),
+        409
+      );
+
+      assert.equal(error.message, RESULT_MESSAGE.APPROVAL_EMPTY_COHORT);
+    });
+
+    it("REFUSES before writing anything when the cohort is empty", async () => {
+      const { service, calls } = serviceFor(
+        baseData({ semester: SEMESTER, registrations: [], marks: [] })
+      );
+
+      await expectAppError(
+        () => service.approveSemesterResult("tenant_1", "sem_1", COE_USER),
+        409
+      );
+
+      assert.ok(!calls.includes("approveSemesterResult"), "no write is attempted");
+    });
+  });
+
+  describe("refused — the semester itself", () => {
+    it("REFUSES an unknown semester with 404, from the shared read path", async () => {
+      const { service } = serviceFor(baseData({ semester: null }));
+
+      await expectAppError(
+        () => service.approveSemesterResult("tenant_1", "sem_missing", COE_USER),
+        404
+      );
+    });
+
+    it("another tenant's semester is the SAME 404 — no existence is disclosed", async () => {
+      // findSemester is tenant-scoped, so a semester belonging to somebody else
+      // resolves to null exactly as one that exists nowhere.
+      const { service, calls } = serviceFor(baseData({ semester: null }));
+
+      await expectAppError(
+        () => service.approveSemesterResult("other_tenant", "sem_1", COE_USER),
+        404
+      );
+
+      assert.ok(!calls.includes("approveSemesterResult"), "nothing is written");
+    });
+  });
+
+  describe("the approval state on a plain read", () => {
+    it("reports DRAFT when no row exists — absence and DRAFT are one state", async () => {
+      const { service } = approvable();
+
+      const result = await service.getSemesterResult("tenant_1", "sem_1");
+
+      assert.equal(result.approval.status, "DRAFT");
+      assert.equal(result.approval.approvedAt, null);
+      assert.equal(result.approval.approvedById, null);
+      assert.equal(result.approval.canApprove, true);
+    });
+
+    it("reports the stored decision when one exists", async () => {
+      const { service } = approvable({
+        approval: {
+          id: "approval_1",
+          status: "APPROVED",
+          approvedAt: new Date("2026-01-01T00:00:00.000Z"),
+          approvedById: "user_first_coe",
+          remarks: "Signed off.",
+        },
+      });
+
+      const result = await service.getSemesterResult("tenant_1", "sem_1");
+
+      assert.equal(result.approval.status, "APPROVED");
+      assert.equal(result.approval.approvedById, "user_first_coe");
+      assert.equal(result.approval.remarks, "Signed off.");
+      assert.equal(result.approval.canApprove, false, "already approved");
+    });
+
+    it("canApprove is false for an empty cohort", async () => {
+      const { service } = serviceFor(
+        baseData({ semester: SEMESTER, registrations: [], marks: [] })
+      );
+
+      const result = await service.getSemesterResult("tenant_1", "sem_1");
+
+      assert.equal(result.approval.canApprove, false);
+    });
   });
 });

@@ -7,11 +7,26 @@ import { StateView } from "@/components/shared/StateView";
 import { resolveFailureState } from "@/lib/ui-state";
 import { ListFilter } from "@/components/shared/ListFilter";
 import { ListToolbar } from "@/components/shared/ListToolbar";
+import { EntityCreateButton, EntityRowActions } from "@/components/shared/EntityCrud";
+import {
+  SCHEME_DEFAULTS,
+  schemeEditValues,
+  schemeFields,
+} from "@/components/shared/evaluationSchemeFields";
+import { Alert } from "@/components/ui/Alert";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { Pagination } from "@/components/ui/Pagination";
 import { Table, type TableColumn } from "@/components/ui/Table";
-import { listSchemes } from "@/services/evaluation";
+import { listGradeScales, listSchemes } from "@/services/evaluation";
+import { getPortalSession } from "@/services/session";
+import {
+  createSchemeAction,
+  deleteSchemeAction,
+  updateSchemeAction,
+} from "@/actions/evaluation";
+import { EVALUATION_SCHEME_MANAGE_ROLES } from "@/lib/constants/evaluationScheme";
+import { hasAnyRole } from "@/constants/roles";
 import type { EvaluationSchemeDTO } from "@/lib/dto/evaluationScheme.dto";
 import { EvaluationSchemeStatus } from "@/app/generated/prisma/enums";
 import { enumOptions } from "@/constants/enumOptions";
@@ -46,16 +61,58 @@ export default async function EvaluationSchemesPage({
   const { status, page } = await searchParams;
   const currentPage = Math.max(1, Number(page) || 1);
 
-  const result = await listSchemes({
-    page: currentPage,
-    limit: PAGE_SIZE,
-    status: status as EvaluationSchemeDTO["status"] | undefined,
-  });
+  const session = await getPortalSession();
+
+  // The write half of this screen, gated on the SAME constant every scheme
+  // endpoint applies. This portal also admits DEPARTMENT_HOD, CAMPUS_ADMIN and
+  // (through EVALUATION_SCHEME_READ_ROLES) anyone who may read a regulation but
+  // not amend one, so an ungated control would be a button that always answers
+  // 403. This is presentation, never the authorization: POST, PATCH and DELETE
+  // each re-apply EVALUATION_SCHEME_MANAGE_ROLES server-side.
+  const canManage = hasAnyRole(session?.roles ?? [], EVALUATION_SCHEME_MANAGE_ROLES);
+
+  const [result, gradeScaleResult] = await Promise.all([
+    listSchemes({
+      page: currentPage,
+      limit: PAGE_SIZE,
+      status: status as EvaluationSchemeDTO["status"] | undefined,
+    }),
+    // Only a manager can use them, so a reader pays nothing for the lookup.
+    canManage ? listGradeScales() : Promise.resolve(null),
+  ]);
+
+  // A scheme cites a grade scale and the field is REQUIRED, so with none on
+  // file there is nothing valid to create. The control is withheld and the
+  // reason said out loud, rather than opening a dialog whose select is empty.
+  const gradeScales =
+    gradeScaleResult && gradeScaleResult.success ? gradeScaleResult.data : [];
+
+  const gradeScaleOptions = gradeScales.map((scale) => ({
+    value: scale.id,
+    // The status is part of the label because a scheme citing a non-ACTIVE
+    // scale can be drafted but not activated — better seen when choosing than
+    // discovered from a 409 at activation.
+    label: `${scale.code} v${scale.version} — ${scale.name} (${scale.status})`,
+  }));
+
+  const canCreate = canManage && gradeScaleOptions.length > 0;
 
   const header = (
     <PageHeader
       title="Evaluation Schemes"
       subtitle="The regulations results are computed against."
+      action={
+        canCreate ? (
+          <EntityCreateButton
+            entityLabel="Scheme"
+            label="Create scheme"
+            fields={schemeFields(gradeScaleOptions, "create")}
+            initialValues={{ ...SCHEME_DEFAULTS }}
+            action={createSchemeAction}
+            modalSize="lg"
+          />
+        ) : undefined
+      }
     />
   );
 
@@ -125,11 +182,64 @@ export default async function EvaluationSchemesPage({
           <span className="text-muted-foreground">Not activated</span>
         ),
     },
+    // The actions column exists only for a manager. A reader's table keeps its
+    // five columns rather than gaining an empty sixth.
+    ...(canManage
+      ? ([
+          {
+            key: "actions",
+            header: "",
+            align: "right",
+            render: (scheme) => (
+              <EntityRowActions
+                entityLabel="Scheme"
+                recordName={`${scheme.code} v${scheme.version}`}
+                viewHref={`/evaluation/schemes/${scheme.id}`}
+                // Amending and discarding are DRAFT-only: an ACTIVE or ARCHIVED
+                // revision is part of the historical record, because results
+                // computed under it must stay explicable. The endpoints answer
+                // 409, and the row does not offer what cannot succeed —
+                // archival is the retirement path, on the detail page.
+                editFields={
+                  scheme.status === "DRAFT"
+                    ? schemeFields(gradeScaleOptions, "edit")
+                    : undefined
+                }
+                editValues={
+                  scheme.status === "DRAFT" ? schemeEditValues(scheme) : undefined
+                }
+                onUpdate={
+                  scheme.status === "DRAFT"
+                    ? updateSchemeAction.bind(null, scheme.id)
+                    : undefined
+                }
+                onDelete={
+                  scheme.status === "DRAFT"
+                    ? deleteSchemeAction.bind(null, scheme.id)
+                    : undefined
+                }
+                deleteWarning={`Draft "${scheme.name}" and everything defined under it — components, rules and passing criteria — will be permanently removed. This cannot be undone.`}
+                modalSize="lg"
+              />
+            ),
+          },
+        ] as TableColumn<EvaluationSchemeDTO>[])
+      : []),
   ];
 
   return (
     <>
       {header}
+
+      {canManage && gradeScaleOptions.length === 0 && (
+        // The reason the Create scheme button is absent. Without this the
+        // screen looks identical to one where the feature does not exist —
+        // which is exactly how this module presented before.
+        <Alert variant="info" title="No grade scale on file" className="mb-6">
+          A regulation is graded against a grade scale, and this university has
+          none. A scheme cannot be created until one exists.
+        </Alert>
+      )}
 
       <ListToolbar
         filters={

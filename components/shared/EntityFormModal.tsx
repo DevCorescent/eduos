@@ -29,8 +29,29 @@ interface BaseField {
   label: string;
   required?: boolean;
   helperText?: string;
-  /** Hidden and skipped by validation when this returns false. */
+  /**
+   * Hidden and skipped by validation when this returns false.
+   *
+   * CLIENT COMPONENTS ONLY. A function cannot cross the Server/Client boundary
+   * — React refuses to serialise it — so a field list built in a Server
+   * Component and handed to EntityCreateButton must use `visibleWhenIn`
+   * instead. Every field list in this project is currently built on the server,
+   * which is why that one exists.
+   */
   visibleWhen?: (values: FormValues) => boolean;
+  /**
+   * The serialisable form of the same rule: show this field only while
+   * `field`'s current value is one of `values`.
+   *
+   * Declared as DATA rather than a predicate precisely so a Server Component
+   * can express conditional visibility. Added for the Evaluation Scheme rule
+   * dialog, where one form serves seven operations and each carries different
+   * numeric parameters — the alternative was seven dialogs, or one dialog
+   * showing every parameter and letting the API reject the mismatch.
+   *
+   * Both may be set; a field is visible only when BOTH allow it.
+   */
+  visibleWhenIn?: { field: string; values: readonly string[] };
 }
 
 export type FormField =
@@ -138,7 +159,20 @@ export function EntityFormModal({
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const visibleFields = fields.filter((field) => !field.visibleWhen || field.visibleWhen(values));
+  // Both rules are ANDed, and an absent rule is vacuously true. `visibleWhenIn`
+  // compares against the CURRENT value as a string, because FormValues holds
+  // strings for every select — the only kind of field it is meaningful to
+  // branch on.
+  const visibleFields = fields.filter((field) => {
+    if (field.visibleWhen && !field.visibleWhen(values)) return false;
+
+    if (field.visibleWhenIn) {
+      const current = String(values[field.visibleWhenIn.field] ?? "");
+      if (!field.visibleWhenIn.values.includes(current)) return false;
+    }
+
+    return true;
+  });
 
   function setValue(name: string, value: FieldValue) {
     setValues((prev) => ({ ...prev, [name]: value }));

@@ -100,6 +100,11 @@ export const MODULE_API_RULES: readonly ModuleAreaRule[] = [
   { prefix: "/api/curricula", modules: ["academics"] },
   { prefix: "/api/examinations", modules: ["examinations"] },
   { prefix: "/api/evaluation-schemes", modules: ["examinations"] },
+  // The regulation's supporting configuration, governed by the same module as
+  // the regulation itself. A read-only lookup, but one that names what a scheme
+  // may cite — leaving it ungoverned would let a university that switched
+  // examinations off keep reading the configuration behind them.
+  { prefix: "/api/grade-scales", modules: ["examinations"] },
   { prefix: "/api/assessment-events", modules: ["examinations"] },
   { prefix: "/api/certificates", modules: ["certificates"], except: ["/api/certificates/verify"] },
   { prefix: "/api/certificate-templates", modules: ["certificates"] },
